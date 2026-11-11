@@ -1,4 +1,5 @@
 import Foundation
+import MoonlightCore
 import Security
 import Testing
 @testable import Moonswift
@@ -182,6 +183,41 @@ struct ControllerNavigationTests {
         #expect(stick.update(x: 0, y: -0.9) == .down)
         #expect(stick.update(x: 0.9, y: -0.2) == .right) // down released, right engaged
         #expect(stick.update(x: -0.1, y: 0.8) == .up)
+    }
+}
+
+struct StreamSetupTests {
+    @Test func libraryLaunchParametersParse() {
+        let items = HostClient.libraryLaunchQuery("&corever=1&foo=a=b&flag")
+        #expect(items.map(\.name) == ["corever", "foo", "flag"])
+        #expect(items.map(\.value) == ["1", "a=b", nil])
+        #expect(HostClient.libraryLaunchQuery("").isEmpty)
+    }
+
+    @Test func libraryAsksForACoreVersion() {
+        // Proves the C library is linked and callable from Swift.
+        let raw = String(cString: LiGetLaunchUrlQueryParameters())
+        #expect(HostClient.libraryLaunchQuery(raw).contains { $0.name == "corever" })
+    }
+
+    @Test func streamConfigurationCarriesTheLaunchKeys() {
+        let key = Data((1...16).map { UInt8($0) })
+        let launch = LaunchSession(rtspURL: "rtspenc://10.0.4.20:48010", riKey: key, riKeyID: 0x0102_0304)
+        var config = StreamSession.makeStreamConfiguration(launch: launch, width: 1920, height: 1080, fps: 60)
+        #expect(config.width == 1920 && config.height == 1080 && config.fps == 60)
+        #expect(withUnsafeBytes(of: &config.remoteInputAesKey) { Data($0) } == key)
+        // rikeyid big-endian in the first 4 bytes, the rest zero (moonlight-ios Connection.m).
+        #expect(withUnsafeBytes(of: &config.remoteInputAesIv) { Data($0) } == Data([1, 2, 3, 4] + Array(repeating: 0, count: 12)))
+        #expect(config.audioConfiguration == 0x0003_02CA) // AUDIO_CONFIGURATION_STEREO
+    }
+
+    @Test func serverInfoReadsStreamingFields() throws {
+        let xml = #"<root status_code="200"><hostname>PC</hostname><appversion>7.1.431.-1</appversion><ServerCodecModeSupport>3843</ServerCodecModeSupport></root>"#
+        let info = try ServerInfo(xml: Data(xml.utf8))
+        #expect(info.appVersion == "7.1.431.-1")
+        #expect(info.codecModeSupport == 3843)
+        #expect(info.gfeVersion == nil)
+        #expect(hostAddress(" 10.0.4.20:47989 ") == "10.0.4.20")
     }
 }
 

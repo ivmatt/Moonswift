@@ -16,6 +16,7 @@ struct AppLibraryView: View {
     @State private var menu: MenuSpec?
     @State private var focus = 0
     @State private var columns = 1
+    @State private var stream: StreamTarget? // set after a successful Launch or Resume
 
     private static let tileWidth: CGFloat = 170
     private static let spacing: CGFloat = 24
@@ -87,6 +88,7 @@ struct AppLibraryView: View {
             }
         }
         .actionMenu($menu)
+        .navigationDestination(item: $stream) { target in StreamView(client: client, target: target) }
     }
 
     private func tapped(_ app: HostApp) {
@@ -98,19 +100,21 @@ struct AppLibraryView: View {
         if app.id == runningID {
             return MenuSpec(title: "\(app.title) is running", actions: [
                 .init(title: "Resume") {
-                    perform("Resuming \(app.title)…") { try await client.resume(app, width: mode.width, height: mode.height, fps: fps) }
+                    perform("Resuming \(app.title)…", streaming: app) {
+                        try await client.resume(app, width: mode.width, height: mode.height, fps: fps)
+                    }
                 },
                 .init(title: "Quit", isDestructive: true) {
-                    perform("Quitting \(app.title)…") { try await client.quit() }
+                    perform("Quitting \(app.title)…") { try await client.quit(); return nil }
                 },
             ])
         }
         if runningID != 0 {
             return MenuSpec(title: "Quit \(running?.title ?? "the running game") to launch \(app.title)?", actions: [
                 .init(title: "Quit and Launch", isDestructive: true) {
-                    perform("Launching \(app.title)…") {
+                    perform("Launching \(app.title)…", streaming: app) {
                         try await client.quit()
-                        try await client.launch(app, width: mode.width, height: mode.height, fps: fps)
+                        return try await client.launch(app, width: mode.width, height: mode.height, fps: fps)
                     }
                 },
             ])
@@ -119,14 +123,23 @@ struct AppLibraryView: View {
     }
 
     private func launch(_ app: HostApp) {
-        perform("Launching \(app.title)…") { try await client.launch(app, width: mode.width, height: mode.height, fps: fps) }
+        perform("Launching \(app.title)…", streaming: app) {
+            try await client.launch(app, width: mode.width, height: mode.height, fps: fps)
+        }
     }
 
-    /// Runs a host action behind a progress overlay, then re-checks which game is running.
-    private func perform(_ label: String, _ action: @escaping () async throws -> Void) {
+    /// Runs a host action behind a progress overlay, then re-checks which game is running. A launch or
+    /// resume returns its session, and the stream screen opens for `streaming`.
+    private func perform(_ label: String, streaming app: HostApp? = nil, _ action: @escaping () async throws -> LaunchSession?) {
         busy = label
         Task {
-            do { try await action() } catch { menu = .error(error.localizedDescription) }
+            do {
+                if let launch = try await action(), let app {
+                    stream = StreamTarget(title: app.title, launch: launch, width: mode.width, height: mode.height, fps: fps)
+                }
+            } catch {
+                menu = .error(error.localizedDescription)
+            }
             if let info = try? await client.serverInfo() { runningID = info.currentGame }
             busy = nil
         }
@@ -144,13 +157,10 @@ struct AppLibraryView: View {
         isLoaded = true
     }
 
-    // shortcut: always asks for the screen's native resolution at 60 fps; becomes a setting with the streaming stage.
+    // shortcut: fixed 1080p60, Moonlight's default; a settings screen comes later. The iPad's native 2752x2064
+    // produced no video from the host at all (audio worked), so odd sizes need checking before they're offered.
     private var fps: Int { 60 }
-    private var mode: (width: Int, height: Int) {
-        let size = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.nativeBounds.size
-            ?? CGSize(width: 1920, height: 1080)
-        return (Int(max(size.width, size.height)), Int(min(size.width, size.height))) // nativeBounds is portrait
-    }
+    private var mode: (width: Int, height: Int) { (1920, 1080) }
 }
 
 private struct AppTile: View {

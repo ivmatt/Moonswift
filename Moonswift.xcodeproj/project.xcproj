@@ -10,6 +10,12 @@
       "Base",
     ],
   },
+  "packages": [
+    {
+      "kind": "local",
+      "path": "Packages/MoonlightCore",
+    },
+  ],
   "files": [
     {
       "kind": "folder",
@@ -28,6 +34,7 @@
     },
     { "path": "CLAUDE.MD", "target-membership": [ "Moonswift/resources" ] },
     { "kind": "folder", "path": "MoonswiftTests", "target-membership": [ "MoonswiftTests" ] },
+    { "kind": "group", "name": "Frameworks" },
     {
       "kind": "group",
       "name": "Products",
@@ -47,6 +54,12 @@
         "compile-sources",
         "frameworks",
         "resources",
+      ],
+      "package-product-members": [
+        {
+          "product-name": "MoonlightCore",
+          "build-phase": { "build-phase": "frameworks" },
+        },
       ],
       "build-settings": {
         "CODE_SIGN_STYLE": "Automatic",

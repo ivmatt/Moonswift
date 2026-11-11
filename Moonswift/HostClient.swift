@@ -1,4 +1,5 @@
 import Foundation
+import MoonlightCore
 
 /// A game or app the host offers, from GET /applist.
 nonisolated struct HostApp: Identifiable, Equatable, Sendable {
@@ -15,6 +16,15 @@ nonisolated struct HostApp: Identifiable, Equatable, Sendable {
         uuid = fields["UUID"] ?? ""
         artVersion = fields["ArtVersion"] ?? ""
     }
+}
+
+/// What a successful /launch or /resume hands to the streaming library.
+nonisolated struct LaunchSession: Hashable, Sendable {
+    /// The host's RTSP URL for this session (`sessionUrl0`); older hosts don't send one.
+    let rtspURL: String?
+    /// The key and key ID sent with the launch; the host encrypts with them (audio, input).
+    let riKey: Data
+    let riKeyID: Int32
 }
 
 nonisolated enum GameError: LocalizedError, Equatable {
@@ -74,12 +84,12 @@ nonisolated struct HostClient: Sendable {
     }
 
     /// Starts `app`. Blocks while the host starts it; the host then waits for the stream to connect.
-    func launch(_ app: HostApp, width: Int, height: Int, fps: Int) async throws {
+    func launch(_ app: HostApp, width: Int, height: Int, fps: Int) async throws -> LaunchSession {
         try await start("/launch", app: app, width: width, height: height, fps: fps)
     }
 
     /// Reconnects to the game that's already running.
-    func resume(_ app: HostApp, width: Int, height: Int, fps: Int) async throws {
+    func resume(_ app: HostApp, width: Int, height: Int, fps: Int) async throws -> LaunchSession {
         try await start("/resume", app: app, width: width, height: height, fps: fps)
     }
 
@@ -88,13 +98,22 @@ nonisolated struct HostClient: Sendable {
         guard fields["cancel"] == "1" else { throw GameError.quitFailed }
     }
 
-    private func start(_ path: String, app: HostApp, width: Int, height: Int, fps: Int) async throws {
-        // shortcut: a fresh input key per launch; the streaming stage must reuse this key for encrypted input.
-        let query = Self.launchQuery(app: app, width: width, height: height, fps: fps,
-                                     rikey: Pairing.randomBytes(16), rikeyID: Int32.random(in: .min ... .max))
+    private func start(_ path: String, app: HostApp, width: Int, height: Int, fps: Int) async throws -> LaunchSession {
+        let key = Pairing.randomBytes(16), keyID = Int32.random(in: .min ... .max)
+        let query = Self.launchQuery(app: app, width: width, height: height, fps: fps, rikey: key, rikeyID: keyID)
+            + Self.libraryLaunchQuery(String(cString: LiGetLaunchUrlQueryParameters()))
         let fields = try parseHostResponse(await data(path, timeout: 120, query: query))
         // /launch answers gamesession=1; /resume (or a launch of the running game) answers resume=1.
         guard fields["gamesession"] == "1" || fields["resume"] == "1" else { throw GameError.launchFailed }
+        return LaunchSession(rtspURL: fields["sessionUrl0"], riKey: key, riKeyID: keyID)
+    }
+
+    /// The library's own launch parameters (like "&corever=1"), so the host uses the protocol version it speaks.
+    static func libraryLaunchQuery(_ raw: String) -> [URLQueryItem] {
+        raw.split(separator: "&").map { pair in
+            let parts = pair.split(separator: "=", maxSplits: 1)
+            return URLQueryItem(name: String(parts[0]), value: parts.count > 1 ? String(parts[1]) : nil)
+        }
     }
 
     /// The query moonlight-ios's HttpManager sends to /launch and /resume, minus the HDR and controller options.

@@ -11,6 +11,10 @@ nonisolated struct ServerInfo: Equatable {
     let pairStatus: PairStatus
     /// The app ID this client is running on the host, 0 if none. Only reported over paired HTTPS.
     let currentGame: Int
+    /// What moonlight-common-c needs to pick the right protocol version and codecs.
+    let appVersion: String
+    let gfeVersion: String?
+    let codecModeSupport: Int
 
     /// Parses `<root status_code="200"><hostname>…</hostname>…</root>`.
     init(xml: Data) throws(ServerInfoError) {
@@ -28,6 +32,9 @@ nonisolated struct ServerInfo: Equatable {
         default: .paired
         }
         currentGame = fields["currentgame"].flatMap { Int($0) } ?? 0
+        appVersion = fields["appversion"] ?? ""
+        gfeVersion = fields["GfeVersion"]
+        codecModeSupport = fields["ServerCodecModeSupport"].flatMap { Int($0) } ?? 0
     }
 }
 
@@ -83,6 +90,12 @@ nonisolated func hostURL(for address: String, path: String = "/serverinfo", http
     if !query.isEmpty { components.queryItems = query }
     guard let url = components.url else { throw .invalidAddress }
     return url
+}
+
+/// Just the host part of user input like "10.0.4.20:47989", which is what the streaming library wants.
+nonisolated func hostAddress(_ address: String) -> String {
+    let trimmed = address.trimmingCharacters(in: .whitespaces)
+    return URLComponents(string: "http://\(trimmed)")?.host ?? trimmed
 }
 
 /// GETs a host endpoint and returns the reply's fields. With `tls`, it trusts only the pinned
