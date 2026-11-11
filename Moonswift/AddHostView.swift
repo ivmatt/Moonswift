@@ -1,7 +1,6 @@
-import SwiftData
 import SwiftUI
 
-/// The Stage 1 screen: type an address, check it with /serverinfo, then save it.
+/// Type an address, check it with /serverinfo, then pair with it (pairing is what saves a PC).
 struct AddHostView: View {
     enum LoadState {
         case idle, loading
@@ -9,7 +8,6 @@ struct AddHostView: View {
         case failed(String)
     }
 
-    @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var address = ""
     @State private var state = LoadState.idle
@@ -51,12 +49,11 @@ struct AddHostView: View {
                 LabeledContent("Status") {
                     Text("\(Image(systemName: "circle.fill")) Online").foregroundStyle(.green)
                 }
-                LabeledContent("Pairing", value: pairText(info.pairStatus))
-            } footer: {
-                Text("Over plain HTTP the host always reports “not paired”. Real status needs pairing first.")
             }
             Section {
-                Button("Save PC") { save(info) }
+                NavigationLink("Pair with \(info.hostname)") {
+                    PairingView(address: trimmedAddress, name: info.hostname) { dismiss() }
+                }
             }
         case .failed(let message):
             Section {
@@ -65,14 +62,6 @@ struct AddHostView: View {
                 }
                 Text(message).foregroundStyle(.secondary)
             }
-        }
-    }
-
-    private func pairText(_ status: ServerInfo.PairStatus) -> String {
-        switch status {
-        case .paired: "Paired"
-        case .unpaired: "Not paired"
-        case .unknown: "Unknown"
         }
     }
 
@@ -86,12 +75,5 @@ struct AddHostView: View {
                 state = .failed(error.localizedDescription)
             }
         }
-    }
-
-    private func save(_ info: ServerInfo) {
-        // Same uniqueID as an existing host updates it (unique attribute), so re-adding just fixes the address.
-        context.insert(SavedHost(uniqueID: info.uniqueID ?? trimmedAddress, name: info.hostname, address: trimmedAddress))
-        try? context.save() // autosave is on a timer; a quick force-quit would lose the host
-        dismiss()
     }
 }
