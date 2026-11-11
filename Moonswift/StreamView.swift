@@ -1,72 +1,89 @@
 import SwiftUI
 
 /// What the library screen hands over after a successful Launch or Resume.
-struct StreamTarget: Hashable {
+struct StreamTarget: Hashable, Identifiable {
     let title: String
     let launch: LaunchSession
     let width: Int
     let height: Int
     let fps: Int
+    let bitrate: Int // kbps
+    var id: LaunchSession { launch }
 }
 
-/// Debug screen for a live connection: each connection stage, the frame and packet counters, and the library's log.
-/// Nothing is decoded yet. Leaving the screen (Back or B) disconnects; the game keeps running on the PC.
+/// The game, full screen with sound. Tapping the screen or holding Menu + View on the controller opens a menu
+/// to disconnect (the game keeps running) or quit the game. The screen stays awake while streaming.
 struct StreamView: View {
     let client: HostClient
     let target: StreamTarget
 
     @Environment(\.dismiss) private var dismiss
     @State private var session = StreamSession()
-    @State private var rates = "–" // frames/s and Mbps over the last refresh
+    @State private var renderer = VideoRenderer()
+    @State private var menu: MenuSpec?
+    @State private var rates = ""
+    @State private var isLeaving = false
 
     private var stats: StreamStats { session.stats }
 
     var body: some View {
-        List {
-            Section("Connection") {
-                LabeledContent("Status") { status }
-                LabeledContent("Video", value: stats.video ?? "Waiting for the host…")
-                LabeledContent("Video frames", value: stats.videoFrames.formatted())
-                LabeledContent("Audio packets", value: stats.audioPackets.formatted())
-                LabeledContent("Rate", value: rates)
-            }
-            Section("Stages") {
-                ForEach(stats.stages) { stage in
-                    switch stage.status {
-                    case .running: Label(stage.name, systemImage: "circle.dotted")
-                    case .done: Label(stage.name, systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                    case .failed(let code): Label("\(stage.name) (error \(code))", systemImage: "xmark.circle.fill").foregroundStyle(.red)
-                    }
-                }
-            }
-            Section("Log, newest first") {
-                ForEach(Array(stats.log.suffix(60).enumerated().reversed()), id: \.offset) { _, line in
-                    Text(line).font(.caption.monospaced()).textSelection(.enabled)
-                }
+        ZStack {
+            Color.black
+            VideoLayerView(renderer: renderer)
+            if stats.state == .connecting || isLeaving {
+                ProgressView(isLeaving ? "Disconnecting…" : "Connecting to \(target.title)…")
+                    .tint(.white)
+                    .foregroundStyle(.white)
             }
         }
-        .navigationTitle(target.title)
-        .task { await run() }
-        .onDisappear { session.stop() }
+        .ignoresSafeArea()
+        .contentShape(.rect)
+        .onTapGesture { if menu == nil { showMenu() } }
+        .statusBarHidden()
+        .persistentSystemOverlays(.hidden) // the home indicator fades out until touched
         .onGamepad { command in
-            if command == .back { dismiss() }
+            if command == .streamMenu { showMenu() } // other buttons will go to the game once input is sent
+        }
+        .actionMenu($menu)
+        .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .task { await run() }
+        .onChange(of: stats.state) { _, state in
+            if case .failed = state { showMenu() }
+            if case .ended = state { showMenu() }
         }
     }
 
-    @ViewBuilder private var status: some View {
+    private func showMenu() {
         switch stats.state {
-        case .connecting: Text("Connecting…").foregroundStyle(.secondary)
-        case .connected: Text("\(Image(systemName: "circle.fill")) Connected").foregroundStyle(.green)
-        case .failed(let message): Text(message).foregroundStyle(.red)
-        case .ended(let message): Text(message).foregroundStyle(.orange)
+        case .failed(let message), .ended(let message):
+            menu = MenuSpec(title: "Stream ended", message: message, actions: [.init(title: "Close") { leave() }], cancelTitle: nil)
+        case .connecting, .connected:
+            menu = MenuSpec(title: target.title, message: [stats.video, rates].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
+                            actions: [
+                                .init(title: "Disconnect") { leave() },
+                                .init(title: "Quit Game", isDestructive: true) { leave(quitting: true) },
+                            ],
+                            cancelTitle: "Resume Stream")
+        }
+    }
+
+    /// Stops the connection before closing, so the next stream can't start while this one shuts down.
+    private func leave(quitting: Bool = false) {
+        guard !isLeaving else { return }
+        isLeaving = true
+        Task {
+            await session.stop()
+            if quitting { try? await client.quit() }
+            dismiss()
         }
     }
 
     private func run() async {
-        session.start(host: client, launch: target.launch, width: target.width, height: target.height, fps: target.fps)
+        session.start(host: client, target: target, renderer: renderer)
         var previous = (frames: 0, bytes: 0, time: ContinuousClock.now)
         while !Task.isCancelled {
-            try? await Task.sleep(for: .milliseconds(500))
+            try? await Task.sleep(for: .seconds(1))
             session.refresh()
             let now = ContinuousClock.now
             let seconds = (now - previous.time) / .seconds(1)
@@ -75,5 +92,32 @@ struct StreamView: View {
             rates = "\(fps.formatted(.number.precision(.fractionLength(0)))) fps, \(mbps.formatted(.number.precision(.fractionLength(1)))) Mbps"
             previous = (stats.videoFrames, stats.videoBytes, now)
         }
+    }
+}
+
+/// Hosts the renderer's AVSampleBufferDisplayLayer and keeps it sized to the screen.
+private struct VideoLayerView: UIViewRepresentable {
+    let renderer: VideoRenderer
+
+    func makeUIView(context: Context) -> LayerHostView {
+        let view = LayerHostView()
+        view.backgroundColor = .black
+        view.layer.addSublayer(renderer.layer)
+        view.hostedLayer = renderer.layer
+        return view
+    }
+
+    func updateUIView(_ view: LayerHostView, context: Context) {}
+}
+
+private final class LayerHostView: UIView {
+    var hostedLayer: CALayer?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true) // no animated resize on rotation
+        hostedLayer?.frame = bounds
+        CATransaction.commit()
     }
 }

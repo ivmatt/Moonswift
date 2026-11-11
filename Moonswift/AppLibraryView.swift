@@ -85,10 +85,12 @@ struct AppLibraryView: View {
                 if ordered.indices.contains(focusIndex) { menu = gameMenu(ordered[focusIndex]) }
             case .back:
                 dismiss()
+            case .streamMenu:
+                break
             }
         }
         .actionMenu($menu)
-        .navigationDestination(item: $stream) { target in StreamView(client: client, target: target) }
+        .fullScreenCover(item: $stream, onDismiss: refreshRunning) { target in StreamView(client: client, target: target) }
     }
 
     private func tapped(_ app: HostApp) {
@@ -135,7 +137,8 @@ struct AppLibraryView: View {
         Task {
             do {
                 if let launch = try await action(), let app {
-                    stream = StreamTarget(title: app.title, launch: launch, width: mode.width, height: mode.height, fps: fps)
+                    stream = StreamTarget(title: app.title, launch: launch, width: mode.width, height: mode.height, fps: fps,
+                                          bitrate: StreamSettings.bitrate(width: mode.width, height: mode.height, fps: fps))
                 }
             } catch {
                 menu = .error(error.localizedDescription)
@@ -157,10 +160,16 @@ struct AppLibraryView: View {
         isLoaded = true
     }
 
-    // shortcut: fixed 1080p60, Moonlight's default; a settings screen comes later. The iPad's native 2752x2064
-    // produced no video from the host at all (audio worked), so odd sizes need checking before they're offered.
+    // shortcut: always 60 fps at the screen's own size; a settings screen comes later.
     private var fps: Int { 60 }
-    private var mode: (width: Int, height: Int) { (1920, 1080) }
+    private var mode: (width: Int, height: Int) {
+        let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen
+        return StreamSettings.matchScreen(nativePixels: screen?.nativeBounds.size ?? CGSize(width: 1920, height: 1080))
+    }
+
+    private func refreshRunning() {
+        Task { if let info = try? await client.serverInfo() { runningID = info.currentGame } }
+    }
 }
 
 private struct AppTile: View {

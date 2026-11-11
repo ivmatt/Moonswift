@@ -12,7 +12,8 @@ struct MenuSpec {
     let title: String
     var message: String?
     var actions: [Action]
-    var cancelTitle = "Cancel"
+    /// The last row, which just closes the menu; nil for none.
+    var cancelTitle: String? = "Cancel"
 
     static func error(_ message: String) -> MenuSpec {
         MenuSpec(title: "Something went wrong", message: message, actions: [], cancelTitle: "OK")
@@ -37,7 +38,7 @@ private struct ActionMenu: View {
     @State private var focus = 0
 
     /// The spec's actions plus Cancel (or OK) last.
-    private var rows: [MenuSpec.Action] { spec.actions + [MenuSpec.Action(title: spec.cancelTitle) {}] }
+    private var rows: [MenuSpec.Action] { spec.actions + (spec.cancelTitle.map { [MenuSpec.Action(title: $0) {}] } ?? []) }
 
     var body: some View {
         ZStack {
@@ -66,7 +67,7 @@ private struct ActionMenu: View {
             case .up, .down: focus = FocusMove.next(focus, count: rows.count, columns: 1, command)
             case .select: choose(focus)
             case .back, .menu: dismiss()
-            case .left, .right: break
+            case .left, .right, .streamMenu: break
             }
         }
     }

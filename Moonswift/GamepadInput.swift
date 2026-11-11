@@ -7,6 +7,7 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
     case select // A, Return
     case back // B, Esc
     case menu // X or Y, Space
+    case streamMenu // Menu + View held for a second: the in-stream menu, since every other button goes to the game
 }
 
 /// iPadOS doesn't move UI focus with a game controller (only tvOS and visionOS do), so the app reads the
@@ -21,6 +22,8 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
     @ObservationIgnored private var held: GamepadCommand?
     @ObservationIgnored private var repeatTask: Task<Void, Never>?
     @ObservationIgnored private var observers: [any NSObjectProtocol] = []
+    @ObservationIgnored private var comboButtons: Set<String> = []
+    @ObservationIgnored private var comboTask: Task<Void, Never>?
 
     func start() {
         guard observers.isEmpty else { return }
@@ -68,9 +71,27 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
                     if pressed { MainActor.assumeIsolated { self?.send(command) } }
                 }
             }
+            let combo: [(GCControllerButtonInput?, String)] = [(pad.buttonMenu, "menu"), (pad.buttonOptions, "view")]
+            for (button, name) in combo {
+                button?.pressedChangedHandler = { [weak self] _, _, pressed in
+                    MainActor.assumeIsolated { self?.combo(name, pressed: pressed) }
+                }
+            }
         }
         GCKeyboard.coalesced?.keyboardInput?.keyChangedHandler = { [weak self] _, _, key, pressed in
             MainActor.assumeIsolated { self?.key(key, pressed: pressed) }
+        }
+    }
+
+    /// Menu + View held together for a second sends .streamMenu once.
+    private func combo(_ button: String, pressed: Bool) {
+        if pressed { comboButtons.insert(button) } else { comboButtons.remove(button) }
+        comboTask?.cancel()
+        comboTask = nil
+        guard comboButtons.count == 2 else { return }
+        comboTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            if !Task.isCancelled { self?.send(.streamMenu) }
         }
     }
 

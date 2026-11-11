@@ -203,8 +203,8 @@ struct StreamSetupTests {
     @Test func streamConfigurationCarriesTheLaunchKeys() {
         let key = Data((1...16).map { UInt8($0) })
         let launch = LaunchSession(rtspURL: "rtspenc://10.0.4.20:48010", riKey: key, riKeyID: 0x0102_0304)
-        var config = StreamSession.makeStreamConfiguration(launch: launch, width: 1920, height: 1080, fps: 60)
-        #expect(config.width == 1920 && config.height == 1080 && config.fps == 60)
+        var config = StreamSession.makeStreamConfiguration(launch: launch, width: 1920, height: 1080, fps: 60, bitrate: 20_000)
+        #expect(config.width == 1920 && config.height == 1080 && config.fps == 60 && config.bitrate == 20_000)
         #expect(withUnsafeBytes(of: &config.remoteInputAesKey) { Data($0) } == key)
         // rikeyid big-endian in the first 4 bytes, the rest zero (moonlight-ios Connection.m).
         #expect(withUnsafeBytes(of: &config.remoteInputAesIv) { Data($0) } == Data([1, 2, 3, 4] + Array(repeating: 0, count: 12)))
@@ -218,6 +218,47 @@ struct StreamSetupTests {
         #expect(info.codecModeSupport == 3843)
         #expect(info.gfeVersion == nil)
         #expect(hostAddress(" 10.0.4.20:47989 ") == "10.0.4.20")
+    }
+}
+
+struct StreamMediaTests {
+    @Test func annexBSplitsOnThreeAndFourByteStartCodes() {
+        let stream = Data([0, 0, 0, 1, 0x67, 0xAA, 0, 0, 1, 0x68, 0xBB, 0xCC, 0, 0, 0, 1, 0x65])
+        #expect(AnnexB.nalUnits(stream) == [Data([0x67, 0xAA]), Data([0x68, 0xBB, 0xCC]), Data([0x65])])
+        #expect(AnnexB.nalUnits(Data([0x12, 0x34])).isEmpty)
+    }
+
+    @Test func annexBBecomesLengthPrefixed() {
+        let stream = Data([0, 0, 1, 0x67, 0xAA, 0, 0, 0, 1, 0x65])
+        #expect(AnnexB.lengthPrefixed(stream) == Data([0, 0, 0, 2, 0x67, 0xAA, 0, 0, 0, 1, 0x65]))
+    }
+
+    @Test func matchScreenIsLandscapeRoundedAndCapped() {
+        let ipad = StreamSettings.matchScreen(nativePixels: CGSize(width: 2064, height: 2752))
+        #expect(ipad.width == 2752 && ipad.height == 2064)
+        let odd = StreamSettings.matchScreen(nativePixels: CGSize(width: 1179, height: 2556))
+        #expect(odd.width == 2552 && odd.height == 1176) // multiples of 8
+        let big = StreamSettings.matchScreen(nativePixels: CGSize(width: 6000, height: 4000))
+        #expect(big.width == 3840 && big.height == 2560) // capped, aspect kept
+    }
+
+    @Test func bitrateScalesWithPixelsAndIsClamped() {
+        #expect(StreamSettings.bitrate(width: 1920, height: 1080, fps: 60) == 20_000)
+        #expect(StreamSettings.bitrate(width: 3840, height: 2160, fps: 60) == 80_000)
+        #expect(StreamSettings.bitrate(width: 640, height: 360, fps: 30) == 10_000)
+    }
+
+    @Test func ringBufferDropsOldAudioAndPadsUnderruns() {
+        let ring = SampleRing(channels: 2, maxFrames: 4)
+        var samples: [Float] = (1...10).map(Float.init) // 5 stereo frames: over the 4-frame limit
+        samples.withUnsafeBufferPointer { ring.write($0) }
+        #expect(ring.queuedFrames == 2) // dropped down to half the limit, keeping the newest
+        var out = [Float](repeating: -1, count: 6)
+        out.withUnsafeMutableBufferPointer { ring.read(frames: 3, into: $0) }
+        #expect(out == [7, 8, 9, 10, 0, 0]) // newest frames, then silence
+        samples = [1, 2]
+        samples.withUnsafeBufferPointer { ring.write($0) }
+        #expect(ring.queuedFrames == 1)
     }
 }
 

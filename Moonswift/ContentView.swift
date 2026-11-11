@@ -101,7 +101,7 @@ struct ContentView: View {
                 case .up, .down: focus = FocusMove.next(focusIndex, count: items.count, columns: 1, command)
                 case .select: activate(items[focusIndex])
                 case .menu: showMenu(items[focusIndex])
-                case .left, .right, .back: break
+                case .left, .right, .back, .streamMenu: break
                 }
             }
             .actionMenu($menu)
