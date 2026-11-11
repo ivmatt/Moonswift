@@ -48,24 +48,29 @@ struct AppLibraryView: View {
         .navigationTitle(name)
         .refreshable { await load() }
         .task { await load() }
-        .confirmationDialog(choosing.map(dialogTitle) ?? "", isPresented: isPresented($choosing), titleVisibility: .visible,
-                            presenting: choosing) { app in
-            if app.id == runningID {
-                Button("Resume") { perform("Resuming \(app.title)…") { try await client.resume(app, width: mode.width, height: mode.height, fps: fps) } }
-                Button("Quit", role: .destructive) { perform("Quitting \(app.title)…") { try await client.quit() } }
-            } else {
-                Button("Quit and Launch", role: .destructive) {
-                    perform("Launching \(app.title)…") {
-                        try await client.quit()
-                        try await client.launch(app, width: mode.width, height: mode.height, fps: fps)
-                    }
-                }
-            }
+        // One centered alert, not a dialog per tile: per-item dialogs in a lazy grid showed the wrong game.
+        .alert(choosing.map(dialogTitle) ?? "", isPresented: isPresented($choosing), presenting: choosing) { app in
+            dialogActions(app)
+            Button("Cancel", role: .cancel) {}
         }
         .alert("Something went wrong", isPresented: isPresented($actionError)) {
             Button("OK") {}
         } message: {
             Text(actionError ?? "")
+        }
+    }
+
+    @ViewBuilder private func dialogActions(_ app: HostApp) -> some View {
+        if app.id == runningID {
+            Button("Resume") { perform("Resuming \(app.title)…") { try await client.resume(app, width: mode.width, height: mode.height, fps: fps) } }
+            Button("Quit", role: .destructive) { perform("Quitting \(app.title)…") { try await client.quit() } }
+        } else {
+            Button("Quit and Launch", role: .destructive) {
+                perform("Launching \(app.title)…") {
+                    try await client.quit()
+                    try await client.launch(app, width: mode.width, height: mode.height, fps: fps)
+                }
+            }
         }
     }
 
