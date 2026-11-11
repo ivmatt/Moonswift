@@ -34,6 +34,10 @@ struct AddHostView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
+            // shortcut: typing an address still needs touch or a keyboard; an on-screen controller keyboard can come later.
+            .onGamepad { command in
+                if command == .back { dismiss() }
+            }
         }
     }
 

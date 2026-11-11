@@ -8,6 +8,7 @@ struct PairingView: View {
     let onPaired: () -> Void
 
     @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
     @State private var pin = Pairing.generatePIN()
     @State private var error: String?
     @State private var attempt = 0
@@ -24,12 +25,8 @@ struct PairingView: View {
                 .accessibilityLabel("PIN \(pin.map(String.init).joined(separator: " "))")
             if let error {
                 Text(error).foregroundStyle(.red).multilineTextAlignment(.center)
-                Button("Try Again") {
-                    self.error = nil
-                    pin = Pairing.generatePIN()
-                    attempt += 1
-                }
-                .buttonStyle(.borderedProminent)
+                Button("Try Again", action: retry)
+                    .buttonStyle(.borderedProminent)
             } else {
                 ProgressView()
                 Text("On your PC, open \(webUI) and enter this PIN.")
@@ -40,6 +37,19 @@ struct PairingView: View {
         .padding()
         .navigationTitle("Pair with \(name)")
         .task(id: attempt) { await pair() } // cancelled (and the request with it) when the view closes
+        .onGamepad { command in
+            switch command {
+            case .back: dismiss() // closes the sheet, or pops back to Add PC
+            case .select: if error != nil { retry() }
+            default: break
+            }
+        }
+    }
+
+    private func retry() {
+        error = nil
+        pin = Pairing.generatePIN()
+        attempt += 1
     }
 
     private func pair() async {

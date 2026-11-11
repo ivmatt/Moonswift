@@ -146,4 +146,43 @@ struct AppListTests {
     }
 }
 
+struct ControllerNavigationTests {
+    // 7 items, 3 columns:
+    //   0 1 2
+    //   3 4 5
+    //   6
+    @Test func gridMovesWithinBounds() {
+        func move(_ from: Int, _ command: GamepadCommand) -> Int { FocusMove.next(from, count: 7, columns: 3, command) }
+        #expect(move(0, .right) == 1)
+        #expect(move(2, .right) == 2) // right edge
+        #expect(move(3, .left) == 3) // left edge doesn't wrap to the row above
+        #expect(move(4, .up) == 1)
+        #expect(move(1, .up) == 1) // top edge
+        #expect(move(1, .down) == 4)
+        #expect(move(5, .down) == 6) // partial last row: land on its last item
+        #expect(move(6, .down) == 6)
+        #expect(move(6, .right) == 6)
+        #expect(move(6, .up) == 3)
+    }
+
+    @Test func listAndEmptyCases() {
+        #expect(FocusMove.next(0, count: 3, columns: 1, .down) == 1)
+        #expect(FocusMove.next(2, count: 3, columns: 1, .down) == 2)
+        #expect(FocusMove.next(0, count: 3, columns: 1, .right) == 0)
+        #expect(FocusMove.next(5, count: 0, columns: 4, .down) == 0)
+        #expect(FocusMove.next(9, count: 3, columns: 1, .up) == 1) // stale index is clamped first
+    }
+
+    @Test func stickNeedsToPassThresholdAndHasHysteresis() {
+        var stick = HeldDirection()
+        #expect(stick.update(x: 0.4, y: 0) == nil) // inside the dead zone
+        #expect(stick.update(x: 0.6, y: 0) == .right)
+        #expect(stick.update(x: 0.35, y: 0) == .right) // still held: release is below 0.3
+        #expect(stick.update(x: 0.2, y: 0) == nil)
+        #expect(stick.update(x: 0, y: -0.9) == .down)
+        #expect(stick.update(x: 0.9, y: -0.2) == .right) // down released, right engaged
+        #expect(stick.update(x: -0.1, y: 0.8) == .up)
+    }
+}
+
 private func MoonswiftDERFromPEM(_ pem: String) -> Data? { der(fromPEM: pem) }

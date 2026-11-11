@@ -1,33 +1,58 @@
 import SwiftUI
 
-/// A paired PC's games as a box-art grid. Tapping a game launches it, or offers Resume/Quit if it's running.
+/// A paired PC's games as a box-art grid. Tapping a game (or A) launches it, or offers Resume/Quit if it's
+/// running; Y/X opens the game's menu; B goes back.
 struct AppLibraryView: View {
     let client: HostClient
     let name: String
 
+    @Environment(\.dismiss) private var dismiss
+    @Environment(GamepadInput.self) private var gamepad
     @State private var apps: [HostApp] = []
     @State private var runningID = 0 // 0 = nothing running
     @State private var loadError: String?
     @State private var isLoaded = false
     @State private var busy: String? // e.g. "Launching Hades…" while a request is in flight
-    @State private var actionError: String?
-    @State private var choosing: HostApp? // the game whose Resume/Quit dialog is open
+    @State private var menu: MenuSpec?
+    @State private var focus = 0
+    @State private var columns = 1
+
+    private static let tileWidth: CGFloat = 170
+    private static let spacing: CGFloat = 24
 
     private var running: HostApp? { apps.first { $0.id == runningID } }
     /// The running game first, the rest in the host's order.
     private var ordered: [HostApp] { apps.filter { $0.id == runningID } + apps.filter { $0.id != runningID } }
+    private var focusIndex: Int { min(focus, max(ordered.count - 1, 0)) }
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 24)], spacing: 28) {
-                ForEach(ordered) { app in
-                    Button { tapped(app) } label: {
-                        AppTile(client: client, app: app, isRunning: app.id == runningID)
+        GeometryReader { geometry in
+            ScrollViewReader { scroller in
+                ScrollView {
+                    // A fixed column count (not .adaptive) so up/down move exactly one row.
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Self.spacing), count: columns),
+                              spacing: 28) {
+                        ForEach(Array(ordered.enumerated()), id: \.element.id) { index, app in
+                            Button {
+                                focus = index
+                                tapped(app)
+                            } label: {
+                                AppTile(client: client, app: app, isRunning: app.id == runningID,
+                                        isFocused: gamepad.isActive && index == focusIndex)
+                            }
+                            .buttonStyle(.plain)
+                            .id(app.id)
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .padding()
+                }
+                .onChange(of: focusIndex) {
+                    if ordered.indices.contains(focusIndex) { withAnimation { scroller.scrollTo(ordered[focusIndex].id) } }
                 }
             }
-            .padding()
+            .onChange(of: geometry.size.width, initial: true) { _, width in
+                columns = max(1, Int((width - 32 + Self.spacing) / (Self.tileWidth + Self.spacing)))
+            }
         }
         .overlay {
             if !isLoaded {
@@ -48,49 +73,60 @@ struct AppLibraryView: View {
         .navigationTitle(name)
         .refreshable { await load() }
         .task { await load() }
-        // One centered alert, not a dialog per tile: per-item dialogs in a lazy grid showed the wrong game.
-        .alert(choosing.map(dialogTitle) ?? "", isPresented: isPresented($choosing), presenting: choosing) { app in
-            dialogActions(app)
-            Button("Cancel", role: .cancel) {}
-        }
-        .alert("Something went wrong", isPresented: isPresented($actionError)) {
-            Button("OK") {}
-        } message: {
-            Text(actionError ?? "")
-        }
-    }
-
-    @ViewBuilder private func dialogActions(_ app: HostApp) -> some View {
-        if app.id == runningID {
-            Button("Resume") { perform("Resuming \(app.title)…") { try await client.resume(app, width: mode.width, height: mode.height, fps: fps) } }
-            Button("Quit", role: .destructive) { perform("Quitting \(app.title)…") { try await client.quit() } }
-        } else {
-            Button("Quit and Launch", role: .destructive) {
-                perform("Launching \(app.title)…") {
-                    try await client.quit()
-                    try await client.launch(app, width: mode.width, height: mode.height, fps: fps)
-                }
+        .onGamepad { command in
+            guard busy == nil else { return }
+            switch command {
+            case .up, .down, .left, .right:
+                focus = FocusMove.next(focusIndex, count: ordered.count, columns: columns, command)
+            case .select:
+                if ordered.indices.contains(focusIndex) { tapped(ordered[focusIndex]) }
+            case .menu:
+                if ordered.indices.contains(focusIndex) { menu = gameMenu(ordered[focusIndex]) }
+            case .back:
+                dismiss()
             }
         }
-    }
-
-    private func dialogTitle(_ app: HostApp) -> String {
-        app.id == runningID ? "\(app.title) is running" : "Quit \(running?.title ?? "the running game") to launch \(app.title)?"
+        .actionMenu($menu)
     }
 
     private func tapped(_ app: HostApp) {
-        if runningID == 0 {
-            perform("Launching \(app.title)…") { try await client.launch(app, width: mode.width, height: mode.height, fps: fps) }
-        } else {
-            choosing = app
+        if runningID == 0 { launch(app) } else { menu = gameMenu(app) }
+    }
+
+    /// What can be done with `app` given what's running.
+    private func gameMenu(_ app: HostApp) -> MenuSpec {
+        if app.id == runningID {
+            return MenuSpec(title: "\(app.title) is running", actions: [
+                .init(title: "Resume") {
+                    perform("Resuming \(app.title)…") { try await client.resume(app, width: mode.width, height: mode.height, fps: fps) }
+                },
+                .init(title: "Quit", isDestructive: true) {
+                    perform("Quitting \(app.title)…") { try await client.quit() }
+                },
+            ])
         }
+        if runningID != 0 {
+            return MenuSpec(title: "Quit \(running?.title ?? "the running game") to launch \(app.title)?", actions: [
+                .init(title: "Quit and Launch", isDestructive: true) {
+                    perform("Launching \(app.title)…") {
+                        try await client.quit()
+                        try await client.launch(app, width: mode.width, height: mode.height, fps: fps)
+                    }
+                },
+            ])
+        }
+        return MenuSpec(title: app.title, actions: [.init(title: "Launch") { launch(app) }])
+    }
+
+    private func launch(_ app: HostApp) {
+        perform("Launching \(app.title)…") { try await client.launch(app, width: mode.width, height: mode.height, fps: fps) }
     }
 
     /// Runs a host action behind a progress overlay, then re-checks which game is running.
     private func perform(_ label: String, _ action: @escaping () async throws -> Void) {
         busy = label
         Task {
-            do { try await action() } catch { actionError = error.localizedDescription }
+            do { try await action() } catch { menu = .error(error.localizedDescription) }
             if let info = try? await client.serverInfo() { runningID = info.currentGame }
             busy = nil
         }
@@ -115,16 +151,13 @@ struct AppLibraryView: View {
             ?? CGSize(width: 1920, height: 1080)
         return (Int(max(size.width, size.height)), Int(min(size.width, size.height))) // nativeBounds is portrait
     }
-
-    private func isPresented<T>(_ value: Binding<T?>) -> Binding<Bool> {
-        Binding { value.wrappedValue != nil } set: { if !$0 { value.wrappedValue = nil } }
-    }
 }
 
 private struct AppTile: View {
     let client: HostClient
     let app: HostApp
     let isRunning: Bool
+    let isFocused: Bool
     @State private var art: UIImage?
 
     var body: some View {
@@ -152,6 +185,7 @@ private struct AppTile: View {
                 .overlay {
                     if isRunning { RoundedRectangle(cornerRadius: 12).stroke(.green, lineWidth: 4) }
                 }
+                .focusRing(isFocused)
             Text(app.title).font(.subheadline).lineLimit(2)
         }
         .contentShape(.rect)
