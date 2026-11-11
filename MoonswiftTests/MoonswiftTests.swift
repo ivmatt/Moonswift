@@ -102,4 +102,48 @@ struct PairingCryptoTests {
     }
 }
 
+struct AppListTests {
+    @Test func parsesApps() throws {
+        // Shape of Vibepollo's nvhttp.cpp applist().
+        let xml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <root status_code="200">
+            <App><IsHdrSupported>1</IsHdrSupported><AppTitle>Desktop</AppTitle><UUID>A-1</UUID><IDX>0</IDX><ID>881448767</ID><ArtVersion>v1</ArtVersion></App>
+            <App><IsHdrSupported>1</IsHdrSupported><AppTitle>Hades &amp; Co</AppTitle><UUID>B-2</UUID><IDX>1</IDX><ID>12</ID><ArtVersion></ArtVersion></App>
+        </root>
+        """
+        let apps = try HostClient.parseAppList(Data(xml.utf8))
+        #expect(apps.map(\.title) == ["Desktop", "Hades & Co"])
+        #expect(apps[0].id == 881448767)
+        #expect(apps[0].uuid == "A-1")
+        #expect(apps[0].artVersion == "v1")
+        #expect(apps[1].artVersion == "")
+    }
+
+    @Test func emptyListAndBadEntries() throws {
+        #expect(try HostClient.parseAppList(Data(#"<root status_code="200"></root>"#.utf8)).isEmpty)
+        let noID = #"<root status_code="200"><App><AppTitle>X</AppTitle></App></root>"#
+        #expect(try HostClient.parseAppList(Data(noID.utf8)).isEmpty)
+    }
+
+    @Test func serverInfoReportsRunningGame() throws {
+        let xml = #"<root status_code="200"><hostname>PC</hostname><currentgame>12</currentgame></root>"#
+        #expect(try ServerInfo(xml: Data(xml.utf8)).currentGame == 12)
+        #expect(try ServerInfo(xml: Data(#"<root status_code="200"><hostname>PC</hostname></root>"#.utf8)).currentGame == 0)
+    }
+
+    @Test func launchQueryHasWhatVibepolloRequires() throws {
+        let app = try #require(HostApp(fields: ["ID": "12", "AppTitle": "Hades", "UUID": "B-2"]))
+        let items = HostClient.launchQuery(app: app, width: 2752, height: 2064, fps: 60,
+                                           rikey: Data(repeating: 0xAB, count: 16), rikeyID: -5)
+        let query = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+        #expect(query["appid"] == "12")
+        #expect(query["appuuid"] == "B-2")
+        #expect(query["mode"] == "2752x2064x60")
+        #expect(query["rikey"] == String(repeating: "AB", count: 16))
+        #expect(query["rikeyid"] == "-5")
+        #expect(query["localAudioPlayMode"] == "0")
+    }
+}
+
 private func MoonswiftDERFromPEM(_ pem: String) -> Data? { der(fromPEM: pem) }

@@ -9,6 +9,8 @@ nonisolated struct ServerInfo: Equatable {
     let uniqueID: String?
     let httpsPort: Int
     let pairStatus: PairStatus
+    /// The app ID this client is running on the host, 0 if none. Only reported over paired HTTPS.
+    let currentGame: Int
 
     /// Parses `<root status_code="200"><hostname>…</hostname>…</root>`.
     init(xml: Data) throws(ServerInfoError) {
@@ -25,6 +27,7 @@ nonisolated struct ServerInfo: Equatable {
         case 0: .unpaired
         default: .paired
         }
+        currentGame = fields["currentgame"].flatMap { Int($0) } ?? 0
     }
 }
 
@@ -85,6 +88,11 @@ nonisolated func hostURL(for address: String, path: String = "/serverinfo", http
 /// GETs a host endpoint and returns the reply's fields. With `tls`, it trusts only the pinned
 /// certificate and presents the app's client certificate.
 nonisolated func hostRequest(_ url: URL, timeout: TimeInterval, tls: PairedTLS? = nil) async throws(ServerInfoError) -> [String: String] {
+    try parseHostResponse(await hostData(url, timeout: timeout, tls: tls))
+}
+
+/// The raw body of a host reply (XML, or a PNG for /appasset).
+nonisolated func hostData(_ url: URL, timeout: TimeInterval, tls: PairedTLS? = nil) async throws(ServerInfoError) -> Data {
     var request = URLRequest(url: url)
     request.timeoutInterval = timeout
     let session = tls.map { URLSession(configuration: .ephemeral, delegate: PinnedTLSDelegate(tls: $0), delegateQueue: nil) }
@@ -103,7 +111,7 @@ nonisolated func hostRequest(_ url: URL, timeout: TimeInterval, tls: PairedTLS? 
     if let http = response as? HTTPURLResponse, http.statusCode != 200 {
         throw .httpStatus(http.statusCode)
     }
-    return try parseHostResponse(data)
+    return data
 }
 
 /// Default timeout is moonlight-ios's NORMAL_TIMEOUT_SEC; status polling uses its 2s SHORT_TIMEOUT_SEC.
@@ -134,6 +142,15 @@ nonisolated func checkHost(address: String, httpsPort: Int, serverCert: Data) as
 
 /// Every host reply is `<root status_code="200" …><field>…</field>…</root>`: check the status, return the fields.
 nonisolated func parseHostResponse(_ xml: Data) throws(ServerInfoError) -> [String: String] {
+    try collectRoot(xml).fields
+}
+
+/// For list replies like /applist: one field dictionary per repeated child, e.g. each `<App>…</App>`.
+nonisolated func parseHostRecords(_ xml: Data) throws(ServerInfoError) -> [[String: String]] {
+    try collectRoot(xml).records
+}
+
+private nonisolated func collectRoot(_ xml: Data) throws(ServerInfoError) -> RootCollector {
     let collector = RootCollector()
     let parser = XMLParser(data: xml)
     parser.delegate = collector
@@ -143,7 +160,7 @@ nonisolated func parseHostResponse(_ xml: Data) throws(ServerInfoError) -> [Stri
     guard code == "200" else {
         throw .hostError(code: Int(code) ?? -1, message: collector.rootAttributes["status_message"] ?? "Server error")
     }
-    return collector.fields
+    return collector
 }
 
 /// Hosts use self-signed certificates, so normal trust checks can't work: accept exactly the certificate
@@ -170,10 +187,13 @@ private nonisolated final class PinnedTLSDelegate: NSObject, URLSessionDelegate,
 }
 
 /// Collects the root's attributes and the text of its direct children into a flat dictionary,
-/// the same shape moonlight-ios's HttpResponse builds.
+/// the same shape moonlight-ios's HttpResponse builds. Children that have children of their own
+/// (like `<App>`) become one record each.
 private nonisolated final class RootCollector: NSObject, XMLParserDelegate {
     var rootAttributes: [String: String] = [:]
     var fields: [String: String] = [:]
+    var records: [[String: String]] = []
+    private var record: [String: String] = [:]
     private var depth = 0
     private var text = ""
 
@@ -181,15 +201,20 @@ private nonisolated final class RootCollector: NSObject, XMLParserDelegate {
                 qualifiedName: String?, attributes: [String: String] = [:]) {
         depth += 1
         if depth == 1 { rootAttributes = attributes }
-        if depth == 2 { text = "" }
+        if depth == 2 { record = [:] }
+        if depth == 2 || depth == 3 { text = "" }
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        if depth == 2 { text += string }
+        if depth == 2 || depth == 3 { text += string }
     }
 
     func parser(_ parser: XMLParser, didEndElement name: String, namespaceURI: String?, qualifiedName: String?) {
-        if depth == 2 { fields[name] = text.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if depth == 3 { record[name] = value; text = "" }
+        if depth == 2 {
+            if record.isEmpty { fields[name] = value } else { records.append(record) }
+        }
         depth -= 1
     }
 }

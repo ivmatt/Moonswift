@@ -110,7 +110,7 @@ nonisolated enum Pairing {
         return fields
     }
 
-    private static func randomBytes(_ count: Int) -> Data {
+    static func randomBytes(_ count: Int) -> Data {
         Data((0..<count).map { _ in UInt8.random(in: .min ... .max) }) // SystemRandomNumberGenerator is cryptographically secure
     }
 }

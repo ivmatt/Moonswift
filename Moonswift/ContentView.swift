@@ -29,11 +29,20 @@ struct ContentView: View {
                     }
                     ForEach(hosts) { host in
                         let status = statuses[host.uniqueID]
-                        Button {
-                            // shortcut: tapping a paired PC does nothing until streaming exists.
-                            if status == .online(paired: false) { pairing = PairTarget(address: host.address, name: host.name) }
-                        } label: {
-                            HostRow(name: host.name, address: host.address, status: status)
+                        if status == .online(paired: true) {
+                            NavigationLink {
+                                AppLibraryView(client: HostClient(hostID: host.uniqueID, address: host.address,
+                                                                  httpsPort: host.httpsPort, serverCert: host.serverCert),
+                                               name: host.name)
+                            } label: {
+                                HostRow(name: host.name, address: host.address, status: status)
+                            }
+                        } else {
+                            Button {
+                                if status == .online(paired: false) { pairing = PairTarget(address: host.address, name: host.name) }
+                            } label: {
+                                HostRow(name: host.name, address: host.address, status: status)
+                            }
                         }
                     }
                     .onDelete { offsets in
