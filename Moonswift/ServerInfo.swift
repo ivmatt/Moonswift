@@ -68,9 +68,10 @@ nonisolated func serverInfoURL(for address: String) throws(ServerInfoError) -> U
     return url
 }
 
-func fetchServerInfo(address: String) async throws(ServerInfoError) -> ServerInfo {
+/// Default timeout is moonlight-ios's NORMAL_TIMEOUT_SEC; status polling uses its 2s SHORT_TIMEOUT_SEC.
+func fetchServerInfo(address: String, timeout: TimeInterval = 5) async throws(ServerInfoError) -> ServerInfo {
     var request = URLRequest(url: try serverInfoURL(for: address))
-    request.timeoutInterval = 5 // moonlight-ios NORMAL_TIMEOUT_SEC
+    request.timeoutInterval = timeout
 
     let data: Data, response: URLResponse
     do {
