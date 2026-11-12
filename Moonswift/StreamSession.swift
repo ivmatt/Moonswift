@@ -143,6 +143,17 @@ nonisolated private let audioRenderer = AudioRenderer()
         listener.rumbleTriggers = { number, left, right in
             DispatchQueue.main.async { MainActor.assumeIsolated { activeControllers?.rumbleTriggers(controller: Int(number), left: left, right: right) } }
         }
+        listener.setAdaptiveTriggers = { number, flags, typeLeft, typeRight, left, right in
+            // The byte buffers are only valid during this call: decode them here, apply on the main thread.
+            let size = Int(DS_EFFECT_PAYLOAD_SIZE)
+            let leftEffect = AdaptiveTriggerEffect(type: typeLeft, bytes: left.map { Array(UnsafeBufferPointer(start: $0, count: size)) } ?? [])
+            let rightEffect = AdaptiveTriggerEffect(type: typeRight, bytes: right.map { Array(UnsafeBufferPointer(start: $0, count: size)) } ?? [])
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    activeControllers?.setTriggers(controller: Int(number), flags: flags, left: leftEffect, right: rightEffect)
+                }
+            }
+        }
         listener.setMotionEventState = { number, type, rate in
             DispatchQueue.main.async { MainActor.assumeIsolated { activeControllers?.setMotion(controller: Int(number), type: type, rateHz: Int(rate)) } }
         }

@@ -69,12 +69,16 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
             pad.leftThumbstick.valueChangedHandler = { [weak self] _, x, y in
                 MainActor.assumeIsolated { self?.hold(stick: x, y) }
             }
-            let buttons: [(GCControllerButtonInput, GamepadCommand)] =
-                [(pad.buttonA, .select), (pad.buttonB, .back), (pad.buttonX, .alternate), (pad.buttonY, .menu),
-                 (pad.leftShoulder, .previousTab), (pad.rightShoulder, .nextTab)]
-            for (button, command) in buttons {
+            // Through the button remap, so a swapped A and B also swap confirm and back in the menus.
+            let buttons: [(GCControllerButtonInput, GameButton)] =
+                [(pad.buttonA, .a), (pad.buttonB, .b), (pad.buttonX, .x), (pad.buttonY, .y),
+                 (pad.leftShoulder, .leftShoulder), (pad.rightShoulder, .rightShoulder)]
+            for (button, physical) in buttons {
                 button.pressedChangedHandler = { [weak self] _, _, pressed in
-                    if pressed { MainActor.assumeIsolated { self?.send(command) } }
+                    guard pressed else { return }
+                    MainActor.assumeIsolated {
+                        if let command = Self.command(for: ButtonRemap.current.target(physical)) { self?.send(command) }
+                    }
                 }
             }
             let combo: [(GCControllerButtonInput?, String)] = [(pad.buttonMenu, "menu"), (pad.buttonOptions, "view")]
@@ -95,6 +99,19 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
         if pressed { send(button == "menu" ? .settings : .options) }
         if pressed { comboButtons.insert(button) } else { comboButtons.remove(button) }
         if pressed, comboButtons.count == 2 { send(.streamMenu) }
+    }
+
+    /// What each button means in the app's menus.
+    nonisolated static func command(for button: GameButton) -> GamepadCommand? {
+        switch button {
+        case .a: .select
+        case .b: .back
+        case .x: .alternate
+        case .y: .menu
+        case .leftShoulder: .previousTab
+        case .rightShoulder: .nextTab
+        default: nil
+        }
     }
 
     private func hold(dpad x: Float, _ y: Float) { setHeld(dpad.update(x: x, y: y)) }

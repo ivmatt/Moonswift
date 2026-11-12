@@ -29,14 +29,15 @@ struct SettingsView: View {
     @State private var liveBitrateNote: String?
     @State private var bitrateChange: Task<Void, Never>?
     @State private var isShowingAbout = false
+    @State private var isShowingButtonMapping = false
 
-    private enum Row { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, about }
+    private enum Row { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, buttonMapping, about }
     private enum BitrateMode: String, CaseIterable { case automatic = "Automatic", custom = "Custom" }
     private var bitrateMode: BitrateMode {
         bitrate == 0 ? .automatic : .custom
     }
     private var rows: [Row] {
-        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : []) + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay, .pcAudio, .about]
+        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : []) + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay, .pcAudio, .buttonMapping, .about]
     }
     private var videoFormats: Int32 {
         StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware, av1InHardware: ScreenInfo.av1InHardware,
@@ -150,6 +151,13 @@ struct SettingsView: View {
                     Text("Sound always plays on this device; this also plays it from the PC's speakers. Applies the next time a stream starts.")
                 }
                 Section {
+                    row(.buttonMapping) {
+                        Button("Button Mapping") { isShowingButtonMapping = true }.foregroundStyle(.primary)
+                    }
+                } header: {
+                    Text("Controller")
+                }
+                Section {
                     row(.about) { Button("About Moonswift") { isShowingAbout = true }.foregroundStyle(.primary) }
                 }
                 Section {
@@ -162,6 +170,7 @@ struct SettingsView: View {
             }
             .navigationTitle(live == nil ? "Settings" : "Stream Settings")
             .navigationDestination(isPresented: $isShowingAbout) { AboutView() }
+            .navigationDestination(isPresented: $isShowingButtonMapping) { ButtonMappingView() }
             .onChange(of: effectiveBitrate) { _, kbps in applyLive(kbps) }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
@@ -178,6 +187,7 @@ struct SettingsView: View {
                 switch command {
                 case .up, .down: focus = FocusMove.next(focus, count: rows.count, columns: 1, command)
                 case .select where current == .about: isShowingAbout = true
+                case .select where current == .buttonMapping: isShowingButtonMapping = true
                 case .select where current == .reconnect:
                     dismiss()
                     live?.reconnect()
@@ -221,7 +231,7 @@ struct SettingsView: View {
         case .overlay: showsPerformance.toggle()
         case .pcAudio: playAudioOnPC.toggle()
         case .hdr: hdr.toggle()
-        case .reconnect, .about: break
+        case .reconnect, .about, .buttonMapping: break
         }
     }
 

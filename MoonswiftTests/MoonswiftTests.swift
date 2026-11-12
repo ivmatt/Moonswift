@@ -722,3 +722,39 @@ struct LaunchRequestTests {
         #expect(LaunchRequest(pc: "x", game: "Celeste").game(in: apps) == nil)
     }
 }
+
+struct ButtonMappingTests {
+    @Test func nintendoSwapsFaceButtonsAndLeavesTheRest() {
+        let pressed = A_FLAG | UP_FLAG
+        #expect(ButtonRemap.nintendo.apply(pressed) == B_FLAG | UP_FLAG)
+        #expect(ButtonRemap.nintendo.apply(A_FLAG | B_FLAG) == A_FLAG | B_FLAG) // both held: still both
+        #expect(ButtonRemap.nintendo.apply(Y_FLAG) == X_FLAG)
+        #expect(ButtonRemap.standard.apply(pressed) == pressed)
+        #expect(ButtonRemap.nintendo.target(.a) == .b && ButtonRemap.nintendo.target(.menu) == .menu)
+    }
+
+    @Test func customMappingAndMenus() {
+        let remap = ButtonRemap(targets: [.view: .home]) // View acts as the Home/PS button
+        #expect(remap.apply(BACK_FLAG) == SPECIAL_FLAG)
+        #expect(remap.apply(SPECIAL_FLAG) == SPECIAL_FLAG) // Home itself still works
+        #expect(GamepadInput.command(for: ButtonRemap.nintendo.target(.b)) == .select) // B confirms in Nintendo layout
+    }
+}
+
+struct AdaptiveTriggerTests {
+    @Test func decodesTheCommonEffects() {
+        let off = AdaptiveTriggerEffect(type: 0x05, bytes: Array(repeating: 0, count: 10))
+        #expect(off.mode == .off)
+        // Weapon (0x25): zones 2...6 active, strength bits 7 → full strength.
+        let weapon = AdaptiveTriggerEffect(type: 0x25, bytes: [0x44, 0x00, 0x07, 0, 0, 0, 0, 0, 0, 0])
+        #expect(weapon.mode == .weapon)
+        #expect(abs(weapon.startPosition - 2 / 9) < 0.001 && abs(weapon.endPosition - 6 / 9) < 0.001)
+        #expect(weapon.startStrength == 1)
+        // Feedback per zone (0x21): zone 0 at strength 3 (bits 010 → (2+1)/8).
+        let zoned = AdaptiveTriggerEffect(type: 0x21, bytes: [0x01, 0x00, 0x02, 0, 0, 0, 0, 0, 0, 0])
+        #expect(zoned.mode == .positionalFeedback && zoned.positionalStrength[0] == 3 / 8)
+        // A vibration with no frequency does nothing.
+        #expect(AdaptiveTriggerEffect(type: 0x06, bytes: [0, 200, 0, 0, 0, 0, 0, 0, 0, 0]).mode == .off)
+        #expect(AdaptiveTriggerEffect(type: 0x21, bytes: [1, 2]).mode == .off) // too short
+    }
+}

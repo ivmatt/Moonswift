@@ -152,6 +152,13 @@ final class ControllerStreamer {
         }
     }
 
+    /// A game's DualSense trigger effect: `flags` says which triggers it programs (the other side's bytes are stale).
+    func setTriggers(controller number: Int, flags: UInt8, left: AdaptiveTriggerEffect, right: AdaptiveTriggerEffect) {
+        guard let dualSense = slot(number)?.controller.extendedGamepad as? GCDualSenseGamepad else { return }
+        if flags & UInt8(DS_EFFECT_LEFT_TRIGGER) != 0 { left.apply(to: dualSense.leftTrigger) }
+        if flags & UInt8(DS_EFFECT_RIGHT_TRIGGER) != 0 { right.apply(to: dualSense.rightTrigger) }
+    }
+
     func setLight(controller number: Int, red: UInt8, green: UInt8, blue: UInt8) {
         slot(number)?.controller.light?.color = GCColor(red: Float(red) / 255, green: Float(green) / 255, blue: Float(blue) / 255)
     }
@@ -197,6 +204,10 @@ final class ControllerStreamer {
         slot.motors.values.forEach { $0.stop() }
         if let motion = slot.controller.motion, motion.sensorsRequireManualActivation { motion.sensorsActive = false }
         slot.controller.extendedGamepad?.valueChangedHandler = nil
+        if let dualSense = slot.controller.extendedGamepad as? GCDualSenseGamepad { // don't leave a game's resistance on
+            dualSense.leftTrigger.setModeOff()
+            dualSense.rightTrigger.setModeOff()
+        }
         slot.controller.extendedGamepad?.buttonHome?.preferredSystemGestureState = .enabled
     }
 
@@ -240,7 +251,8 @@ final class ControllerStreamer {
 
     private func send(_ slot: Slot, _ pad: GCExtendedGamepad) {
         guard !isPaused else { return }
-        let state = ControllerMapping.state(snapshot(pad))
+        var state = ControllerMapping.state(snapshot(pad))
+        state.buttons = ButtonRemap.current.apply(state.buttons)
         if state != slot.last {
             slot.last = state
             LiSendMultiControllerEvent(Int16(slot.index), activeMask, state.buttons, state.leftTrigger, state.rightTrigger,
