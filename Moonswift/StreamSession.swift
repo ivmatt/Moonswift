@@ -17,6 +17,16 @@ nonisolated struct StreamStats: Sendable {
     var fps = 60
     var videoFrames = 0
     var videoBytes = 0
+    /// For adaptive bitrate: frames lost on the network (frame-number gaps) and the library's connection verdict.
+    var lostFrames = 0
+    var lastFrameNumber = 0
+    var isPoor = false
+    /// For the performance overlay: per-frame timings, summed (divide by `timedFrames`).
+    var timedFrames = 0
+    var hostLatencyTenthsMs = 0 // the PC's capture + encode time, when it reports it
+    var hostLatencyFrames = 0
+    var receiveMicroseconds = 0 // first to last packet of a frame
+    var queueMicroseconds = 0 // fully received to handed to the decoder
     var log: [String] = []
 
     mutating func append(_ line: String) {
@@ -106,6 +116,9 @@ nonisolated private let audioRenderer = AudioRenderer()
         }
         listener.connectionStarted = {
             liveStats.withLock { $0.state = .connected; $0.append("Connection started") }
+        }
+        listener.connectionStatusUpdate = { status in
+            liveStats.withLock { $0.isPoor = status == CONN_STATUS_POOR }
         }
         listener.connectionTerminated = { code in
             liveStats.withLock { $0.state = .ended(code == 0 ? "The host ended the stream." : "Connection lost (error \(code)).") }

@@ -40,6 +40,8 @@ enum SettingsKey {
     static let resolution = "resolution"
     static let fps = "fps"
     static let codec = "codec"
+    static let performanceOverlay = "performanceOverlay" // Bool: live stats in a corner of the stream
+    static let adaptiveBitrate = "adaptiveBitrate" // Bool: the bitrate setting becomes a ceiling
     static let bitrate = "bitrateKbps" // 0 = automatic, StreamSettings.unlimitedSetting = unlimited, else kbps
 }
 
@@ -51,6 +53,8 @@ nonisolated enum StreamSettings {
     /// while 2 Gbps reached the GPU encoder uncapped and it produced no video at all (error -100). The PC's own
     /// Maximum Bitrate setting can lower it.
     static let unlimitedBitrate = 1_000_000
+    /// Vibepollo's cap for bitrate changes during a stream (absolute_max_bitrate_kbps in nvhttp.cpp).
+    static let liveBitrateLimit = 500_000
     /// What's saved for "Unlimited": not a bitrate, so a custom 1000 Mbps stays "Custom".
     static let unlimitedSetting = -1
 

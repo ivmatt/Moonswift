@@ -1,3 +1,4 @@
+import MoonlightCore
 import SwiftUI
 
 /// What the library screen hands over after a successful Launch or Resume.
@@ -34,6 +35,15 @@ struct StreamView: View {
     @State private var rates = ""
     @State private var isLeaving = false
     @State private var isShowingSettings = false
+    // Not @AppStorage: the once-a-second loop runs on the copy of this view from when the stream started, whose
+    // @AppStorage values don't follow later changes (Stream Settings). Reading UserDefaults is always current.
+    private var adaptive: Bool { UserDefaults.standard.bool(forKey: SettingsKey.adaptiveBitrate) }
+    private var savedBitrate: Int { UserDefaults.standard.integer(forKey: SettingsKey.bitrate) }
+    @State private var adaptiveController: BitrateController?
+    @State private var adaptiveNote: String?
+    @State private var adaptiveUnsupported = false
+    @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
+    @State private var performance: PerformanceOverlay.Readout?
 
     /// The game gets no input while a menu or Settings is over it.
     private var isPlaying: Bool { menu == nil && !isShowingSettings }
@@ -50,6 +60,11 @@ struct StreamView: View {
             }
             // Safe Area mode keeps the picture (and the touches mapped onto it) clear of the cutout and home indicator.
             .ignoresSafeArea(edges: target.fitsSafeArea ? [] : .all)
+            if showsPerformance, let performance {
+                PerformanceOverlay(readout: performance, adaptiveNote: adaptiveNote)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
             if stats.state == .connecting || isLeaving {
                 ProgressView(isLeaving ? "Disconnecting…" : "Connecting to \(target.title)…")
                     .tint(.white)
@@ -107,12 +122,17 @@ struct StreamView: View {
         case .failed(let message), .ended(let message):
             menu = MenuSpec(title: "Stream ended", message: message, actions: [.init(title: "Close") { leave() }], cancelTitle: nil)
         case .connecting, .connected:
-            menu = MenuSpec(title: target.title, message: [stats.video, rates].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
+            menu = MenuSpec(title: target.title,
+                            message: ([stats.video, rates].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                                + (adaptiveNote.map { "\n" + $0 } ?? ""),
                             actions: [
                                 .init(title: touchMode == .touchscreen ? "Switch to Trackpad" : "Switch to Touchscreen") {
                                     touchMode = touchMode == .touchscreen ? .trackpad : .touchscreen
                                 },
                                 .init(title: "Stream Settings") { isShowingSettings = true },
+                                .init(title: showsPerformance ? "Hide Performance Overlay" : "Show Performance Overlay") {
+                                    showsPerformance.toggle()
+                                },
                                 .init(title: "Disconnect") { leave() },
                                 .init(title: "Quit Game", isDestructive: true) { leave(quitting: true) },
                             ],
@@ -135,6 +155,7 @@ struct StreamView: View {
 
     /// Vibepollo changes the encoder's bitrate for this session without reconnecting; other hosts don't support it.
     private func setLiveBitrate(_ kbps: Int) async -> String {
+        if adaptive, !adaptiveUnsupported { return "Adaptive bitrate will use this as its ceiling." } // the loop applies it
         do {
             let applied = try await client.setBitrate(kbps)
             return applied < kbps ? "Now \(applied / 1000) Mbps, the most the PC allows during a stream."
@@ -146,16 +167,76 @@ struct StreamView: View {
 
     private func run() async {
         session.start(host: client, target: target, renderer: renderer)
-        var previous = (frames: 0, bytes: 0, time: ContinuousClock.now)
+        let started = ContinuousClock.now
+        var previous = (counters: StreamCounters(), time: started)
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(1))
             session.refresh()
             let now = ContinuousClock.now
-            let seconds = (now - previous.time) / .seconds(1)
-            let fps = Double(stats.videoFrames - previous.frames) / seconds
-            let mbps = Double(stats.videoBytes - previous.bytes) * 8 / seconds / 1_000_000
-            rates = "\(fps.formatted(.number.precision(.fractionLength(0)))) fps, \(mbps.formatted(.number.precision(.fractionLength(1)))) Mbps"
-            previous = (stats.videoFrames, stats.videoBytes, now)
+            let isLive = stats.state == .connected && !isLeaving // the library's stats exist only while connected
+            var rtp = RTP_VIDEO_STATS()
+            var rtt: UInt32 = 0, rttVariance: UInt32 = 0
+            var hasRTT = false
+            if isLive {
+                LiGetRTPVideoStats(&rtp)
+                hasRTT = LiGetEstimatedRttInfo(&rtt, &rttVariance)
+            }
+            let counters = StreamCounters(
+                frames: stats.videoFrames, bytes: stats.videoBytes, lostFrames: stats.lostFrames,
+                packets: Int(rtp.packetCountVideo), fecRecovered: Int(rtp.packetCountFecRecovered), fecFailed: Int(rtp.packetCountFecFailed),
+                timedFrames: stats.timedFrames, receiveMicroseconds: stats.receiveMicroseconds, queueMicroseconds: stats.queueMicroseconds,
+                hostLatencyTenthsMs: stats.hostLatencyTenthsMs, hostLatencyFrames: stats.hostLatencyFrames)
+            let window = PerformanceWindow(from: previous.counters, to: counters, seconds: (now - previous.time) / .seconds(1))
+            previous = (counters, now)
+
+            rates = "\(window.fps.formatted(.number.precision(.fractionLength(0)))) fps, "
+                + "\(window.mbps.formatted(.number.precision(.fractionLength(1)))) Mbps"
+            performance = PerformanceOverlay.Readout(window: window, targetFPS: target.fps, video: stats.video,
+                                                     rtt: hasRTT ? (Int(rtt), Int(rttVariance)) : nil,
+                                                     isRemote: !isHomeNetworkHost(hostAddress(client.address)))
+            if isLive {
+                adaptStep(window.sample(rttMs: hasRTT ? Int(rtt) : nil, isPoor: stats.isPoor), now: (now - started) / .seconds(1))
+            }
+        }
+    }
+
+    /// One second of adaptive bitrate: let the controller decide, send any change.
+    private func adaptStep(_ sample: NetworkSample, now: TimeInterval) {
+        guard !adaptiveUnsupported else { return }
+        let setting = StreamSettings.effectiveBitrate(saved: savedBitrate, width: target.width, height: target.height, fps: target.fps)
+        let ceiling = min(setting, StreamSettings.liveBitrateLimit)
+        let capNote = setting > ceiling ? " (PC's limit while streaming)" : ""
+        guard adaptive else {
+            if adaptiveController != nil { // switched off mid-stream: back to your setting
+                adaptiveController = nil
+                adaptiveNote = nil
+                sendBitrate(ceiling)
+            }
+            return
+        }
+        guard adaptiveController != nil else {
+            // Unlimited's 1000 Mbps is above the live limit, so it starts by dropping to 500.
+            let controller = BitrateController(ceiling: ceiling, start: target.bitrate)
+            adaptiveController = controller
+            if controller.target != target.bitrate { sendBitrate(controller.target) }
+            adaptiveNote = "Adaptive: \(controller.target / 1000) of \(ceiling / 1000) Mbps\(capNote) · starting"
+            return
+        }
+        if let changed = adaptiveController?.setCeiling(ceiling) { sendBitrate(changed) } // the setting changed in Stream Settings
+        if let changed = adaptiveController?.update(sample, now: now) { sendBitrate(changed) }
+        if let controller = adaptiveController {
+            adaptiveNote = "Adaptive: \(controller.target / 1000) of \(controller.ceiling / 1000) Mbps\(capNote) · \(controller.reason)"
+        }
+    }
+
+    private func sendBitrate(_ kbps: Int) {
+        Task {
+            do {
+                _ = try await client.setBitrate(kbps)
+            } catch {
+                adaptiveUnsupported = true
+                adaptiveNote = "Adaptive bitrate is off: this PC can't change bitrate during a stream."
+            }
         }
     }
 }

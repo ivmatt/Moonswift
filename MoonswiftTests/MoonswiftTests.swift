@@ -427,4 +427,106 @@ struct RemoteAccessTests {
     }
 }
 
+struct AdaptiveBitrateTests {
+    private let calm = NetworkSample(packets: 1000, rttMs: 20)
+
+    @Test func lossCutsQuicklyButWaitsBetweenCuts() {
+        var abr = BitrateController(ceiling: 80_000)
+        var loss = calm
+        loss.lostFrames = 3
+        #expect(abr.update(loss, now: 0) == 56_000) // 70%
+        #expect(abr.reason == "lowered for packet loss")
+        #expect(abr.update(loss, now: 1) == nil) // within 2 s: let the cut take effect
+        #expect(abr.update(loss, now: 2) == 39_000)
+    }
+
+    @Test func neverGoesBelowTheFloor() {
+        var abr = BitrateController(ceiling: 6_000)
+        var loss = calm
+        loss.fecFailed = 1
+        #expect(abr.update(loss, now: 0) == 5_000)
+        #expect(abr.update(loss, now: 5) == nil) // already at the floor
+    }
+
+    @Test func sustainedDelayCutsButASpikeDoesNot() {
+        var abr = BitrateController(ceiling: 50_000)
+        _ = abr.update(calm, now: 0) // baseline 20 ms
+        var slow = calm
+        slow.rttMs = 90
+        #expect(abr.update(slow, now: 1) == nil) // one second of high delay: wait
+        #expect(abr.update(calm, now: 2) == nil) // it recovered
+        #expect(abr.update(slow, now: 3) == nil)
+        #expect(abr.update(slow, now: 4) == 35_000) // two in a row
+        #expect(abr.reason == "lowered for rising delay")
+    }
+
+    @Test func calmNetworkClimbsBackToTheCeilingAndStops() {
+        var abr = BitrateController(ceiling: 30_000, start: 20_000)
+        var now: TimeInterval = 0
+        var results: [Int] = []
+        while now < 100 {
+            if let changed = abr.update(calm, now: now) { results.append(changed) }
+            now += 1
+        }
+        #expect(results == [22_000, 24_200, 26_620, 29_282, 30_000]) // +10% (at least 2 Mbps) every 10 calm seconds
+        #expect(abr.reason == "at your setting")
+    }
+
+    @Test func noClimbingSoonAfterACut() {
+        var abr = BitrateController(ceiling: 50_000)
+        var loss = calm
+        loss.lostFrames = 1
+        _ = abr.update(loss, now: 0) // 35 Mbps
+        var changes: [Int] = []
+        for second in 1..<30 { if let changed = abr.update(calm, now: TimeInterval(second)) { changes.append(changed) } }
+        #expect(changes.isEmpty) // calm, but within 30 s of the cut
+        #expect(abr.update(calm, now: 30) == 38_500)
+    }
+
+    @Test func repairedLossHoldsWithoutCutting() {
+        var abr = BitrateController(ceiling: 40_000, start: 30_000)
+        var repairing = calm
+        repairing.fecRecovered = 80 // 8% of packets
+        for second in 0..<20 { #expect(abr.update(repairing, now: TimeInterval(second)) == nil) }
+    }
+
+    @Test func aLowerSettingCapsTheTarget() {
+        var abr = BitrateController(ceiling: 80_000)
+        #expect(abr.setCeiling(40_000) == 40_000)
+        #expect(abr.setCeiling(60_000) == nil) // raising the ceiling doesn't jump; it climbs
+        #expect(abr.target == 40_000)
+    }
+}
+
+struct PerformanceTests {
+    @Test func windowTurnsCountersIntoRates() {
+        let old = StreamCounters(frames: 100, bytes: 0, lostFrames: 2, packets: 1000, fecRecovered: 10, fecFailed: 0,
+                                 timedFrames: 100, receiveMicroseconds: 0, queueMicroseconds: 0,
+                                 hostLatencyTenthsMs: 0, hostLatencyFrames: 0)
+        let new = StreamCounters(frames: 160, bytes: 5_000_000, lostFrames: 5, packets: 3000, fecRecovered: 30, fecFailed: 1,
+                                 timedFrames: 160, receiveMicroseconds: 120_000, queueMicroseconds: 60_000,
+                                 hostLatencyTenthsMs: 1_200, hostLatencyFrames: 30)
+        let window = PerformanceWindow(from: old, to: new, seconds: 1)
+        #expect(window.fps == 60)
+        #expect(window.mbps == 40)
+        #expect(window.lostFrames == 3 && abs(window.lossPercent - 300.0 / 63) < 0.001) // 3 of 63 sent
+        #expect(window.repairedPercent == 1) // 20 of 2000 packets
+        #expect(window.receiveMs == 2 && window.queueMs == 1) // per frame
+        #expect(window.hostMs == 4) // 1200 tenths over 30 frames
+        let sample = window.sample(rttMs: 25, isPoor: false)
+        #expect(sample.lostFrames == 3 && sample.fecFailed == 1 && sample.rttMs == 25)
+    }
+
+    @Test func overlayShowsWhatItKnows() {
+        let quiet = PerformanceWindow(from: StreamCounters(), to: StreamCounters(), seconds: 1)
+        let readout = PerformanceOverlay.Readout(window: quiet, targetFPS: 60, video: "HEVC 1920×1080 @ 60", rtt: nil, isRemote: true)
+        #expect(readout.lines[0] == "HEVC 1920×1080 @ 60 · Remote")
+        #expect(readout.lines[1] == "0 / 60 fps · 0.0 Mbps")
+        let local = PerformanceOverlay.Readout(window: quiet, targetFPS: 120, video: nil, rtt: (3, 1), isRemote: false)
+        #expect(local.lines[0] == "Waiting for video… · Local")
+        #expect(readout.lines[2].hasPrefix("RTT –"))
+        #expect(readout.lines[4] == "Host – · Network – · Queue – ms") // no frames: no averages
+    }
+}
+
 private func MoonswiftDERFromPEM(_ pem: String) -> Data? { der(fromPEM: pem) }

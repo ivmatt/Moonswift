@@ -66,7 +66,26 @@ final class VideoRenderer: NSObject {
             }
             entry = current.pointee.next
         }
-        liveStats.withLock { $0.videoFrames += 1; $0.videoBytes += Int(unit.pointee.fullLength) }
+        let frameNumber = Int(unit.pointee.frameNumber)
+        let hostLatency = Int(unit.pointee.frameHostProcessingLatency)
+        let receive = Int(unit.pointee.enqueueTimeUs &- unit.pointee.receiveTimeUs)
+        let queue = Int(LiGetMicroseconds() &- unit.pointee.enqueueTimeUs)
+        liveStats.withLock { stats in
+            stats.timedFrames += 1
+            stats.receiveMicroseconds += receive
+            stats.queueMicroseconds += queue
+            if hostLatency > 0 {
+                stats.hostLatencyTenthsMs += hostLatency
+                stats.hostLatencyFrames += 1
+            }
+            stats.videoFrames += 1
+            stats.videoBytes += Int(unit.pointee.fullLength)
+            // A jump in frame numbers means frames the network lost for good (moonlight-ios counts drops the same way).
+            if stats.lastFrameNumber > 0, frameNumber > stats.lastFrameNumber + 1 {
+                stats.lostFrames += frameNumber - stats.lastFrameNumber - 1
+            }
+            stats.lastFrameNumber = frameNumber
+        }
 
         if !newParameterSets.isEmpty, newParameterSets != parameterSets {
             guard let format = makeFormat(newParameterSets) else { return DR_NEED_IDR }

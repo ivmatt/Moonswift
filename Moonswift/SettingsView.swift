@@ -21,18 +21,20 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.fps) private var fps = 60
     @AppStorage(SettingsKey.codec) private var codec = CodecOption.automatic
     @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic, unlimitedSetting = unlimited
+    @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = false
+    @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
     @State private var focus = 0
     @State private var liveBitrateNote: String?
     @State private var bitrateChange: Task<Void, Never>?
 
-    private enum Row { case reconnect, resolution, fps, codec, bitrateMode, bitrate }
+    private enum Row { case reconnect, resolution, fps, codec, bitrateMode, bitrate, adaptive, overlay }
     private enum BitrateMode: String, CaseIterable { case automatic = "Automatic", custom = "Custom", unlimited = "Unlimited" }
     private var bitrateMode: BitrateMode {
         bitrate == 0 ? .automatic
             : bitrate == StreamSettings.unlimitedSetting || bitrate > StreamSettings.bitrateRange.upperBound ? .unlimited : .custom
     }
     private var rows: [Row] {
-        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec, .bitrateMode] + (bitrateMode == .custom ? [.bitrate] : [])
+        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec, .bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay]
     }
     private var videoFormats: Int32 { StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware) }
     private var effectiveBitrate: Int { StreamSettings.effectiveBitrate(saved: bitrate, width: size.width, height: size.height, fps: fps) }
@@ -101,14 +103,30 @@ struct SettingsView: View {
                             }
                         }
                     }
+                    row(.adaptive) {
+                        Toggle("Adaptive Bitrate", isOn: $adaptive)
+                    }
                 } header: {
                     Text("Bitrate")
                 } footer: {
-                    switch bitrateMode {
-                    case .automatic: Text("\(automaticBitrate / 1000) Mbps for this resolution and frame rate.")
-                    case .custom: Text("Higher looks sharper but needs a faster network.")
-                    case .unlimited: Text("1000 Mbps, the highest that works with your PC. Vibepollo's Maximum Bitrate setting can lower it.")
+                    VStack(alignment: .leading, spacing: 6) {
+                        switch bitrateMode {
+                        case .automatic: Text("\(automaticBitrate / 1000) Mbps for this resolution and frame rate.")
+                        case .custom: Text("Higher looks sharper but needs a faster network.")
+                        case .unlimited: Text("1000 Mbps, the highest that works with your PC. Vibepollo's Maximum Bitrate setting can lower it.")
+                        }
+                        if adaptive {
+                            Text("Adaptive lowers the bitrate when the network struggles and raises it back, never above this setting "
+                                 + "(and at most 500 Mbps, Vibepollo's limit for changes during a stream).")
+                        }
                     }
+                }
+                Section {
+                    row(.overlay) {
+                        Toggle("Performance Overlay", isOn: $showsPerformance)
+                    }
+                } footer: {
+                    Text("Live frame rate, bitrate, delay and packet loss in a corner of the stream.")
                 }
                 Section {
                     if live != nil {
@@ -172,6 +190,8 @@ struct SettingsView: View {
         case .codec: codec = stepped(codec, in: codecs)
         case .bitrateMode: setMode(stepped(bitrateMode, in: BitrateMode.allCases))
         case .bitrate: bitrate = StreamSettings.steppedBitrate(bitrate, by: step)
+        case .adaptive: adaptive.toggle()
+        case .overlay: showsPerformance.toggle()
         case .reconnect: break
         }
     }
