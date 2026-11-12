@@ -265,6 +265,7 @@ nonisolated func portNames(_ flags: UInt32) -> String {
 nonisolated private func videoFormatName(_ format: Int32) -> String {
     if format & VIDEO_FORMAT_MASK_H265 != 0 { return format & VIDEO_FORMAT_MASK_10BIT != 0 ? "HEVC 10-bit" : "HEVC" }
     if format & VIDEO_FORMAT_MASK_H264 != 0 { return "H.264" }
+    if format & VIDEO_FORMAT_MASK_AV1 != 0 { return format & VIDEO_FORMAT_MASK_10BIT != 0 ? "AV1 10-bit" : "AV1" }
     return String(format: "format 0x%X", format)
 }
 

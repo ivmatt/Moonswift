@@ -39,7 +39,8 @@ struct SettingsView: View {
         (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : []) + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay, .pcAudio, .about]
     }
     private var videoFormats: Int32 {
-        StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware, hdr: showsHDR && hdr)
+        StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware, av1InHardware: ScreenInfo.av1InHardware,
+                                    hdr: showsHDR && hdr)
     }
     /// HDR needs an HDR screen and HEVC, so it's hidden on other devices and when H.264 is chosen.
     private var showsHDR: Bool { ScreenInfo.supportsHDR && codec != .h264 }
@@ -51,7 +52,8 @@ struct SettingsView: View {
     }
 
     private let frameRates = StreamSettings.frameRates(screenMaximum: ScreenInfo.maximumFramesPerSecond)
-    private let codecs: [CodecOption] = ScreenInfo.hevcInHardware ? CodecOption.allCases : [.automatic, .h264]
+    private let codecs: [CodecOption] = [.automatic, .h264] + (ScreenInfo.hevcInHardware ? [.hevc] : [])
+        + (ScreenInfo.av1InHardware ? [.av1] : [])
     private var size: (width: Int, height: Int) {
         StreamSettings.size(for: resolution, nativePixels: ScreenInfo.nativePixels, safeAreaPixels: ScreenInfo.safeAreaPixels)
     }
@@ -95,8 +97,9 @@ struct SettingsView: View {
                     Text("Video")
                 } footer: {
                     Text("\(size.width)×\(size.height) at \(fps) fps"
-                         + (codec == .automatic ? ", \(ScreenInfo.hevcInHardware ? "HEVC" : "H.264") on this device." : ".")
-                         + (showsHDR && hdr ? " HDR streams in 10-bit HEVC when HDR is on in the PC's display settings." : ""))
+                         + (codec == .automatic ? ", \(ScreenInfo.hevcInHardware ? "HEVC" : "H.264") on this device."
+                            : codec == .av1 ? ". If the PC's graphics card can't encode AV1, it uses HEVC." : ".")
+                         + (showsHDR && hdr ? " HDR streams in 10-bit when HDR is on in the PC's display settings." : ""))
                 }
                 Section {
                     row(.bitrateMode) {

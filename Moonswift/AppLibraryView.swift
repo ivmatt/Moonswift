@@ -47,7 +47,7 @@ struct AppLibraryView: View {
     private var codec: CodecOption { UserDefaults.standard.string(forKey: SettingsKey.codec).flatMap(CodecOption.init) ?? .automatic }
     private var savedBitrate: Int { UserDefaults.standard.integer(forKey: SettingsKey.bitrate) }
     private var videoFormats: Int32 {
-        StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware,
+        StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware, av1InHardware: ScreenInfo.av1InHardware,
                                     hdr: ScreenInfo.supportsHDR && UserDefaults.standard.bool(forKey: SettingsKey.hdr))
     }
 

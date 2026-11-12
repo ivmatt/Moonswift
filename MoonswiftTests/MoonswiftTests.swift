@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreMedia
 import Foundation
 import MoonlightCore
 import Security
@@ -369,6 +370,12 @@ struct StreamSettingsTests {
         #expect(StreamSettings.videoFormats(for: .automatic, hevcInHardware: true, hdr: true) == VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10)
         #expect(StreamSettings.videoFormats(for: .h264, hevcInHardware: true, hdr: true) == VIDEO_FORMAT_H264) // HDR needs HEVC
         #expect(StreamSettings.videoFormats(for: .automatic, hevcInHardware: false, hdr: true) == VIDEO_FORMAT_H264)
+        #expect(StreamSettings.videoFormats(for: .av1, hevcInHardware: true, av1InHardware: true)
+                == VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H264) // HEVC and H.264 as fallbacks
+        #expect(StreamSettings.videoFormats(for: .av1, hevcInHardware: true, av1InHardware: true, hdr: true)
+                == VIDEO_FORMAT_AV1_MAIN8 | VIDEO_FORMAT_AV1_MAIN10 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_H264)
+        #expect(StreamSettings.videoFormats(for: .av1, hevcInHardware: true, av1InHardware: false)
+                == VIDEO_FORMAT_H265 | VIDEO_FORMAT_H264) // no AV1 decoder: Automatic
     }
 
     @Test func savedBitrateOverridesAutomaticWithinRange() {
@@ -621,5 +628,39 @@ struct HDRMetadataTests {
         #expect(stats.videoLabel == "HEVC 10-bit 2752×2064 @ 60")
         stats.isHDR = true
         #expect(stats.videoLabel == "HEVC 10-bit HDR 2752×2064 @ 60")
+    }
+}
+
+/// Real AV1 from SVT-AV1 (a temporal delimiter, then the sequence header OBU, then the start of the frame), with the
+/// av1C box FFmpeg wrote for the same stream as the reference.
+struct AV1Tests {
+    static let sdrStream = "12000a0e0200000561e7f66357cc81010082328b101400a3a024d9257a4568207cbfabd8c2ba2b66"
+    static let hdrStream = "12000a0e0200000561e7f66357ce8488048232bd101400a3a024dd44674337fc87bd729a6f9a99a7"
+
+    @Test func sdrMatchesFFmpeg() throws {
+        let stream = try #require(Data(hex: Self.sdrStream))
+        let header = try #require(AV1SequenceHeader.find(in: stream))
+        #expect(header.codecConfiguration == Data(hex: "81000c000a0e0200000561e7f66357cc81010082"))
+        #expect((header.width, header.height) == (320, 180))
+        #expect(header.bitDepth == 8)
+        #expect((header.colorPrimaries, header.transferCharacteristics, header.matrixCoefficients) == (2, 2, 1)) // as ffprobe reads it
+        #expect(header.formatDescription() != nil) // Core Media accepts it
+    }
+
+    @Test func hdrMatchesFFmpeg() throws {
+        let stream = try #require(Data(hex: Self.hdrStream))
+        let header = try #require(AV1SequenceHeader.find(in: stream))
+        #expect(header.codecConfiguration == Data(hex: "81004c000a0e0200000561e7f66357ce84880482"))
+        #expect(header.bitDepth == 10)
+        #expect((header.colorPrimaries, header.transferCharacteristics, header.matrixCoefficients) == (9, 16, 9)) // BT.2020, PQ
+        let extensions = header.formatExtensions()
+        #expect(extensions[kCMFormatDescriptionExtension_TransferFunction] as? String
+                == kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ as String)
+    }
+
+    @Test func noSequenceHeaderOrTruncated() throws {
+        #expect(AV1SequenceHeader.find(in: Data([0x12, 0x00])) == nil) // only a temporal delimiter
+        let truncated = try #require(Data(hex: "12000a0e0200000561"))
+        #expect(AV1SequenceHeader.find(in: truncated) == nil) // cut short
     }
 }

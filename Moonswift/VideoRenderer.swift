@@ -11,6 +11,9 @@ final class VideoRenderer: NSObject {
 
     private var link: CADisplayLink?
     private var isHEVC = false
+    private var isAV1 = false
+    /// AV1's equivalent of the parameter sets: the format is rebuilt when a keyframe brings a different one.
+    private var av1Header: AV1SequenceHeader?
     private var format: CMVideoFormatDescription?
     private var parameterSets: [Data] = []
     /// The PC's HDR brightness data, attached to the video so iOS maps HDR to this screen. Empty while SDR.
@@ -29,14 +32,17 @@ final class VideoRenderer: NSObject {
         guard extensions != hdrExtensions else { return }
         hdrExtensions = extensions
         parameterSets = [] // rebuild the format on the next keyframe
+        av1Header = nil
         LiRequestIdrFrame()
     }
 
     /// Called (on the main thread) when the library starts its video stream.
     func start(videoFormat: Int32, fps: Int) {
         isHEVC = videoFormat & VIDEO_FORMAT_MASK_H265 != 0
+        isAV1 = videoFormat & VIDEO_FORMAT_MASK_AV1 != 0
         format = nil
         parameterSets = []
+        av1Header = nil
         let link = CADisplayLink(target: self, selector: #selector(tick))
         let rate = Float(fps)
         link.preferredFrameRateRange = CAFrameRateRange(minimum: rate, maximum: rate, preferred: rate)
@@ -100,7 +106,14 @@ final class VideoRenderer: NSObject {
             stats.lastFrameNumber = frameNumber
         }
 
-        if !newParameterSets.isEmpty, newParameterSets != parameterSets {
+        if isAV1 {
+            // AV1 arrives as OBUs, which VideoToolbox takes as they are; each keyframe starts with a sequence header.
+            if unit.pointee.frameType == FRAME_TYPE_IDR, let header = AV1SequenceHeader.find(in: picture), header != av1Header {
+                guard let format = header.formatDescription(adding: hdrExtensions) else { return DR_NEED_IDR }
+                self.format = format
+                av1Header = header
+            }
+        } else if !newParameterSets.isEmpty, newParameterSets != parameterSets {
             guard let format = makeFormat(newParameterSets) else { return DR_NEED_IDR }
             self.format = format
             parameterSets = newParameterSets
@@ -112,7 +125,7 @@ final class VideoRenderer: NSObject {
             renderer.flush()
             return DR_NEED_IDR
         }
-        guard let format, !picture.isEmpty, let sample = makeSample(AnnexB.lengthPrefixed(picture), format: format) else {
+        guard let format, !picture.isEmpty, let sample = makeSample(isAV1 ? picture : AnnexB.lengthPrefixed(picture), format: format) else {
             return DR_NEED_IDR
         }
         renderer.enqueue(sample)

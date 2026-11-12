@@ -24,14 +24,16 @@ enum ResolutionOption: String, CaseIterable {
 }
 
 enum CodecOption: String, CaseIterable {
-    /// HEVC where the device decodes it in hardware, otherwise H.264.
-    case automatic, h264, hevc
+    /// Automatic: HEVC where the device decodes it in hardware, otherwise H.264. AV1 is only offered on devices that
+    /// decode it in hardware, and isn't part of Automatic.
+    case automatic, h264, hevc, av1
 
     var title: String {
         switch self {
         case .automatic: "Automatic"
         case .h264: "H.264"
         case .hevc: "HEVC"
+        case .av1: "AV1"
         }
     }
 }
@@ -86,14 +88,19 @@ nonisolated enum StreamSettings {
     }
 
     /// The library's video format flags for a codec choice.
-    /// HDR adds 10-bit HEVC, which the PC picks when its display is in HDR (it falls back to 8-bit otherwise).
-    static func videoFormats(for codec: CodecOption, hevcInHardware: Bool, hdr: Bool = false) -> Int32 {
+    /// HDR adds the 10-bit versions, which the PC picks when its display is in HDR (it falls back to 8-bit otherwise).
+    /// AV1 keeps HEVC and H.264 as fallbacks for PCs whose GPU can't encode AV1, like moonlight-ios.
+    static func videoFormats(for codec: CodecOption, hevcInHardware: Bool, av1InHardware: Bool = false, hdr: Bool = false) -> Int32 {
+        let automatic = VIDEO_FORMAT_H264 | (hevcInHardware ? VIDEO_FORMAT_H265 : 0)
         let formats: Int32 = switch codec {
-        case .automatic: VIDEO_FORMAT_H264 | (hevcInHardware ? VIDEO_FORMAT_H265 : 0)
+        case .automatic: automatic
         case .h264: VIDEO_FORMAT_H264
         case .hevc: VIDEO_FORMAT_H265
+        case .av1: av1InHardware ? VIDEO_FORMAT_AV1_MAIN8 | automatic : automatic // a saved choice the device can't do
         }
-        return formats | (hdr && formats & VIDEO_FORMAT_H265 != 0 ? VIDEO_FORMAT_H265_MAIN10 : 0)
+        guard hdr else { return formats }
+        return formats | (formats & VIDEO_FORMAT_H265 != 0 ? VIDEO_FORMAT_H265_MAIN10 : 0)
+            | (formats & VIDEO_FORMAT_AV1_MAIN8 != 0 ? VIDEO_FORMAT_AV1_MAIN10 : 0)
     }
 
     /// kbps: 20 Mbps for 1080p60, scaled by pixels per second, kept between 10 and 100 Mbps.
@@ -145,6 +152,7 @@ enum ScreenInfo {
     static var nativePixels: CGSize { scene?.screen.nativeBounds.size ?? CGSize(width: 1920, height: 1080) }
     static var maximumFramesPerSecond: Int { scene?.screen.maximumFramesPerSecond ?? 60 }
     static var hevcInHardware: Bool { VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) }
+    static var av1InHardware: Bool { VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1) }
     /// The screen can show HDR10 video (and HEVC is decoded in hardware, which HDR streams use).
     static var supportsHDR: Bool { AVPlayer.eligibleForHDRPlayback && hevcInHardware }
 
