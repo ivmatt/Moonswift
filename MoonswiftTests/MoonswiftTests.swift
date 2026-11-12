@@ -391,6 +391,22 @@ struct StreamSettingsTests {
 }
 
 struct RemoteAccessTests {
+    @Test func plainHTTPOnlyGoesToHomeNetworkHosts() {
+        for host in ["10.0.4.20", "192.168.1.5", "172.20.0.1", "169.254.83.107", "127.0.0.1", "100.101.102.103",
+                     "fe80::1%en0", "[fd4c:2e47::1]", "::1", "gaming-pc.local", "gaming-pc"] {
+            #expect(isHomeNetworkHost(host), "\(host) should count as home network")
+        }
+        for host in ["216.240.36.174", "172.32.0.1", "100.128.0.1", "8.8.8.8", "2001:4860::8888", "example.com", ""] {
+            #expect(!isHomeNetworkHost(host), "\(host) should not count as home network")
+        }
+    }
+
+    @Test func plainHTTPToAPublicAddressIsRefusedBeforeSending() async {
+        await #expect(throws: ServerInfoError.insecureBlocked) {
+            try await hostData(URL(string: "http://203.0.113.7:47989/serverinfo")!, timeout: 1)
+        }
+    }
+
     @Test func localAddressIsTriedBeforeRemote() {
         #expect(candidateAddresses(local: "10.0.4.20", remote: "203.0.113.7") == ["10.0.4.20", "203.0.113.7"])
         #expect(candidateAddresses(local: "10.0.4.20", remote: nil) == ["10.0.4.20"])

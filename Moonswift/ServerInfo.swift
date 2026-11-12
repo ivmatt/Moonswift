@@ -1,5 +1,6 @@
 import Foundation
 import MoonlightCore
+import Network
 import Security
 
 /// What a Sunshine/Vibepollo host reports at GET /serverinfo.
@@ -50,7 +51,7 @@ nonisolated enum ServerInfoError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidAddress: "Enter an IP address or hostname, optionally with :port."
-        case .insecureBlocked: "iOS only allows plain HTTP to local addresses (an IP or a .local name)."
+        case .insecureBlocked: "Moonswift only uses unencrypted connections on your home network. Pair at home; afterwards the PC also works remotely over a secure connection."
         case .unreachable(let detail): "Can't reach the host. \(detail)"
         case .httpStatus(let code): "The host answered with HTTP \(code)."
         case .hostError(let code, let message): "The host reported an error (\(code)): \(message)"
@@ -107,6 +108,9 @@ nonisolated func hostRequest(_ url: URL, timeout: TimeInterval, tls: PairedTLS? 
 
 /// The raw body of a host reply (XML, or a PNG for /appasset).
 nonisolated func hostData(_ url: URL, timeout: TimeInterval, tls: PairedTLS? = nil) async throws(ServerInfoError) -> Data {
+    // ATS is off (Info.plist) because PCs use self-signed certificates that ATS can't except by IP address; HTTPS
+    // is protected by pinning instead. This is the part of ATS we keep: plain HTTP never leaves the home network.
+    if url.scheme == "http", !isHomeNetworkHost(url.host(percentEncoded: false) ?? "") { throw .insecureBlocked }
     var request = URLRequest(url: url)
     request.timeoutInterval = timeout
     let session = tls.map { URLSession(configuration: .ephemeral, delegate: PinnedTLSDelegate(tls: $0), delegateQueue: nil) }
@@ -141,6 +145,23 @@ nonisolated func fetchPairedServerInfo(address: String, httpsPort: Int, serverCe
     return try ServerInfo(fields: await hostRequest(url, timeout: timeout, tls: tls))
 }
 
+/// True for addresses that can only be on the home network (or a private VPN): private, link-local and loopback
+/// IPv4 and IPv6, Tailscale's 100.64.0.0/10, `.local` Bonjour names and single-label names.
+nonisolated func isHomeNetworkHost(_ host: String) -> Bool {
+    let host = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).split(separator: "%").first.map(String.init) ?? ""
+    if let ipv4 = IPv4Address(host) {
+        let b = [UInt8](ipv4.rawValue)
+        return b[0] == 10 || b[0] == 127 || (b[0] == 172 && (16...31).contains(b[1])) || (b[0] == 192 && b[1] == 168)
+            || (b[0] == 169 && b[1] == 254) || (b[0] == 100 && b[1] & 0xC0 == 64)
+    }
+    if let ipv6 = IPv6Address(host) {
+        let b = [UInt8](ipv6.rawValue)
+        return ipv6 == .loopback || b[0] & 0xFE == 0xFC || (b[0] == 0xFE && b[1] & 0xC0 == 0x80) // ULA, link-local
+    }
+    let name = host.lowercased()
+    return !name.isEmpty && (name.hasSuffix(".local") || !name.contains("."))
+}
+
 /// The addresses to try for a host, in order: the local one first, then its public one if it has a different one.
 nonisolated func candidateAddresses(local: String, remote: String?) -> [String] {
     guard let remote = remote?.trimmingCharacters(in: .whitespaces), !remote.isEmpty,
@@ -150,7 +171,8 @@ nonisolated func candidateAddresses(local: String, remote: String?) -> [String] 
 
 /// Paired hosts are asked over HTTPS, at each address in turn (local, then remote). If none answers (never paired,
 /// or the host was reinstalled), plain HTTP to the local address still tells us whether it's online, like
-/// moonlight-ios's HTTP fallback. Plain HTTP never goes to the remote address: iOS only allows it to local ones.
+/// moonlight-ios's HTTP fallback. Plain HTTP is never sent to the remote address: it isn't authenticated, so it
+/// stays on the home network.
 /// Returns the address that answered.
 nonisolated func checkHost(address: String, remoteAddress: String?, httpsPort: Int,
                            serverCert: Data) async -> (status: HostStatus, info: ServerInfo?, address: String?) {
