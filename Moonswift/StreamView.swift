@@ -120,7 +120,8 @@ struct StreamView: View {
     private func showMenu() {
         switch stats.state {
         case .failed(let message), .ended(let message):
-            menu = MenuSpec(title: "Stream ended", message: message, actions: [.init(title: "Close") { leave() }], cancelTitle: nil)
+            // No X: closing this would leave a black screen. Close leaves the stream.
+            menu = MenuSpec(title: "Stream ended", message: message, actions: [.init(title: "Close") { leave() }], closable: false)
         case .connecting, .connected:
             menu = MenuSpec(title: target.title,
                             message: ([stats.video, rates].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
@@ -135,8 +136,7 @@ struct StreamView: View {
                                 },
                                 .init(title: "Disconnect") { leave() },
                                 .init(title: "Quit Game", isDestructive: true) { leave(quitting: true) },
-                            ],
-                            cancelTitle: "Resume Stream")
+                            ])
         }
     }
 

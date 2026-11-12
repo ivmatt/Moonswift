@@ -71,6 +71,7 @@ struct ContentView: View {
                         }
                     }
                 }
+                .refreshable { await checkAll(isManual: true) } // pull down: fresh status now
                 .onChange(of: focusIndex) { withAnimation { scroller.scrollTo(items[focusIndex].id) } }
             }
             .tint(.primary) // rows are buttons, but shouldn't look like links
@@ -208,31 +209,37 @@ struct ContentView: View {
     /// Like moonlight-ios's DiscoveryWorker: ask every saved host for /serverinfo on a loop.
     private func pollStatus() async {
         while !Task.isCancelled {
-            let targets = hosts.map { (id: $0.uniqueID, address: $0.address, remote: $0.remoteAddress,
-                                       httpsPort: $0.httpsPort, serverCert: $0.serverCert) }
-            await withTaskGroup(of: (String, HostStatus, ServerInfo?, String?).self) { group in
-                for target in targets {
-                    group.addTask {
-                        let result = await checkHost(address: target.address, remoteAddress: target.remote,
-                                                     httpsPort: target.httpsPort, serverCert: target.serverCert)
-                        return (target.id, result.status, result.info, result.address)
-                    }
-                }
-                for await (id, status, info, address) in group {
-                    // One missed check (a slow cellular wake-up, a dropped packet) isn't enough to call a PC offline.
-                    if status == .offline, let previous = statuses[id], previous != .offline, misses[id, default: 0] < 1 {
-                        misses[id, default: 0] += 1
-                        continue
-                    }
-                    misses[id] = 0
-                    statuses[id] = status
-                    activeAddresses[id] = address
-                    guard let host = hosts.first(where: { $0.uniqueID == id }) else { continue }
-                    if let info, host.name != info.hostname { host.name = info.hostname } // PC was renamed
-                    if status == .online(paired: true), address == host.address { learnPublicIP(for: host) }
+            await checkAll()
+            try? await Task.sleep(for: .seconds(3))
+        }
+    }
+
+    /// Asks every saved PC for its status once. `isManual` (pull to refresh) reports exactly what it finds;
+    /// the background loop forgives a single missed check.
+    private func checkAll(isManual: Bool = false) async {
+        let targets = hosts.map { (id: $0.uniqueID, address: $0.address, remote: $0.remoteAddress,
+                                   httpsPort: $0.httpsPort, serverCert: $0.serverCert) }
+        await withTaskGroup(of: (String, HostStatus, ServerInfo?, String?).self) { group in
+            for target in targets {
+                group.addTask {
+                    let result = await checkHost(address: target.address, remoteAddress: target.remote,
+                                                 httpsPort: target.httpsPort, serverCert: target.serverCert)
+                    return (target.id, result.status, result.info, result.address)
                 }
             }
-            try? await Task.sleep(for: .seconds(3))
+            for await (id, status, info, address) in group {
+                // One missed check (a slow cellular wake-up, a dropped packet) isn't enough to call a PC offline.
+                if !isManual, status == .offline, let previous = statuses[id], previous != .offline, misses[id, default: 0] < 1 {
+                    misses[id, default: 0] += 1
+                    continue
+                }
+                misses[id] = 0
+                statuses[id] = status
+                activeAddresses[id] = address
+                guard let host = hosts.first(where: { $0.uniqueID == id }) else { continue }
+                if let info, host.name != info.hostname { host.name = info.hostname } // PC was renamed
+                if status == .online(paired: true), address == host.address { learnPublicIP(for: host) }
+            }
         }
     }
 }
@@ -252,6 +259,7 @@ private struct HostRow: View {
             Spacer()
             switch status {
             case nil:
+                ProgressView().controlSize(.small)
                 Text("Checking…").foregroundStyle(.secondary)
             case .offline?:
                 Text("\(Image(systemName: "circle.fill")) Offline").foregroundStyle(.red)

@@ -13,10 +13,12 @@ struct MenuSpec {
     var message: String?
     var actions: [Action]
     /// The last row, which just closes the menu; nil for none.
-    var cancelTitle: String? = "Cancel"
+    var cancelTitle: String?
+    /// An X in the top-right corner that just closes the menu (B does the same on a controller).
+    var closable = true
 
     static func error(_ message: String) -> MenuSpec {
-        MenuSpec(title: "Something went wrong", message: message, actions: [], cancelTitle: "OK")
+        MenuSpec(title: "Something went wrong", message: message, actions: [], cancelTitle: "OK", closable: false) // OK is enough
     }
 }
 
@@ -45,6 +47,7 @@ private struct ActionMenu: View {
             Color.black.opacity(0.35).ignoresSafeArea().onTapGesture(perform: dismiss)
             VStack(spacing: 12) {
                 Text(spec.title).font(.headline).multilineTextAlignment(.center)
+                    .padding(.horizontal, spec.closable ? 28 : 0) // keep long titles clear of the X
                 if let message = spec.message {
                     Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
@@ -59,6 +62,18 @@ private struct ActionMenu: View {
             }
             .padding(24)
             .frame(maxWidth: 420)
+            .overlay(alignment: .topTrailing) {
+                if spec.closable {
+                    Button(action: dismiss) {
+                        Image(systemName: "xmark").font(.body.weight(.semibold)).frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.circle)
+                    .tint(.secondary)
+                    .padding(12)
+                    .accessibilityLabel("Close")
+                }
+            }
             .background(.regularMaterial, in: .rect(cornerRadius: 28))
             .padding()
         }
