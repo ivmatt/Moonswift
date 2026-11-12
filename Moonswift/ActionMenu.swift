@@ -81,7 +81,7 @@ private struct ActionMenu: View {
             switch command {
             case .up, .down: focus = FocusMove.next(focus, count: rows.count, columns: 1, command)
             case .select: choose(focus)
-            case .back, .menu: dismiss()
+            case .back, .menu, .alternate: dismiss()
             case .left, .right, .streamMenu, .settings, .options, .previousTab, .nextTab: break
             }
         }

@@ -102,7 +102,7 @@ struct ContentView: View {
                 switch command {
                 case .up, .down: focus = FocusMove.next(focusIndex, count: items.count, columns: 1, command)
                 case .select: activate(items[focusIndex])
-                case .menu: showMenu(items[focusIndex])
+                case .menu, .alternate: showMenu(items[focusIndex])
                 case .settings: isShowingSettings = true
                 case .left, .right, .back, .streamMenu, .options, .previousTab, .nextTab: break
                 }

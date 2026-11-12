@@ -6,7 +6,8 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
     case up, down, left, right
     case select // A, Return
     case back // B, Esc
-    case menu // X or Y, Space
+    case menu // Y (triangle), Space
+    case alternate // X (square): a screen's second action, like Quit in the game list
     case streamMenu // Menu + View held for a second: the in-stream menu, since every other button goes to the game
     case settings // Menu (≡ / Options) pressed: open Settings from the home screen or a game list
     case options // View (⧉ / Create) pressed: a screen's extra options, like the game list's Sort & Search
@@ -70,7 +71,7 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
                 MainActor.assumeIsolated { self?.hold(stick: x, y) }
             }
             let buttons: [(GCControllerButtonInput, GamepadCommand)] =
-                [(pad.buttonA, .select), (pad.buttonB, .back), (pad.buttonX, .menu), (pad.buttonY, .menu),
+                [(pad.buttonA, .select), (pad.buttonB, .back), (pad.buttonX, .alternate), (pad.buttonY, .menu),
                  (pad.leftShoulder, .previousTab), (pad.rightShoulder, .nextTab)]
             for (button, command) in buttons {
                 button.pressedChangedHandler = { [weak self] _, _, pressed in
@@ -233,7 +234,7 @@ private struct GamepadHandler: ViewModifier {
 /// A strip of "button: action" hints along the bottom while a controller is in use, with each button drawn the
 /// way the connected controller labels it (✕ ○ on DualSense, A B on Xbox).
 struct ControllerHints: View {
-    enum Button { case a, b, y, l1, r1, menu, view }
+    enum Button { case a, b, x, y, l1, r1, menu, view }
     let hints: [(buttons: [Button], label: String)]
     @Environment(GamepadInput.self) private var gamepad
 
@@ -262,6 +263,7 @@ struct ControllerHints: View {
         let element: GCControllerElement? = switch button {
         case .a: pad?.buttonA
         case .b: pad?.buttonB
+        case .x: pad?.buttonX
         case .y: pad?.buttonY
         case .l1: pad?.leftShoulder
         case .r1: pad?.rightShoulder

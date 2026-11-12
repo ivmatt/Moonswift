@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// A paired PC's games as a box-art grid, with search, All/Favorites filters and a sort order. Tapping a game
-/// (or A) launches it, or offers Resume/Quit if it's running; a long press (or Y/X) opens the game's menu, which also
-/// adds it to Favorites; B goes back. Up from the top row reaches the filters, which left/right switch.
+/// A paired PC's games as a box-art grid, with search, All/Favorites filters and a sort order. A PC runs one game at a
+/// time: tapping it (or A) resumes it, tapping another asks to quit it first. Quit sits in the toolbar (X on a
+/// controller). A long press (or Y) adds or removes a favorite. B goes back; L1/R1 or up from the top row switch filters.
 struct AppLibraryView: View {
     let name: String
     /// The PC's home and public addresses, to find which one answers before reconnecting.
@@ -69,20 +69,19 @@ struct AppLibraryView: View {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Self.spacing), count: columns),
                               spacing: 28) {
                         ForEach(Array(ordered.enumerated()), id: \.element.id) { index, app in
-                            Button {
-                                focus = index
-                                tapped(app)
-                            } label: {
-                                AppTile(client: client, app: app, isRunning: app.id == runningID,
-                                        isFavorite: history.favorites.contains(GameHistory.key(app)),
-                                        isFocused: gamepad.isActive && !isOnFilters && index == focusIndex)
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu { // touch's way to the game menu (a controller uses Y)
-                                let isFavorite = history.favorites.contains(GameHistory.key(app))
-                                Button(isFavorite ? "Remove from Favorites" : "Add to Favorites",
-                                       systemImage: isFavorite ? "star.slash" : "star") { toggleFavorite(app) }
-                            }
+                            let isFavorite = history.favorites.contains(GameHistory.key(app))
+                            AppTile(client: client, app: app, isRunning: app.id == runningID, isFavorite: isFavorite,
+                                    isFocused: gamepad.isActive && !isOnFilters && index == focusIndex)
+                                .onTapGesture {
+                                    focus = index
+                                    tapped(app)
+                                }
+                                .onLongPressGesture { toggleFavorite(app) }
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityHint(app.id == runningID ? "Resumes the game." : "Launches the game.")
+                                .accessibilityAction(named: isFavorite ? "Remove from Favorites" : "Add to Favorites") {
+                                    toggleFavorite(app)
+                                }
                             .id(app.id)
                         }
                     }
@@ -122,8 +121,8 @@ struct AppLibraryView: View {
         .navigationTitle(name)
         .searchable(text: $query, isPresented: $isSearching, prompt: "Search games")
         .safeAreaInset(edge: .bottom) {
-            ControllerHints(hints: [([.l1, .r1], "All / Favorites"), ([.view], "Sort & Search"),
-                                    ([.y], "Game Menu"), ([.menu], "Settings")])
+            ControllerHints(hints: [([.l1, .r1], "All / Favorites"), ([.view], "Sort & Search"), ([.y], "Favorite")]
+                            + (running.map { [([.x], "Quit \($0.title)")] } ?? []) + [([.menu], "Settings")])
         }
         .refreshable { await load() }
         .task {
@@ -151,7 +150,9 @@ struct AppLibraryView: View {
             case .select:
                 if ordered.indices.contains(focusIndex) { tapped(ordered[focusIndex]) }
             case .menu:
-                if ordered.indices.contains(focusIndex) { menu = gameMenu(ordered[focusIndex]) }
+                if ordered.indices.contains(focusIndex) { toggleFavorite(ordered[focusIndex]) }
+            case .alternate:
+                if runningID != 0 { confirmQuit() }
             case .back:
                 if isSearching { isSearching = false } else { dismiss() }
             case .settings:
@@ -162,7 +163,13 @@ struct AppLibraryView: View {
         }
         .actionMenu($menu)
         .sheet(isPresented: $isShowingSettings) { SettingsView() }
+        .sensoryFeedback(.selection, trigger: history.favorites)
         .toolbar {
+            if let running {
+                Button("Quit \(running.title)", systemImage: "xmark.circle.fill", role: .destructive) { confirmQuit() }
+                    .tint(.red)
+                    .foregroundStyle(.red)
+            }
             Menu("Sort", systemImage: "arrow.up.arrow.down") {
                 Picker("Sort", selection: $sort) {
                     ForEach(LibrarySort.allCases, id: \.self) { Text($0.rawValue) }
@@ -184,16 +191,33 @@ struct AppLibraryView: View {
         }
     }
 
+    /// A PC runs one game at a time: the running one resumes straight away; another asks to quit it first.
     private func tapped(_ app: HostApp) {
-        if runningID == 0 { launch(app) } else { menu = gameMenu(app) }
+        if runningID == 0 {
+            launch(app)
+        } else if app.id == runningID {
+            perform("Resuming \(app.title)…", streaming: app) {
+                try await client.resume(app, width: mode.width, height: mode.height, fps: fps)
+            }
+        } else {
+            menu = MenuSpec(title: "Quit \(running?.title ?? "the running game") to launch \(app.title)?",
+                            message: "Unsaved progress in the running game may be lost.", actions: [
+                .init(title: "Quit and Launch", isDestructive: true) {
+                    perform("Launching \(app.title)…", streaming: app) {
+                        try await client.quit()
+                        return try await client.launch(app, width: mode.width, height: mode.height, fps: fps)
+                    }
+                },
+            ])
+        }
     }
 
-    /// What can be done with `app` given what's running, plus adding or removing it from Favorites.
-    private func gameMenu(_ app: HostApp) -> MenuSpec {
-        var spec = playMenu(app)
-        let isFavorite = history.favorites.contains(GameHistory.key(app))
-        spec.actions.append(.init(title: isFavorite ? "Remove from Favorites" : "Add to Favorites") { toggleFavorite(app) })
-        return spec
+    /// Quitting can lose unsaved progress, so it asks once.
+    private func confirmQuit() {
+        let title = running?.title ?? "the running game"
+        menu = MenuSpec(title: "Quit \(title)?", message: "Unsaved progress may be lost.", actions: [
+            .init(title: "Quit", isDestructive: true) { perform("Quitting \(title)…") { try await client.quit(); return nil } },
+        ])
     }
 
     /// The controller's way to the toolbar's Sort and the search field (View button).
@@ -208,32 +232,6 @@ struct AppLibraryView: View {
         let key = GameHistory.key(app)
         if history.favorites.remove(key) == nil { history.favorites.insert(key) }
         history.save(hostID: client.hostID)
-    }
-
-    private func playMenu(_ app: HostApp) -> MenuSpec {
-        if app.id == runningID {
-            return MenuSpec(title: "\(app.title) is running", actions: [
-                .init(title: "Resume") {
-                    perform("Resuming \(app.title)…", streaming: app) {
-                        try await client.resume(app, width: mode.width, height: mode.height, fps: fps)
-                    }
-                },
-                .init(title: "Quit", isDestructive: true) {
-                    perform("Quitting \(app.title)…") { try await client.quit(); return nil }
-                },
-            ])
-        }
-        if runningID != 0 {
-            return MenuSpec(title: "Quit \(running?.title ?? "the running game") to launch \(app.title)?", actions: [
-                .init(title: "Quit and Launch", isDestructive: true) {
-                    perform("Launching \(app.title)…", streaming: app) {
-                        try await client.quit()
-                        return try await client.launch(app, width: mode.width, height: mode.height, fps: fps)
-                    }
-                },
-            ])
-        }
-        return MenuSpec(title: app.title, actions: [.init(title: "Launch") { launch(app) }])
     }
 
     private func launch(_ app: HostApp) {
