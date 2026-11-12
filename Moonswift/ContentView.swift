@@ -80,7 +80,7 @@ struct ContentView: View {
                 if let host = hosts.first(where: { $0.uniqueID == id }) {
                     AppLibraryView(client: HostClient(hostID: host.uniqueID, address: activeAddresses[id] ?? host.address,
                                                       httpsPort: host.httpsPort, serverCert: host.serverCert),
-                                   name: host.name)
+                                   name: host.name, localAddress: host.address, remoteAddress: host.remoteAddress)
                 }
             }
             .sheet(isPresented: $isAdding) { AddHostView() }
