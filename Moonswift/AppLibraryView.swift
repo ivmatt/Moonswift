@@ -102,7 +102,7 @@ struct AppLibraryView: View {
         .overlay {
             if !isLoaded {
                 ProgressView()
-            } else if let loadError {
+            } else if let loadError, apps.isEmpty {
                 ContentUnavailableView("Can't load games", systemImage: "exclamationmark.triangle", description: Text(loadError))
             } else if apps.isEmpty {
                 ContentUnavailableView("No games", systemImage: "gamecontroller",
@@ -132,7 +132,9 @@ struct AppLibraryView: View {
         .task {
             history = GameHistory.load(hostID: client.hostID)
             await load()
+            startRequested()
         }
+        .onChange(of: LaunchRouter.shared.pending) { startRequested() }
         .onChange(of: filter) { focus = 0 }
         .onChange(of: query) { focus = 0 }
         .onGamepad { command in
@@ -168,19 +170,7 @@ struct AppLibraryView: View {
         .actionMenu($menu)
         .sheet(isPresented: $isShowingSettings) { SettingsView() }
         .sensoryFeedback(.selection, trigger: history.favorites)
-        .toolbar {
-            if let running {
-                Button("Quit \(running.title)", systemImage: "xmark.circle.fill", role: .destructive) { confirmQuit() }
-                    .tint(.red)
-                    .foregroundStyle(.red)
-            }
-            Menu("Sort", systemImage: "arrow.up.arrow.down") {
-                Picker("Sort", selection: $sort) {
-                    ForEach(LibrarySort.allCases, id: \.self) { Text($0.rawValue) }
-                }
-            }
-            Button("Settings", systemImage: "gearshape") { isShowingSettings = true }
-        }
+        .toolbar { toolbar }
         .fullScreenCover(item: $stream, onDismiss: { Task { await load() } }) { target in
             StreamView(client: client, target: target, resume: reconnect)
         }
@@ -192,6 +182,37 @@ struct AppLibraryView: View {
                 try? await Task.sleep(for: .seconds(5))
                 if stream == nil, busy == nil { refreshRunning() }
             }
+        }
+    }
+
+    /// A link or Shortcut asked for one of this PC's games: start it the way a tap would (resume it if it's running,
+    /// or ask before quitting another).
+    private func startRequested() {
+        guard isLoaded, let request = LaunchRouter.shared.pending, request.pc == client.hostID else { return }
+        LaunchRouter.shared.pending = nil
+        guard stream == nil, busy == nil else { return } // already streaming: leave it be
+        guard let app = request.game(in: apps) else { return menu = .error("\(name) has no game called \(request.game).") }
+        tapped(app)
+    }
+
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        if let running {
+            // Apart from the other buttons, beside Back: shaped like it, in red glass.
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Quit \(running.title)", systemImage: "xmark", role: .destructive) { confirmQuit() }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.glassProminent)
+                    .buttonBorderShape(.circle)
+                    .tint(.red)
+            }
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
+            Menu("Sort", systemImage: "arrow.up.arrow.down") {
+                Picker("Sort", selection: $sort) {
+                    ForEach(LibrarySort.allCases, id: \.self) { Text($0.rawValue) }
+                }
+            }
+            Button("Settings", systemImage: "gearshape") { isShowingSettings = true }
         }
     }
 
@@ -253,6 +274,7 @@ struct AppLibraryView: View {
                 if let launch = try await action(), let app {
                     streamingApp = app
                     stream = streamTarget(app, launch)
+                    LaunchRequest.last = LaunchRequest(pc: client.hostID, game: app.uuid.isEmpty ? app.title : app.uuid)
                     history.lastPlayed[GameHistory.key(app)] = .now
                     history.save(hostID: client.hostID)
                 }
@@ -264,14 +286,24 @@ struct AppLibraryView: View {
         }
     }
 
+    /// A failed request is tried once more (the PC sometimes refuses one, such as a one-off "permission denied" for
+    /// a list it showed a moment ago). If it still fails, the error only replaces the grid when there's nothing to
+    /// show; a refresh of games already on screen keeps them.
     private func load() async {
-        do {
-            async let info = client.serverInfo()
-            apps = try await client.apps()
-            runningID = try await info.currentGame
-            loadError = nil
-        } catch {
-            loadError = error.localizedDescription
+        for attempt in 1...2 {
+            do {
+                async let info = client.serverInfo()
+                apps = try await client.apps()
+                runningID = try await info.currentGame
+                loadError = nil
+                break
+            } catch {
+                if attempt == 1 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                } else if apps.isEmpty {
+                    loadError = error.localizedDescription
+                }
+            }
         }
         isLoaded = true
     }

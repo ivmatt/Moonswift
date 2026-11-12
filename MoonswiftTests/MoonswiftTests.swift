@@ -701,3 +701,24 @@ struct StreamGestureTests {
         #expect(StreamGesture.classify(start: Array(fingers.prefix(2)), end: Array(fingers.prefix(2))) == nil)
     }
 }
+
+struct LaunchRequestTests {
+    @Test func linksRoundTripAndMatchGames() throws {
+        let link = try #require(URL(string: "moonswift://stream?pc=Desktop&game=Black%20Flag"))
+        let request = try #require(LaunchRequest(url: link))
+        #expect(request == LaunchRequest(pc: "Desktop", game: "Black Flag"))
+        #expect(request.url.flatMap(LaunchRequest.init(url:)) == request)
+        let noGame = try #require(URL(string: "moonswift://stream?pc=Desktop"))
+        let otherScheme = try #require(URL(string: "https://stream?pc=a&game=b"))
+        #expect(LaunchRequest(url: noGame) == nil)
+        #expect(LaunchRequest(url: otherScheme) == nil)
+        #expect(request.matches(pcID: "ABC", name: "desktop"))
+
+        let apps = [("1", "Assassin's Creed Black Flag Resynced", "U1"), ("2", "Black Flag", "U2"), ("3", "Hades", "U3")]
+            .compactMap { HostApp(fields: ["ID": $0.0, "AppTitle": $0.1, "UUID": $0.2]) }
+        #expect(request.game(in: apps)?.id == 2) // the exact title wins over a longer one containing it
+        #expect(LaunchRequest(pc: "x", game: "U3").game(in: apps)?.id == 3) // by UUID
+        #expect(LaunchRequest(pc: "x", game: "resynced").game(in: apps)?.id == 1) // part of a title
+        #expect(LaunchRequest(pc: "x", game: "Celeste").game(in: apps) == nil)
+    }
+}

@@ -34,6 +34,7 @@ struct ContentView: View {
     @State private var playing: [String: Int] = [:] // by uniqueID: the running game's ID (0 or missing: none)
     @State private var gameTitles: [String: [Int: String]] = [:] // by uniqueID: game titles, looked up when one runs
     @State private var sleepable: Set<String> = [] // uniqueIDs of PCs that let this device put them to sleep
+    @State private var isStarting = true // the start screen, until the only PC's status is known (or Home is chosen)
     @State private var isAdding = false
     @State private var isShowingSettings = false
     @State private var pairing: PairTarget?
@@ -114,7 +115,69 @@ struct ContentView: View {
             .actionMenu($menu)
             .sheet(item: $editing) { EditPCView(host: $0) }
             // Restarts at once when a host is added, removed, (re)paired or gets a new address.
+            .onOpenURL { url in if let request = LaunchRequest(url: url) { LaunchRouter.shared.pending = request } }
+            .onChange(of: LaunchRouter.shared.pending) { routePending() }
+            .onAppear { if hosts.count != 1 { isStarting = false } } // the start screen is only for a single PC
+            .onChange(of: statuses) {
+                routePending()
+                openOnlyPC()
+            }
             .task(id: hosts.map { "\($0.uniqueID)|\($0.serverCert.count)|\($0.address)|\($0.remoteAddress ?? "")" }) { await pollStatus() }
+        }
+        .overlay {
+            // With one PC, the app opens on this instead of Home, then jumps straight to the PC's games.
+            if isStarting, hosts.count == 1, let host = hosts.first {
+                StartingView(name: host.displayName) { showHome() }
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    /// With a single PC, Home is an extra step: open its games as soon as it's known to be up, once per app launch
+    /// (Back still returns here). With several, Home asks which one, like picking a user.
+    private func openOnlyPC() {
+        guard isStarting, LaunchRouter.shared.pending == nil, hosts.count == 1, let host = hosts.first,
+              let status = statuses[host.uniqueID] else { return }
+        if status == .online(paired: true) {
+            open(host.uniqueID)
+        } else {
+            showHome() // offline or unpaired: Home says which
+        }
+    }
+
+    /// Goes to a PC's games with no push animation, so opening the app doesn't flash Home first.
+    private func open(_ id: String) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            if path != [id] { path = [id] }
+            isStarting = false
+        }
+    }
+
+    private func showHome() {
+        withAnimation { isStarting = false }
+    }
+
+    /// A link or Shortcut asked for a game: open its PC once its status is known; the game list starts the game.
+    private func routePending() {
+        guard let request = LaunchRouter.shared.pending else { return }
+        guard let host = hosts.first(where: { request.matches(pcID: $0.uniqueID, name: $0.displayName)
+                                              || request.matches(pcID: $0.uniqueID, name: $0.name) }) else {
+            LaunchRouter.shared.pending = nil
+            showHome()
+            return menu = .error("There's no PC called \(request.pc) in Moonswift.")
+        }
+        switch statuses[host.uniqueID] {
+        case nil:
+            return // still checking; this runs again when the status arrives
+        case .online(paired: true)?:
+            LaunchRouter.shared.pending = LaunchRequest(pc: host.uniqueID, game: request.game) // the game list matches by ID
+            open(host.uniqueID)
+        default:
+            LaunchRouter.shared.pending = nil
+            showHome()
+            menu = .error("\(host.displayName) isn't available. It may be asleep or off, or not paired.")
         }
     }
 
@@ -312,4 +375,31 @@ private struct HostRow: View {
     ContentView()
         .modelContainer(for: SavedHost.self, inMemory: true)
         .environment(GamepadInput())
+}
+
+/// What the app opens on when there's one PC, while it checks that the PC is up. After a few seconds it offers Home,
+/// for choosing or adding another PC.
+private struct StartingView: View {
+    let name: String
+    let showHome: () -> Void
+
+    @State private var offersHome = false
+
+    var body: some View {
+        VStack(spacing: 18) {
+            ProgressView().controlSize(.large)
+            Text("Connecting to \(name)…").font(.headline)
+            Button("Choose Another PC", action: showHome)
+                .buttonStyle(.bordered)
+                .opacity(offersHome ? 1 : 0)
+                .disabled(!offersHome)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
+        .onGamepad { command in if offersHome, command == .select || command == .back { showHome() } }
+        .task {
+            try? await Task.sleep(for: .seconds(2.5))
+            withAnimation { offersHome = true }
+        }
+    }
 }
