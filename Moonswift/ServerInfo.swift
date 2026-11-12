@@ -2,6 +2,7 @@ import Foundation
 import MoonlightCore
 import Network
 import Security
+import Synchronization
 
 /// What a Sunshine/Vibepollo host reports at GET /serverinfo.
 nonisolated struct ServerInfo: Equatable {
@@ -43,7 +44,9 @@ nonisolated struct ServerInfo: Equatable {
 nonisolated enum ServerInfoError: LocalizedError, Equatable {
     case invalidAddress
     case insecureBlocked
-    case unreachable(String)
+    case unreachable(URLError.Code)
+    /// The PC presented a different certificate from the one saved at pairing.
+    case certificateChanged
     case httpStatus(Int)
     case hostError(code: Int, message: String)
     case malformedResponse
@@ -52,10 +55,17 @@ nonisolated enum ServerInfoError: LocalizedError, Equatable {
         switch self {
         case .invalidAddress: "Enter an IP address or hostname, optionally with :port."
         case .insecureBlocked: "Moonswift only uses unencrypted connections on your home network. Pair at home; afterwards the PC also works remotely over a secure connection."
-        case .unreachable(let detail): "Can't reach the host. \(detail)"
-        case .httpStatus(let code): "The host answered with HTTP \(code)."
-        case .hostError(let code, let message): "The host reported an error (\(code)): \(message)"
-        case .malformedResponse: "The host's reply wasn't valid XML."
+        case .unreachable(.notConnectedToInternet): "This device isn't connected to a network."
+        case .unreachable(.timedOut), .unreachable(.cannotConnectToHost), .unreachable(.networkConnectionLost):
+            "The PC isn't responding. It may be asleep or off, or its streaming software isn't running."
+        case .unreachable(.cannotFindHost), .unreachable(.dnsLookupFailed): "This PC's name couldn't be found on the network."
+        case .unreachable(let code): "Can't reach the PC (network error \(code.rawValue))."
+        case .certificateChanged:
+            "This PC's identity has changed, for example after its streaming software was reinstalled. Remove it and pair again."
+        case .httpStatus(let code): "The PC answered with HTTP \(code)."
+        case .hostError(code: 401, _): "This PC no longer recognizes this device. Remove it and pair again."
+        case .hostError(let code, let message): "The PC reported an error (\(code)): \(message)"
+        case .malformedResponse: "The PC's reply wasn't understood."
         }
     }
 }
@@ -113,7 +123,8 @@ nonisolated func hostData(_ url: URL, timeout: TimeInterval, tls: PairedTLS? = n
     if url.scheme == "http", !isHomeNetworkHost(url.host(percentEncoded: false) ?? "") { throw .insecureBlocked }
     var request = URLRequest(url: url)
     request.timeoutInterval = timeout
-    let session = tls.map { URLSession(configuration: .ephemeral, delegate: PinnedTLSDelegate(tls: $0), delegateQueue: nil) }
+    let delegate = tls.map(PinnedTLSDelegate.init)
+    let session = delegate.map { URLSession(configuration: .ephemeral, delegate: $0, delegateQueue: nil) }
         ?? URLSession(configuration: .ephemeral)
     defer { session.finishTasksAndInvalidate() } // a session keeps its delegate alive until invalidated
 
@@ -123,7 +134,8 @@ nonisolated func hostData(_ url: URL, timeout: TimeInterval, tls: PairedTLS? = n
     } catch let error as URLError where error.code == .appTransportSecurityRequiresSecureConnection {
         throw .insecureBlocked
     } catch {
-        throw .unreachable(error.localizedDescription)
+        if delegate?.rejectedCertificate.withLock({ $0 }) == true { throw .certificateChanged }
+        throw .unreachable((error as? URLError)?.code ?? .unknown)
     }
 
     if let http = response as? HTTPURLResponse, http.statusCode != 200 {
@@ -243,6 +255,8 @@ private nonisolated func collectRoot(_ xml: Data) throws(ServerInfoError) -> Roo
 /// saved at pairing (pinning), and answer the host's request for our client certificate.
 private nonisolated final class PinnedTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
     let tls: PairedTLS
+    /// Set when the PC's certificate wasn't the pinned one, so the error can say so.
+    let rejectedCertificate = Mutex(false)
     init(tls: PairedTLS) { self.tls = tls }
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
@@ -252,7 +266,10 @@ private nonisolated final class PinnedTLSDelegate: NSObject, URLSessionDelegate,
             guard let trust = challenge.protectionSpace.serverTrust,
                   let leaf = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first,
                   SecCertificateCopyData(leaf) as Data == tls.serverCert
-            else { return completionHandler(.cancelAuthenticationChallenge, nil) }
+            else {
+                rejectedCertificate.withLock { $0 = true }
+                return completionHandler(.cancelAuthenticationChallenge, nil)
+            }
             completionHandler(.useCredential, URLCredential(trust: trust))
         case NSURLAuthenticationMethodClientCertificate:
             completionHandler(.useCredential, URLCredential(identity: tls.identity, certificates: nil, persistence: .forSession))

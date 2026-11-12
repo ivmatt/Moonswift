@@ -33,8 +33,8 @@ nonisolated enum GameError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .launchFailed: "The host didn't start the game."
-        case .quitFailed: "The host didn't quit the game."
+        case .launchFailed: "The PC didn't start the game."
+        case .quitFailed: "The PC didn't quit the game."
         case .permissionDenied(let message): message
         }
     }

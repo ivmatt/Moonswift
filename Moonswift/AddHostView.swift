@@ -87,7 +87,7 @@ struct AddHostView: View {
         case .idle:
             EmptyView()
         case .loading:
-            Section { ProgressView("Contacting host…") }
+            Section { ProgressView("Contacting PC…") }
         case .loaded(let info):
             Section {
                 LabeledContent("Hostname", value: info.hostname)

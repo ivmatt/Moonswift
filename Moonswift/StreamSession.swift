@@ -63,7 +63,7 @@ nonisolated private let audioRenderer = AudioRenderer()
             do {
                 info = try await host.serverInfo()
             } catch {
-                liveStats.withLock { $0.state = .failed("Couldn't read the host's info: \(error.localizedDescription)") }
+                liveStats.withLock { $0.state = .failed(error.localizedDescription) }
                 return (-1, nil)
             }
             let strings = CStrings(address: hostAddress(host.address), appVersion: info.appVersion,
@@ -112,7 +112,8 @@ nonisolated private let audioRenderer = AudioRenderer()
         }
         listener.stageFailed = { stage, code in
             let name = String(cString: LiGetStageName(stage))
-            liveStats.withLock { $0.state = .failed("\(name) failed (error \(code))") }
+            reportFailure(StreamStats.State.failed, "Couldn't connect to the PC: \(name) didn't finish (error \(code)).",
+                          ports: LiGetPortFlagsFromStage(stage))
         }
         listener.connectionStarted = {
             liveStats.withLock { $0.state = .connected; $0.append("Connection started") }
@@ -121,7 +122,7 @@ nonisolated private let audioRenderer = AudioRenderer()
             liveStats.withLock { $0.isPoor = status == CONN_STATUS_POOR }
         }
         listener.connectionTerminated = { code in
-            liveStats.withLock { $0.state = .ended(terminationReason(code)) }
+            reportFailure(StreamStats.State.ended, terminationReason(code), ports: LiGetPortFlagsFromTerminationErrorCode(code))
         }
         // The host's requests for the controllers arrive on the library's threads; apply them on the main thread.
         listener.rumble = { number, low, high in
@@ -217,6 +218,36 @@ nonisolated func terminationReason(_ code: Int32) -> String {
     case ML_ERROR_PROTECTED_CONTENT: "The PC can't stream protected content (DRM video)."
     default: "Connection lost (error \(code))."
     }
+}
+
+/// Sets the failure message. When the failure involved network ports, tests them against Moonlight's test server
+/// (like moonlight-ios) and adds who is blocking them: this network, or the PC's side.
+nonisolated private func reportFailure(_ state: @escaping @Sendable (String) -> StreamStats.State, _ message: String, ports: UInt32) {
+    guard ports != 0 else { return liveStats.withLock { $0.state = state(message) } }
+    let checking = state(message + "\n\nChecking your network…")
+    liveStats.withLock { $0.state = checking }
+    Task.detached { // the test takes a few seconds; never on the library's thread
+        let result = LiTestClientConnectivity("ios.conntest.moonlight-stream.org", 443, ports)
+        let advice = portAdvice(ports: ports, testResult: result)
+        liveStats.withLock { if $0.state == checking { $0.state = state(advice.map { message + "\n\n" + $0 } ?? message) } }
+    }
+}
+
+/// What a port test found, in words; nil when it couldn't tell.
+nonisolated func portAdvice(ports: UInt32, testResult: UInt32) -> String? {
+    guard ports != 0, testResult != ML_TEST_RESULT_INCONCLUSIVE else { return nil }
+    if testResult != 0 {
+        return "The network this device is on blocks \(portNames(testResult)). Try another network, or turn off a VPN."
+    }
+    return "This network lets those ports through, so the PC's side is blocking \(portNames(ports)). "
+        + "Check the PC's firewall and, away from home, the router's port forwarding."
+}
+
+/// e.g. "UDP 47998, UDP 47999".
+nonisolated func portNames(_ flags: UInt32) -> String {
+    var buffer = [CChar](repeating: 0, count: 256)
+    LiStringifyPortFlags(flags, ", ", &buffer, Int32(buffer.count))
+    return String(cString: buffer)
 }
 
 nonisolated private func videoFormatName(_ format: Int32) -> String {

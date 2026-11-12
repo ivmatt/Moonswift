@@ -534,3 +534,20 @@ struct PerformanceTests {
 }
 
 private func MoonswiftDERFromPEM(_ pem: String) -> Data? { der(fromPEM: pem) }
+
+struct ErrorMessageTests {
+    @Test func networkErrorsSayWhatToCheck() {
+        #expect(ServerInfoError.unreachable(.timedOut).localizedDescription.contains("asleep"))
+        #expect(ServerInfoError.hostError(code: 401, message: "x").localizedDescription.contains("pair again"))
+        #expect(ServerInfoError.certificateChanged.localizedDescription.contains("pair again"))
+    }
+
+    @Test func portAdviceBlamesTheRightSide() {
+        let udp = UInt32(ML_PORT_FLAG_UDP_47998 | ML_PORT_FLAG_UDP_47999)
+        #expect(portNames(udp) == "UDP 47998, UDP 47999")
+        #expect(portAdvice(ports: udp, testResult: UInt32(ML_PORT_FLAG_UDP_47998))?.hasPrefix("The network this device is on blocks UDP 47998.") == true)
+        #expect(portAdvice(ports: udp, testResult: 0)?.contains("PC's side is blocking UDP 47998, UDP 47999") == true)
+        #expect(portAdvice(ports: udp, testResult: ML_TEST_RESULT_INCONCLUSIVE) == nil)
+        #expect(portAdvice(ports: 0, testResult: 0) == nil)
+    }
+}
