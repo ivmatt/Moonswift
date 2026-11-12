@@ -26,14 +26,15 @@ struct SettingsView: View {
     @State private var focus = 0
     @State private var liveBitrateNote: String?
     @State private var bitrateChange: Task<Void, Never>?
+    @State private var isShowingAbout = false
 
-    private enum Row { case reconnect, resolution, fps, codec, bitrateMode, bitrate, adaptive, overlay }
+    private enum Row { case reconnect, resolution, fps, codec, bitrateMode, bitrate, adaptive, overlay, about }
     private enum BitrateMode: String, CaseIterable { case automatic = "Automatic", custom = "Custom" }
     private var bitrateMode: BitrateMode {
         bitrate == 0 ? .automatic : .custom
     }
     private var rows: [Row] {
-        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec, .bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay]
+        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec, .bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay, .about]
     }
     private var videoFormats: Int32 { StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware) }
     private var effectiveBitrate: Int { StreamSettings.effectiveBitrate(saved: bitrate, width: size.width, height: size.height, fps: fps) }
@@ -127,6 +128,9 @@ struct SettingsView: View {
                     Text("Live frame rate, bitrate, delay and packet loss in a corner of the stream.")
                 }
                 Section {
+                    row(.about) { Button("About Moonswift") { isShowingAbout = true }.foregroundStyle(.primary) }
+                }
+                Section {
                     if live != nil {
                         Text(liveBitrateNote ?? "Bitrate changes apply to this stream right away.").foregroundStyle(.secondary)
                     } else {
@@ -135,6 +139,7 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle(live == nil ? "Settings" : "Stream Settings")
+            .navigationDestination(isPresented: $isShowingAbout) { AboutView() }
             .onChange(of: effectiveBitrate) { _, kbps in applyLive(kbps) }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
@@ -150,6 +155,7 @@ struct SettingsView: View {
                 let current = rows[min(focus, rows.count - 1)]
                 switch command {
                 case .up, .down: focus = FocusMove.next(focus, count: rows.count, columns: 1, command)
+                case .select where current == .about: isShowingAbout = true
                 case .select where current == .reconnect:
                     dismiss()
                     live?.reconnect()
@@ -191,7 +197,7 @@ struct SettingsView: View {
         case .bitrate: bitrate = StreamSettings.steppedBitrate(bitrate, by: step)
         case .adaptive: adaptive.toggle()
         case .overlay: showsPerformance.toggle()
-        case .reconnect: break
+        case .reconnect, .about: break
         }
     }
 
