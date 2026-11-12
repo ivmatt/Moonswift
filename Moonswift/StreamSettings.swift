@@ -40,15 +40,18 @@ enum SettingsKey {
     static let resolution = "resolution"
     static let fps = "fps"
     static let codec = "codec"
-    static let bitrate = "bitrateKbps" // 0 = automatic, StreamSettings.unlimitedBitrate = unlimited
+    static let bitrate = "bitrateKbps" // 0 = automatic, StreamSettings.unlimitedSetting = unlimited, else kbps
 }
 
 /// The stream size, frame rate, codecs and bitrate to ask for. Pure functions, so they can be tested.
 nonisolated enum StreamSettings {
     static let bitrateRange = 1_000...1_000_000 // kbps: 1 Mbps to 1 Gbps for the custom slider
-    /// "Unlimited": the protocol has no such value, so send the most that safely fits the host's encoder settings
-    /// (Vibepollo: kbps × 1000 must fit a 32-bit field). The PC's own Maximum Bitrate setting then decides.
-    static let unlimitedBitrate = 2_000_000
+    /// "Unlimited": the protocol has no such value, so send the most the host itself treats as sane: Vibepollo caps
+    /// runtime bitrate changes at 500 Mbps (absolute_max_bitrate_kbps). 2 Gbps reached the GPU encoder uncapped
+    /// and it produced no video at all (error -100). The PC's own Maximum Bitrate setting can lower it further.
+    static let unlimitedBitrate = 500_000
+    /// What's saved for "Unlimited": not a bitrate, so a custom 500 Mbps stays "Custom".
+    static let unlimitedSetting = -1
 
     /// Pixel size for a resolution option, landscape. `safeAreaPixels` is the screen minus its cutout and
     /// home-indicator insets, in pixels.
@@ -98,7 +101,7 @@ nonisolated enum StreamSettings {
     static func effectiveBitrate(saved: Int, width: Int, height: Int, fps: Int) -> Int {
         switch saved {
         case 0: bitrate(width: width, height: height, fps: fps)
-        case unlimitedBitrate: unlimitedBitrate
+        case unlimitedSetting, (bitrateRange.upperBound + 1)...: unlimitedBitrate // above range: older "Unlimited"
         default: min(max(saved, bitrateRange.lowerBound), bitrateRange.upperBound)
         }
     }

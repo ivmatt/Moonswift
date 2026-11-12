@@ -8,13 +8,14 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.resolution) private var resolution = ResolutionOption.fullScreen
     @AppStorage(SettingsKey.fps) private var fps = 60
     @AppStorage(SettingsKey.codec) private var codec = CodecOption.automatic
-    @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic, unlimitedBitrate = unlimited
+    @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic, unlimitedSetting = unlimited
     @State private var focus = 0
 
     private enum Row { case resolution, fps, codec, bitrateMode, bitrate }
     private enum BitrateMode: String, CaseIterable { case automatic = "Automatic", custom = "Custom", unlimited = "Unlimited" }
     private var bitrateMode: BitrateMode {
-        bitrate == 0 ? .automatic : bitrate == StreamSettings.unlimitedBitrate ? .unlimited : .custom
+        bitrate == 0 ? .automatic
+            : bitrate == StreamSettings.unlimitedSetting || bitrate > StreamSettings.bitrateRange.upperBound ? .unlimited : .custom
     }
     private var rows: [Row] { [.resolution, .fps, .codec, .bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) }
 
@@ -71,7 +72,7 @@ struct SettingsView: View {
                     switch bitrateMode {
                     case .automatic: Text("\(automaticBitrate / 1000) Mbps for this resolution and frame rate.")
                     case .custom: Text("Higher looks sharper but needs a faster network.")
-                    case .unlimited: Text("As high as the PC allows: its Maximum Bitrate setting in Vibepollo is the limit.")
+                    case .unlimited: Text("500 Mbps, the most Vibepollo accepts. Its Maximum Bitrate setting can lower it.")
                     }
                 }
                 Section {
@@ -112,7 +113,7 @@ struct SettingsView: View {
         switch mode {
         case .automatic: bitrate = 0
         case .custom: if bitrateMode != .custom { bitrate = automaticBitrate }
-        case .unlimited: bitrate = StreamSettings.unlimitedBitrate
+        case .unlimited: bitrate = StreamSettings.unlimitedSetting
         }
     }
 

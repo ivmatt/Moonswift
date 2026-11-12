@@ -177,10 +177,24 @@ nonisolated func candidateAddresses(local: String, remote: String?) -> [String] 
 nonisolated func checkHost(address: String, remoteAddress: String?, httpsPort: Int,
                            serverCert: Data) async -> (status: HostStatus, info: ServerInfo?, address: String?) {
     if !serverCert.isEmpty {
-        for candidate in candidateAddresses(local: address, remote: remoteAddress) {
-            if let info = try? await fetchPairedServerInfo(address: candidate, httpsPort: httpsPort, serverCert: serverCert, timeout: 2) {
-                return (.online(paired: info.pairStatus == .paired), info, candidate)
+        // All addresses at once, so a remote PC doesn't wait out the home address's timeout first. The public
+        // address gets longer: the first request after a pause can wait on the cellular radio waking up.
+        let candidates = candidateAddresses(local: address, remote: remoteAddress)
+        let answers = await withTaskGroup(of: (String, ServerInfo?).self) { group in
+            for candidate in candidates {
+                group.addTask {
+                    let timeout: TimeInterval = candidate == address ? 2 : 4
+                    return (candidate, try? await fetchPairedServerInfo(address: candidate, httpsPort: httpsPort,
+                                                                        serverCert: serverCert, timeout: timeout))
+                }
             }
+            var answers: [String: ServerInfo] = [:]
+            for await (candidate, info) in group { answers[candidate] = info }
+            return answers
+        }
+        // The home address wins when both answer.
+        if let candidate = candidates.first(where: { answers[$0] != nil }), let info = answers[candidate] {
+            return (.online(paired: info.pairStatus == .paired), info, candidate)
         }
     }
     if let info = try? await fetchServerInfo(address: address, timeout: 2) {

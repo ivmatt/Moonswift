@@ -366,10 +366,10 @@ struct StreamSettingsTests {
         #expect(StreamSettings.effectiveBitrate(saved: 0, width: 1920, height: 1080, fps: 60) == 20_000)
         #expect(StreamSettings.effectiveBitrate(saved: 45_000, width: 1920, height: 1080, fps: 60) == 45_000)
         #expect(StreamSettings.effectiveBitrate(saved: 999_000, width: 1920, height: 1080, fps: 60) == 999_000)
-        #expect(StreamSettings.effectiveBitrate(saved: 1_500_000, width: 1920, height: 1080, fps: 60) == 1_000_000)
-        #expect(StreamSettings.effectiveBitrate(saved: StreamSettings.unlimitedBitrate, width: 1920, height: 1080, fps: 60)
-                == StreamSettings.unlimitedBitrate)
-        #expect(StreamSettings.unlimitedBitrate * 1000 <= Int(Int32.max)) // fits the host's 32-bit bps fields
+        #expect(StreamSettings.effectiveBitrate(saved: 2_000_000, width: 1920, height: 1080, fps: 60) == 500_000) // old Unlimited
+        #expect(StreamSettings.effectiveBitrate(saved: StreamSettings.unlimitedSetting, width: 1920, height: 1080, fps: 60)
+                == 500_000) // Vibepollo's own ceiling; 2 Gbps produced no video
+        #expect(StreamSettings.effectiveBitrate(saved: 500_000, width: 1920, height: 1080, fps: 60) == 500_000) // custom 500
     }
 
     @Test func bitrateSliderIsLogarithmic() {

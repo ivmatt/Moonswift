@@ -30,6 +30,7 @@ struct ContentView: View {
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
     @State private var statuses: [String: HostStatus] = [:] // by uniqueID; missing = not checked yet
     @State private var activeAddresses: [String: String] = [:] // by uniqueID: the address that last answered
+    @State private var misses: [String: Int] = [:] // by uniqueID: checks in a row that found it offline
     @State private var checkedPublicIP: Set<String> = [] // hosts whose public IP was looked up this launch
     @State private var editingRemote: SavedHost? // the PC whose remote address is being typed
     @State private var remoteText = ""
@@ -220,6 +221,12 @@ struct ContentView: View {
                     }
                 }
                 for await (id, status, info, address) in group {
+                    // One missed check (a slow cellular wake-up, a dropped packet) isn't enough to call a PC offline.
+                    if status == .offline, let previous = statuses[id], previous != .offline, misses[id, default: 0] < 1 {
+                        misses[id, default: 0] += 1
+                        continue
+                    }
+                    misses[id] = 0
                     statuses[id] = status
                     activeAddresses[id] = address
                     guard let host = hosts.first(where: { $0.uniqueID == id }) else { continue }
