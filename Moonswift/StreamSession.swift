@@ -259,7 +259,7 @@ nonisolated func portAdvice(ports: UInt32, testResult: UInt32) -> String? {
 nonisolated func portNames(_ flags: UInt32) -> String {
     var buffer = [CChar](repeating: 0, count: 256)
     LiStringifyPortFlags(flags, ", ", &buffer, Int32(buffer.count))
-    return String(cString: buffer)
+    return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
 }
 
 nonisolated private func videoFormatName(_ format: Int32) -> String {

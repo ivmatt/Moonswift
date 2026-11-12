@@ -38,8 +38,12 @@ nonisolated final class AudioRenderer: @unchecked Sendable { // the library call
             return noErr
         }
         engine.attach(source)
-        engine.connect(source, to: engine.mainMixerNode, format: output)
-        do { try engine.start() } catch { return false }
+        do {
+            try engine.connectNode(source, to: engine.mainMixerNode, format: output) // iOS 27: throws instead of crashing
+            try engine.start()
+        } catch {
+            return false
+        }
 
         self.channels = channels
         self.converter = converter

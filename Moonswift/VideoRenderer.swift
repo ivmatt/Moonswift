@@ -19,7 +19,14 @@ final class VideoRenderer: NSObject {
     /// The PC's HDR brightness data, attached to the video so iOS maps HDR to this screen. Empty while SDR.
     private var hdrExtensions: [CFString: Data] = [:]
 
+    /// iOS 27's way to hand frames to the layer: through a render synchronizer (the old enqueue/status/flush on the
+    /// renderer are deprecated). The synchronizer runs at normal speed; frames still show the moment they're decoded.
+    private let synchronizer = AVSampleBufferRenderSynchronizer()
+    private let receiver: AVSampleBufferVideoRenderer.Receiver
+
     override init() {
+        receiver = synchronizer.sampleBufferReceiver(adding: layer.sampleBufferRenderer)
+        synchronizer.setRate(1, time: .zero)
         layer.videoGravity = .resizeAspect // fill the screen without stretching; black bars only if the aspect differs
         layer.backgroundColor = UIColor.black.cgColor
         layer.preferredDynamicRange = .high // let HDR video use the screen's extra brightness (SDR is unaffected)
@@ -118,18 +125,22 @@ final class VideoRenderer: NSObject {
             self.format = format
             parameterSets = newParameterSets
         }
-        // shortcut: enqueue/status/flush are deprecated in iOS 27 in favor of a render synchronizer's receiver, which
-        // presents on a clock. Still work; move over once it's clear the new path keeps "display immediately" latency.
-        let renderer = layer.sampleBufferRenderer
-        if renderer.status == .failed { // e.g. after the app was in the background
-            renderer.flush()
+        guard let format, !picture.isEmpty, let sample = Self.makeSample(isAV1 ? picture : AnnexB.lengthPrefixed(picture), format: format) else {
             return DR_NEED_IDR
         }
-        guard let format, !picture.isEmpty, let sample = makeSample(isAV1 ? picture : AnnexB.lengthPrefixed(picture), format: format) else {
+        // Frames carry DisplayImmediately, so the synchronizer's clock doesn't delay them.
+        switch receiver.enqueueImmediately(CMReadySampleBuffer(unsafeBuffer: sample)) {
+        case .enqueued, .cancelledDueToFlush:
+            return DR_OK
+        case .enqueuedWithDecodeFailures:
+            return DR_NEED_IDR // a damaged frame: a fresh keyframe repairs the picture
+        case .cancelledDueToFlushRequiredToResume, .cancelledDueToError: // e.g. after the app was in the background
+            receiver.flush()
+            return DR_NEED_IDR
+        @unknown default:
+            receiver.flush()
             return DR_NEED_IDR
         }
-        renderer.enqueue(sample)
-        return DR_OK
     }
 
     private func makeFormat(_ sets: [Data]) -> CMVideoFormatDescription? {
@@ -152,7 +163,7 @@ final class VideoRenderer: NSObject {
         return status == noErr ? format : nil
     }
 
-    private func makeSample(_ data: Data, format: CMVideoFormatDescription) -> CMSampleBuffer? {
+    private nonisolated static func makeSample(_ data: Data, format: CMVideoFormatDescription) -> CMSampleBuffer? {
         var block: CMBlockBuffer?
         guard CMBlockBufferCreateWithMemoryBlock(allocator: nil, memoryBlock: nil, blockLength: data.count, blockAllocator: nil,
                                                  customBlockSource: nil, offsetToData: 0, dataLength: data.count,
