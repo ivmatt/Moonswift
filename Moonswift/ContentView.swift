@@ -32,6 +32,10 @@ struct ContentView: View {
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
     @State private var discovery = HostDiscovery()
     @State private var statuses: [String: HostStatus] = [:] // by uniqueID; missing = not checked yet
+    @State private var activeAddresses: [String: String] = [:] // by uniqueID: the address that last answered
+    @State private var checkedPublicIP: Set<String> = [] // hosts whose public IP was looked up this launch
+    @State private var editingRemote: SavedHost? // the PC whose remote address is being typed
+    @State private var remoteText = ""
     @State private var isAdding = false
     @State private var isShowingSettings = false
     @State private var pairing: PairTarget?
@@ -56,8 +60,14 @@ struct ContentView: View {
                             Text("No paired PCs yet.").foregroundStyle(.secondary)
                         }
                         ForEach(hosts) { host in
+                            let active = activeAddresses[host.uniqueID] ?? host.address
                             row(.saved(host)) {
-                                HostRow(name: host.name, address: host.address, status: statuses[host.uniqueID])
+                                HostRow(name: host.name, address: active, status: statuses[host.uniqueID],
+                                        isRemote: active != host.address)
+                            }
+                            .contextMenu { // touch's way to the PC menu (a controller uses Y)
+                                Button("Set Remote Address…", systemImage: "globe") { editRemote(host) }
+                                Button("Remove PC", systemImage: "trash", role: .destructive) { remove(host) }
                             }
                         }
                         .onDelete { offsets in
@@ -74,7 +84,7 @@ struct ContentView: View {
                         }
                         ForEach(newlyFound) { found in
                             row(.found(found)) {
-                                HostRow(name: found.info.hostname, address: found.address, status: .online(paired: false))
+                                HostRow(name: found.info.hostname, address: found.address, status: .online(paired: false), isRemote: false)
                             }
                         }
                     }
@@ -88,7 +98,7 @@ struct ContentView: View {
             .navigationTitle("Moonswift")
             .navigationDestination(for: String.self) { id in
                 if let host = hosts.first(where: { $0.uniqueID == id }) {
-                    AppLibraryView(client: HostClient(hostID: host.uniqueID, address: host.address,
+                    AppLibraryView(client: HostClient(hostID: host.uniqueID, address: activeAddresses[id] ?? host.address,
                                                       httpsPort: host.httpsPort, serverCert: host.serverCert),
                                    name: host.name)
                 }
@@ -115,9 +125,18 @@ struct ContentView: View {
                 }
             }
             .actionMenu($menu)
+            .alert("Remote Address", isPresented: Binding(get: { editingRemote != nil }, set: { if !$0 { editingRemote = nil } })) {
+                TextField("Public IP address", text: $remoteText)
+                    .keyboardType(.numbersAndPunctuation)
+                    .autocorrectionDisabled()
+                Button("Save") { if let host = editingRemote { Task { await saveRemote(remoteText, for: host) } } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Used over a secure connection when the PC doesn't answer on your home network. Leave empty to remove.")
+            }
             .task { discovery.start() }
-            // Restarts at once when a host is added, removed or (re)paired.
-            .task(id: hosts.map { "\($0.uniqueID)|\($0.serverCert.count)" }) { await pollStatus() }
+            // Restarts at once when a host is added, removed, (re)paired or gets a new remote address.
+            .task(id: hosts.map { "\($0.uniqueID)|\($0.serverCert.count)|\($0.remoteAddress ?? "")" }) { await pollStatus() }
         }
     }
 
@@ -159,29 +178,76 @@ struct ContentView: View {
         if statuses[host.uniqueID] == .online(paired: true) {
             actions.append(.init(title: "Open") { path.append(host.uniqueID) })
         }
-        actions.append(.init(title: "Remove PC", isDestructive: true) {
-            context.delete(host)
+        actions.append(.init(title: "Set Remote Address…") { editRemote(host) })
+        actions.append(.init(title: "Remove PC", isDestructive: true) { remove(host) })
+        let message = host.address + (host.remoteAddress.map { " · remote \($0)" } ?? "")
+        menu = MenuSpec(title: host.name, message: message, actions: actions)
+    }
+
+    private func remove(_ host: SavedHost) {
+        context.delete(host)
+        try? context.save()
+    }
+
+    private func editRemote(_ host: SavedHost) {
+        remoteText = host.remoteAddress ?? ""
+        editingRemote = host
+    }
+
+    /// Checks the address really reaches this PC (pinned HTTPS, same unique ID) before saving it.
+    private func saveRemote(_ text: String, for host: SavedHost) async {
+        let address = text.trimmingCharacters(in: .whitespaces)
+        func store(_ value: String?) {
+            host.remoteAddress = value
             try? context.save()
-        })
-        menu = MenuSpec(title: host.name, message: host.address, actions: actions)
+        }
+        guard !address.isEmpty else { return store(nil) }
+        do {
+            let info = try await fetchPairedServerInfo(address: address, httpsPort: host.httpsPort, serverCert: host.serverCert)
+            guard info.uniqueID == host.uniqueID else {
+                menu = .error("\(address) is a different PC (\(info.hostname)).")
+                return
+            }
+            store(address)
+        } catch {
+            // It may just be off or unreachable from here: let the user keep it anyway.
+            menu = MenuSpec(title: "Couldn't reach \(host.name) at \(address)", message: error.localizedDescription,
+                            actions: [.init(title: "Save Anyway") { store(address) }])
+        }
+    }
+
+    /// While a PC answers on its home address, the phone is on its network, so this network's public IP is the PC's.
+    // shortcut: a VPN that routes the home subnet would make a remote network look like home; ignore until it matters.
+    private func learnPublicIP(for host: SavedHost) {
+        guard !checkedPublicIP.contains(host.uniqueID) else { return }
+        checkedPublicIP.insert(host.uniqueID)
+        Task {
+            guard let publicIP = await Task.detached(operation: { findPublicIPv4() }).value,
+                  publicIP != host.remoteAddress else { return }
+            host.remoteAddress = publicIP
+            try? context.save()
+        }
     }
 
     /// Like moonlight-ios's DiscoveryWorker: ask every saved host for /serverinfo on a loop.
     private func pollStatus() async {
         while !Task.isCancelled {
-            let targets = hosts.map { (id: $0.uniqueID, address: $0.address, httpsPort: $0.httpsPort, serverCert: $0.serverCert) }
-            await withTaskGroup(of: (String, HostStatus, ServerInfo?).self) { group in
+            let targets = hosts.map { (id: $0.uniqueID, address: $0.address, remote: $0.remoteAddress,
+                                       httpsPort: $0.httpsPort, serverCert: $0.serverCert) }
+            await withTaskGroup(of: (String, HostStatus, ServerInfo?, String?).self) { group in
                 for target in targets {
                     group.addTask {
-                        let result = await checkHost(address: target.address, httpsPort: target.httpsPort, serverCert: target.serverCert)
-                        return (target.id, result.status, result.info)
+                        let result = await checkHost(address: target.address, remoteAddress: target.remote,
+                                                     httpsPort: target.httpsPort, serverCert: target.serverCert)
+                        return (target.id, result.status, result.info, result.address)
                     }
                 }
-                for await (id, status, info) in group {
+                for await (id, status, info, address) in group {
                     statuses[id] = status
-                    if let info, let host = hosts.first(where: { $0.uniqueID == id }), host.name != info.hostname {
-                        host.name = info.hostname // PC was renamed
-                    }
+                    activeAddresses[id] = address
+                    guard let host = hosts.first(where: { $0.uniqueID == id }) else { continue }
+                    if let info, host.name != info.hostname { host.name = info.hostname } // PC was renamed
+                    if status == .online(paired: true), address == host.address { learnPublicIP(for: host) }
                 }
             }
             try? await Task.sleep(for: .seconds(3))
@@ -193,6 +259,7 @@ private struct HostRow: View {
     let name: String
     let address: String
     let status: HostStatus?
+    let isRemote: Bool
 
     var body: some View {
         HStack {
@@ -209,7 +276,7 @@ private struct HostRow: View {
             case .online(let paired)?:
                 Text(paired ? "\(Image(systemName: "lock.fill")) Paired" : "\(Image(systemName: "lock.open")) Not paired")
                     .foregroundStyle(paired ? Color.primary : .orange)
-                Text("\(Image(systemName: "circle.fill")) Online").foregroundStyle(.green)
+                Text("\(Image(systemName: isRemote ? "globe" : "circle.fill")) \(isRemote ? "Remote" : "Online")").foregroundStyle(.green)
                 if paired { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
             }
         }

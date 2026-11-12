@@ -369,4 +369,19 @@ struct StreamSettingsTests {
     }
 }
 
+struct RemoteAccessTests {
+    @Test func localAddressIsTriedBeforeRemote() {
+        #expect(candidateAddresses(local: "10.0.4.20", remote: "203.0.113.7") == ["10.0.4.20", "203.0.113.7"])
+        #expect(candidateAddresses(local: "10.0.4.20", remote: nil) == ["10.0.4.20"])
+        #expect(candidateAddresses(local: "10.0.4.20", remote: "  ") == ["10.0.4.20"])
+        #expect(candidateAddresses(local: "10.0.4.20", remote: "10.0.4.20:47989") == ["10.0.4.20"]) // same host
+    }
+
+    @Test func stunResultFormatsAsDottedIPv4() {
+        let bytes: [UInt8] = [203, 0, 113, 7] // network order: first byte first
+        let value = bytes.withUnsafeBytes { $0.load(as: UInt32.self) }
+        #expect(ipv4String(networkOrder: value) == "203.0.113.7")
+    }
+}
+
 private func MoonswiftDERFromPEM(_ pem: String) -> Data? { der(fromPEM: pem) }

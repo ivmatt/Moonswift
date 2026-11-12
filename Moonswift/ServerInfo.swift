@@ -1,4 +1,5 @@
 import Foundation
+import MoonlightCore
 import Security
 
 /// What a Sunshine/Vibepollo host reports at GET /serverinfo.
@@ -140,17 +141,43 @@ nonisolated func fetchPairedServerInfo(address: String, httpsPort: Int, serverCe
     return try ServerInfo(fields: await hostRequest(url, timeout: timeout, tls: tls))
 }
 
-/// Paired hosts are asked over HTTPS first. If that fails (never paired, or the host was reinstalled),
-/// plain HTTP still tells us whether it's online, like moonlight-ios's HTTP fallback.
-nonisolated func checkHost(address: String, httpsPort: Int, serverCert: Data) async -> (status: HostStatus, info: ServerInfo?) {
-    if !serverCert.isEmpty,
-       let info = try? await fetchPairedServerInfo(address: address, httpsPort: httpsPort, serverCert: serverCert, timeout: 2) {
-        return (.online(paired: info.pairStatus == .paired), info)
+/// The addresses to try for a host, in order: the local one first, then its public one if it has a different one.
+nonisolated func candidateAddresses(local: String, remote: String?) -> [String] {
+    guard let remote = remote?.trimmingCharacters(in: .whitespaces), !remote.isEmpty,
+          hostAddress(remote) != hostAddress(local) else { return [local] }
+    return [local, remote]
+}
+
+/// Paired hosts are asked over HTTPS, at each address in turn (local, then remote). If none answers (never paired,
+/// or the host was reinstalled), plain HTTP to the local address still tells us whether it's online, like
+/// moonlight-ios's HTTP fallback. Plain HTTP never goes to the remote address: iOS only allows it to local ones.
+/// Returns the address that answered.
+nonisolated func checkHost(address: String, remoteAddress: String?, httpsPort: Int,
+                           serverCert: Data) async -> (status: HostStatus, info: ServerInfo?, address: String?) {
+    if !serverCert.isEmpty {
+        for candidate in candidateAddresses(local: address, remote: remoteAddress) {
+            if let info = try? await fetchPairedServerInfo(address: candidate, httpsPort: httpsPort, serverCert: serverCert, timeout: 2) {
+                return (.online(paired: info.pairStatus == .paired), info, candidate)
+            }
+        }
     }
     if let info = try? await fetchServerInfo(address: address, timeout: 2) {
-        return (.online(paired: false), info)
+        return (.online(paired: false), info, address)
     }
-    return (.offline, nil)
+    return (.offline, nil, nil)
+}
+
+/// Asks Moonlight's STUN server for this network's public IPv4 address, like moonlight-ios does. While the phone
+/// is on the same network as a PC, that's the PC's public address too. Blocks for up to a few seconds.
+nonisolated func findPublicIPv4() -> String? {
+    var address: UInt32 = 0
+    guard LiFindExternalAddressIP4("stun.moonlight-stream.org", 3478, &address) == 0, address != 0 else { return nil }
+    return ipv4String(networkOrder: address)
+}
+
+/// "a.b.c.d" from an IPv4 address in network byte order (the first byte in memory is the first number).
+nonisolated func ipv4String(networkOrder address: UInt32) -> String {
+    withUnsafeBytes(of: address) { $0.map(String.init).joined(separator: ".") }
 }
 
 /// Every host reply is `<root status_code="200" …><field>…</field>…</root>`: check the status, return the fields.
