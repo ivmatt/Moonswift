@@ -8,7 +8,7 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
     case back // B, Esc
     case menu // Y (triangle), Space
     case alternate // X (square): a screen's second action, like Quit in the game list
-    case streamMenu // Menu + View held for a second: the in-stream menu, since every other button goes to the game
+    case streamMenu // Menu + View pressed together: the in-stream menu, since every other button goes to the game
     case settings // Menu (≡ / Options) pressed: open Settings from the home screen or a game list
     case options // View (⧉ / Create) pressed: a screen's extra options, like the game list's Sort & Search
     case previousTab, nextTab // L1, R1: switch between a screen's tabs or filters
@@ -29,7 +29,6 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
     @ObservationIgnored private var repeatTask: Task<Void, Never>?
     @ObservationIgnored private var observers: [any NSObjectProtocol] = []
     @ObservationIgnored private var comboButtons: Set<String> = []
-    @ObservationIgnored private var comboTask: Task<Void, Never>?
 
     func start() {
         guard observers.isEmpty else { return }
@@ -90,17 +89,12 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
         }
     }
 
-    /// Menu + View held together for a second sends .streamMenu once.
+    /// Menu + View down together sends .streamMenu at once (the game sees both pressed only for that moment: the menu
+    /// pauses input, which releases them on the PC).
     private func combo(_ button: String, pressed: Bool) {
         if pressed { send(button == "menu" ? .settings : .options) }
         if pressed { comboButtons.insert(button) } else { comboButtons.remove(button) }
-        comboTask?.cancel()
-        comboTask = nil
-        guard comboButtons.count == 2 else { return }
-        comboTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(1))
-            if !Task.isCancelled { self?.send(.streamMenu) }
-        }
+        if pressed, comboButtons.count == 2 { send(.streamMenu) }
     }
 
     private func hold(dpad x: Float, _ y: Float) { setHeld(dpad.update(x: x, y: y)) }

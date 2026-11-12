@@ -15,8 +15,9 @@ struct StreamTarget: Hashable, Identifiable {
     var id: LaunchSession { launch }
 }
 
-/// The game, full screen with sound, played with controllers, touch, keyboard and mouse. A three-finger tap shows the
-/// on-screen keyboard. A four-finger tap or
+/// The game, full screen with sound, played with controllers, touch, keyboard and mouse. Three-finger gestures:
+/// swipe up for the keyboard, down for the performance overlay, sideways for the menu; a four-finger pinch disconnects. Start +
+/// Select on a controller, or
 /// holding Menu + View on the controller opens a menu: switch touch mode, disconnect (the game keeps running) or
 /// quit the game. The screen stays awake while streaming. Leaving the app, switching networks and Apply & Reconnect
 /// reconnect in place: the last frame stays up, blurred, with the status in the middle.
@@ -61,6 +62,7 @@ struct StreamView: View {
     @State private var adaptiveUnsupported = false
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
     @State private var performance: PerformanceOverlay.Readout?
+    @State private var fpsHistory: [Double] = [] // the last minute, for the HUD's graph
 
     /// The game gets no input while a menu, Settings or Control Center is over it.
     private var isPlaying: Bool { menu == nil && !isShowingSettings && scenePhase == .active }
@@ -74,14 +76,12 @@ struct StreamView: View {
             ZStack {
                 VideoLayerView(renderer: renderer)
                 TouchInputLayer(mode: touchMode, streamSize: CGSize(width: target.width, height: target.height),
-                                isPaused: !isPlaying || !isSendingInput, onMenu: showMenu)
+                                isPaused: !isPlaying || !isSendingInput, onGesture: gesture)
             }
             // Safe Area mode keeps the picture (and the touches mapped onto it) clear of the cutout and home indicator.
             .ignoresSafeArea(edges: target.fitsSafeArea ? [] : .all)
             if showsPerformance, let performance {
-                PerformanceOverlay(readout: performance, adaptiveNote: adaptiveNote)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                PerformanceOverlay(readout: performance, adaptiveNote: adaptiveNote, history: fpsHistory)
             }
             if let toast {
                 Text(toast)
@@ -89,7 +89,7 @@ struct StreamView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14).padding(.vertical, 8)
                     .background(.black.opacity(0.7), in: .capsule)
-                    .padding(.top, 12)
+                    .padding(.top, 40) // below the performance bar
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
                     .allowsHitTesting(false)
@@ -114,6 +114,7 @@ struct StreamView: View {
         }
         .animation(.easeInOut(duration: 0.45), value: shownStatus == nil)
         .ignoresSafeArea(.keyboard) // the on-screen keyboard covers the picture rather than squeezing it
+        .defersSystemGestures(on: .all) // an edge swipe needs a second swipe, so play doesn't drop out by accident
         .statusBarHidden()
         .persistentSystemOverlays(.hidden) // the home indicator fades out until touched
         .onGamepad { command in
@@ -198,6 +199,18 @@ struct StreamView: View {
                                 .init(title: "Disconnect") { leave() },
                                 .init(title: "Quit Game", isDestructive: true) { leave(quitting: true) },
                             ])
+        }
+    }
+
+    /// The three-finger shortcuts the touch layer doesn't handle itself (the keyboard's swipes up and down).
+    private func gesture(_ gesture: StreamGesture) {
+        switch gesture {
+        case .swipeLeft, .swipeRight: showMenu()
+        case .swipeDown:
+            showsPerformance.toggle()
+            show(showsPerformance ? "Performance overlay on" : "Performance overlay off")
+        case .pinch: leave() // the game keeps running
+        case .swipeUp: break
         }
     }
 
@@ -336,6 +349,7 @@ struct StreamView: View {
                                                      rtt: hasRTT ? (Int(rtt), Int(rttVariance)) : nil,
                                                      isRemote: !isHomeNetworkHost(hostAddress(client.address)))
             if isLive {
+                fpsHistory = Array((fpsHistory + [window.fps]).suffix(60))
                 adaptStep(window.sample(rttMs: hasRTT ? Int(rtt) : nil, isPoor: stats.isPoor), now: (now - started) / .seconds(1))
             }
         }

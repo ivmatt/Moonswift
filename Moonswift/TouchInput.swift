@@ -98,8 +98,33 @@ nonisolated struct TrackpadGestures {
     }
 }
 
-/// A transparent view over the video that sends touches to the host. A four-finger tap opens the stream menu; a
-/// three-finger tap shows or hides the on-screen keyboard, whose text and keys it sends to the PC.
+/// A three-finger stream shortcut, read from where the fingers started and ended.
+nonisolated enum StreamGesture: Equatable {
+    case swipeUp, swipeDown, swipeLeft, swipeRight, pinch
+
+    /// A pinch closes four or more fingers to about half their spread (three-finger pinches happen by accident); a
+    /// swipe moves the fingers together at least 60 points.
+    static func classify(start: [CGPoint], end: [CGPoint]) -> StreamGesture? {
+        guard start.count >= 3, start.count == end.count else { return nil }
+        func centre(_ points: [CGPoint]) -> CGPoint {
+            CGPoint(x: points.map(\.x).reduce(0, +) / CGFloat(points.count), y: points.map(\.y).reduce(0, +) / CGFloat(points.count))
+        }
+        func spread(_ points: [CGPoint], _ centre: CGPoint) -> CGFloat {
+            points.map { hypot($0.x - centre.x, $0.y - centre.y) }.reduce(0, +) / CGFloat(points.count)
+        }
+        let (from, to) = (centre(start), centre(end))
+        let (before, after) = (spread(start, from), spread(end, to))
+        if before > 0, after < before * 0.55 { return start.count >= 4 ? .pinch : nil }
+        if after > before * 1.6 { return nil } // a spread: not used
+        let (dx, dy) = (to.x - from.x, to.y - from.y)
+        guard max(abs(dx), abs(dy)) >= 60 else { return nil }
+        return abs(dx) > abs(dy) ? (dx > 0 ? .swipeRight : .swipeLeft) : (dy < 0 ? .swipeUp : .swipeDown)
+    }
+}
+
+/// A transparent view over the video that sends touches to the host. Three-finger gestures are shortcuts: swipe up
+/// shows the on-screen keyboard (whose text and keys it sends to the PC), swipe down hides it, and the rest (including a
+/// four-finger pinch) go to `onGesture`.
 final class TouchInputView: UIView, UIKeyInput {
     var mode = TouchMode.touchscreen { didSet { if mode != oldValue { cancelAll() } } }
     var streamSize = CGSize(width: 1920, height: 1080)
@@ -110,18 +135,18 @@ final class TouchInputView: UIView, UIKeyInput {
             _ = resignFirstResponder() // the keyboard goes away with the menu
         }
     }
-    var onMenu: () -> Void = {}
+    var onGesture: (StreamGesture) -> Void = { _ in }
 
     private var ids: [ObjectIdentifier: UInt32] = [:]
     private var nextID: UInt32 = 0
     private var trackpad = TrackpadGestures()
     /// The finger driving the absolute mouse on hosts without touch support.
     private var mouseFinger: ObjectIdentifier?
-    /// Three or more fingers down: this gesture is a shortcut (keyboard or menu) and nothing else reaches the host
-    /// until all lift. Games lose three-finger touches in exchange.
+    /// Three or more fingers down: this gesture is a shortcut and nothing else reaches the host until all lift.
+    /// Games lose three-finger touches in exchange.
     private var isShortcutGesture = false
-    private var mostFingers = 0
-    private var gestureStart: TimeInterval = 0
+    private var shortcutStart: [ObjectIdentifier: CGPoint] = [:]
+    private var shortcutLast: [ObjectIdentifier: CGPoint] = [:]
     private var activeTouches = 0
 
     override init(frame: CGRect) {
@@ -136,16 +161,19 @@ final class TouchInputView: UIView, UIKeyInput {
     private var hostSupportsTouch: Bool { LiGetHostFeatureFlags() & UInt32(LI_FF_PEN_TOUCH_EVENTS) != 0 }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if activeTouches == 0 {
-            isShortcutGesture = false
-            mostFingers = 0
-            gestureStart = event?.timestamp ?? 0
-        }
+        if activeTouches == 0 { isShortcutGesture = false }
         activeTouches += touches.count
-        mostFingers = max(mostFingers, activeTouches)
+        if isShortcutGesture { // a finger joining an ongoing shortcut (the fourth of a pinch) starts where it lands
+            for touch in touches { shortcutStart[ObjectIdentifier(touch)] = touch.location(in: self) }
+            for touch in touches { shortcutLast[ObjectIdentifier(touch)] = touch.location(in: self) }
+        }
         if activeTouches >= 3, !isShortcutGesture {
             cancelAll()
             isShortcutGesture = true
+            // Where every finger now down starts; later fingers (a fourth) aren't part of the shape.
+            let down = (event?.allTouches ?? touches).filter { $0.phase != .ended && $0.phase != .cancelled }
+            shortcutStart = Dictionary(down.map { (ObjectIdentifier($0), $0.location(in: self)) }, uniquingKeysWith: { a, _ in a })
+            shortcutLast = shortcutStart
         }
         guard !isShortcutGesture, !isPaused else { return }
         for touch in touches {
@@ -163,7 +191,8 @@ final class TouchInputView: UIView, UIKeyInput {
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard !isShortcutGesture, !isPaused else { return }
+        if isShortcutGesture { return track(touches) }
+        guard !isPaused else { return }
         for touch in touches {
             guard let id = ids[ObjectIdentifier(touch)] else { continue }
             switch mode {
@@ -181,7 +210,14 @@ final class TouchInputView: UIView, UIKeyInput {
         finish(touches, event: event, cancelled: true)
     }
 
+    private func track(_ touches: Set<UITouch>) {
+        for touch in touches where shortcutStart[ObjectIdentifier(touch)] != nil {
+            shortcutLast[ObjectIdentifier(touch)] = touch.location(in: self)
+        }
+    }
+
     private func finish(_ touches: Set<UITouch>, event: UIEvent?, cancelled: Bool) {
+        if isShortcutGesture { track(touches) }
         activeTouches = max(0, activeTouches - touches.count)
         if !isShortcutGesture, !isPaused {
             for touch in touches {
@@ -195,18 +231,22 @@ final class TouchInputView: UIView, UIKeyInput {
             }
         }
         for touch in touches { ids[ObjectIdentifier(touch)] = nil }
-        if activeTouches == 0, isShortcutGesture, !cancelled, (event?.timestamp ?? 0) - gestureStart < 0.6 {
-            if mostFingers >= 4 {
-                onMenu()
-            } else if !isPaused {
-                _ = isFirstResponder ? resignFirstResponder() : becomeFirstResponder()
-            }
+        guard activeTouches == 0, isShortcutGesture, !cancelled, !isPaused else { return }
+        let keys = Array(shortcutStart.keys)
+        guard let gesture = StreamGesture.classify(start: keys.compactMap { shortcutStart[$0] },
+                                                   end: keys.compactMap { shortcutLast[$0] }) else { return }
+        switch gesture {
+        case .swipeUp: _ = becomeFirstResponder() // keyboards come up from the bottom
+        case .swipeDown where isFirstResponder: _ = resignFirstResponder() // and go back down
+        default: onGesture(gesture)
         }
     }
 
     // MARK: On-screen keyboard
 
     override var canBecomeFirstResponder: Bool { true }
+    /// iOS's own three-finger editing gestures (pinch to copy, swipe to undo) would fight the stream shortcuts.
+    override var editingInteractionConfiguration: UIEditingInteractionConfiguration { .none }
     override var inputAccessoryView: UIView? { keyBar }
     var hasText: Bool { true } // so Backspace always reaches deleteBackward, even with nothing typed here
     // Typed text goes straight to the PC, so iOS shouldn't "fix" it on the way.
@@ -321,7 +361,7 @@ struct TouchInputLayer: UIViewRepresentable {
     let mode: TouchMode
     let streamSize: CGSize
     let isPaused: Bool
-    let onMenu: () -> Void
+    let onGesture: (StreamGesture) -> Void
 
     func makeUIView(context: Context) -> TouchInputView { TouchInputView(frame: .zero) }
 
@@ -329,7 +369,7 @@ struct TouchInputLayer: UIViewRepresentable {
         view.mode = mode
         view.streamSize = streamSize
         view.isPaused = isPaused
-        view.onMenu = onMenu
+        view.onGesture = onGesture
     }
 }
 

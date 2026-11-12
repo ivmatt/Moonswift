@@ -540,12 +540,17 @@ struct PerformanceTests {
     @Test func overlayShowsWhatItKnows() {
         let quiet = PerformanceWindow(from: StreamCounters(), to: StreamCounters(), seconds: 1)
         let readout = PerformanceOverlay.Readout(window: quiet, targetFPS: 60, video: "HEVC 1920×1080 @ 60", rtt: nil, isRemote: true)
-        #expect(readout.lines[0] == "HEVC 1920×1080 @ 60 · Remote")
-        #expect(readout.lines[1] == "0 / 60 fps · 0.0 Mbps")
+        #expect(readout.video == "HEVC 1920×1080 @ 60" && readout.isRemote)
+        #expect(readout.rttText == "–")
+        #expect(readout.latencyText == "host – · net – · queue – ms") // no frames: no averages
+        #expect(readout.lossText == "0 lost (0.0%) · 0.0% repaired")
+        #expect(readout.lossHealth == .good)
         let local = PerformanceOverlay.Readout(window: quiet, targetFPS: 120, video: nil, rtt: (3, 1), isRemote: false)
-        #expect(local.lines[0] == "Waiting for video… · Local")
-        #expect(readout.lines[2].hasPrefix("RTT –"))
-        #expect(readout.lines[4] == "Host – · Network – · Queue – ms") // no frames: no averages
+        #expect(local.video == "Waiting for video…")
+        #expect(local.rttText == "3 ± 1 ms" && local.rttHealth == .good)
+        #expect(PerformanceOverlay.Readout.health(fps: 119, target: 120) == .good)
+        #expect(PerformanceOverlay.Readout.health(fps: 90, target: 120) == .warning)
+        #expect(PerformanceOverlay.Readout.health(fps: 30, target: 120) == .bad)
     }
 }
 
@@ -671,5 +676,28 @@ struct PowerActionTests {
         #expect(try ServerInfo(fields: base.merging(["SleepAllowed": "1"]) { $1 }).canSleep)
         #expect(try !ServerInfo(fields: base.merging(["SleepAllowed": "0"]) { $1 }).canSleep) // not granted on the PC
         #expect(try !ServerInfo(fields: ["hostname": "PC"]).canSleep) // other hosts
+    }
+}
+
+struct StreamGestureTests {
+    let fingers = [CGPoint(x: 100, y: 300), CGPoint(x: 160, y: 290), CGPoint(x: 220, y: 300)]
+    func moved(_ dx: CGFloat, _ dy: CGFloat) -> [CGPoint] { fingers.map { CGPoint(x: $0.x + dx, y: $0.y + dy) } }
+
+    @Test func swipesFollowTheDominantDirection() {
+        #expect(StreamGesture.classify(start: fingers, end: moved(10, -120)) == .swipeUp)
+        #expect(StreamGesture.classify(start: fingers, end: moved(-5, 90)) == .swipeDown)
+        #expect(StreamGesture.classify(start: fingers, end: moved(-150, 20)) == .swipeLeft)
+        #expect(StreamGesture.classify(start: fingers, end: moved(150, -20)) == .swipeRight)
+    }
+
+    @Test func pinchNeedsARealSqueezeAndSmallMovesDoNothing() {
+        let four = fingers + [CGPoint(x: 190, y: 360)]
+        let squeezed = four.map { CGPoint(x: 167 + ($0.x - 167) * 0.3, y: 312 + ($0.y - 312) * 0.3) }
+        #expect(StreamGesture.classify(start: four, end: squeezed) == .pinch)
+        #expect(StreamGesture.classify(start: Array(four.prefix(3)), end: Array(squeezed.prefix(3))) == nil) // three fingers: no
+        let slight = fingers.map { CGPoint(x: 160 + ($0.x - 160) * 0.8, y: $0.y) }
+        #expect(StreamGesture.classify(start: fingers, end: slight) == nil) // resting fingers drifting together
+        #expect(StreamGesture.classify(start: fingers, end: moved(20, 30)) == nil) // too short to be a swipe
+        #expect(StreamGesture.classify(start: Array(fingers.prefix(2)), end: Array(fingers.prefix(2))) == nil)
     }
 }
