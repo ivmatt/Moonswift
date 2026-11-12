@@ -9,6 +9,8 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
     case menu // X or Y, Space
     case streamMenu // Menu + View held for a second: the in-stream menu, since every other button goes to the game
     case settings // Menu (≡ / Options) pressed: open Settings from the home screen or a game list
+    case options // View (⧉ / Create) pressed: a screen's extra options, like the game list's Sort & Search
+    case previousTab, nextTab // L1, R1: switch between a screen's tabs or filters
 }
 
 /// iPadOS doesn't move UI focus with a game controller (only tvOS and visionOS do), so the app reads the
@@ -68,7 +70,8 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
                 MainActor.assumeIsolated { self?.hold(stick: x, y) }
             }
             let buttons: [(GCControllerButtonInput, GamepadCommand)] =
-                [(pad.buttonA, .select), (pad.buttonB, .back), (pad.buttonX, .menu), (pad.buttonY, .menu)]
+                [(pad.buttonA, .select), (pad.buttonB, .back), (pad.buttonX, .menu), (pad.buttonY, .menu),
+                 (pad.leftShoulder, .previousTab), (pad.rightShoulder, .nextTab)]
             for (button, command) in buttons {
                 button.pressedChangedHandler = { [weak self] _, _, pressed in
                     if pressed { MainActor.assumeIsolated { self?.send(command) } }
@@ -88,7 +91,7 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
 
     /// Menu + View held together for a second sends .streamMenu once.
     private func combo(_ button: String, pressed: Bool) {
-        if pressed, button == "menu" { send(.settings) }
+        if pressed { send(button == "menu" ? .settings : .options) }
         if pressed { comboButtons.insert(button) } else { comboButtons.remove(button) }
         comboTask?.cancel()
         comboTask = nil
@@ -224,5 +227,47 @@ private struct GamepadHandler: ViewModifier {
         content
             .onAppear { gamepad.register(id, handle) }
             .onDisappear { gamepad.unregister(id) }
+    }
+}
+
+/// A strip of "button: action" hints along the bottom while a controller is in use, with each button drawn the
+/// way the connected controller labels it (✕ ○ on DualSense, A B on Xbox).
+struct ControllerHints: View {
+    enum Button { case a, b, y, l1, r1, menu, view }
+    let hints: [(buttons: [Button], label: String)]
+    @Environment(GamepadInput.self) private var gamepad
+
+    var body: some View {
+        if gamepad.isActive {
+            let pad = GCController.current?.extendedGamepad
+            HStack(spacing: 16) {
+                ForEach(hints, id: \.label) { hint in
+                    HStack(spacing: 4) {
+                        ForEach(hint.buttons.compactMap { Self.symbol($0, pad) }, id: \.self) { Image(systemName: $0) }
+                        Text(hint.label)
+                    }
+                }
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.regularMaterial, in: .capsule)
+            .padding(.bottom, 8)
+            .accessibilityHidden(true) // controller-only help; VoiceOver users have the on-screen controls
+        }
+    }
+
+    private static func symbol(_ button: Button, _ pad: GCExtendedGamepad?) -> String? {
+        let element: GCControllerElement? = switch button {
+        case .a: pad?.buttonA
+        case .b: pad?.buttonB
+        case .y: pad?.buttonY
+        case .l1: pad?.leftShoulder
+        case .r1: pad?.rightShoulder
+        case .menu: pad?.buttonMenu
+        case .view: pad?.buttonOptions
+        }
+        return element?.sfSymbolsName
     }
 }

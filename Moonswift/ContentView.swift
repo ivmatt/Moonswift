@@ -75,6 +75,7 @@ struct ContentView: View {
                 .onChange(of: focusIndex) { withAnimation { scroller.scrollTo(items[focusIndex].id) } }
             }
             .tint(.primary) // rows are buttons, but shouldn't look like links
+            .safeAreaInset(edge: .bottom) { ControllerHints(hints: [([.y], "PC Menu"), ([.menu], "Settings")]) }
             .navigationTitle("Moonswift")
             .navigationDestination(for: String.self) { id in
                 if let host = hosts.first(where: { $0.uniqueID == id }) {
@@ -103,7 +104,7 @@ struct ContentView: View {
                 case .select: activate(items[focusIndex])
                 case .menu: showMenu(items[focusIndex])
                 case .settings: isShowingSettings = true
-                case .left, .right, .back, .streamMenu: break
+                case .left, .right, .back, .streamMenu, .options, .previousTab, .nextTab: break
                 }
             }
             .actionMenu($menu)

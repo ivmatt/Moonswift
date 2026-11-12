@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// A paired PC's games as a box-art grid. Tapping a game (or A) launches it, or offers Resume/Quit if it's
-/// running; Y/X opens the game's menu; B goes back.
+/// A paired PC's games as a box-art grid, with search, All/Favorites filters and a sort order. Tapping a game
+/// (or A) launches it, or offers Resume/Quit if it's running; a long press (or Y/X) opens the game's menu, which also
+/// adds it to Favorites; B goes back. Up from the top row reaches the filters, which left/right switch.
 struct AppLibraryView: View {
     let name: String
     /// The PC's home and public addresses, to find which one answers before reconnecting.
@@ -30,6 +31,12 @@ struct AppLibraryView: View {
     @State private var stream: StreamTarget? // set after a successful Launch or Resume
     @State private var isShowingSettings = false
     @State private var streamingApp: HostApp? // the game the open stream shows
+    @State private var history = GameHistory()
+    @State private var query = ""
+    @State private var filter = LibraryFilter.all
+    @State private var isOnFilters = false // controller focus is on the filter row
+    @State private var isSearching = false
+    @AppStorage("librarySort") private var sort = LibrarySort.pc
     @Environment(\.scenePhase) private var scenePhase
     // Not @AppStorage: the stream screen calls reconnect() on its copy of this view, whose @AppStorage values don't
     // follow later changes (Apply & Reconnect). Reading UserDefaults is always current.
@@ -44,14 +51,20 @@ struct AppLibraryView: View {
     private static let spacing: CGFloat = 24
 
     private var running: HostApp? { apps.first { $0.id == runningID } }
-    /// The running game first, the rest in the host's order.
-    private var ordered: [HostApp] { apps.filter { $0.id == runningID } + apps.filter { $0.id != runningID } }
+    /// What's shown, in order: the running game first, the rest filtered, searched and sorted.
+    private var ordered: [HostApp] { history.arrange(apps, running: runningID, query: query, filter: filter, sort: sort) }
     private var focusIndex: Int { min(focus, max(ordered.count - 1, 0)) }
 
     var body: some View {
         GeometryReader { geometry in
             ScrollViewReader { scroller in
                 ScrollView {
+                    Picker("Show", selection: $filter) {
+                        ForEach(LibraryFilter.allCases, id: \.self) { Text($0.rawValue) }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .focusRing(gamepad.isActive && isOnFilters, cornerRadius: 8)
                     // A fixed column count (not .adaptive) so up/down move exactly one row.
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Self.spacing), count: columns),
                               spacing: 28) {
@@ -61,9 +74,15 @@ struct AppLibraryView: View {
                                 tapped(app)
                             } label: {
                                 AppTile(client: client, app: app, isRunning: app.id == runningID,
-                                        isFocused: gamepad.isActive && index == focusIndex)
+                                        isFavorite: history.favorites.contains(GameHistory.key(app)),
+                                        isFocused: gamepad.isActive && !isOnFilters && index == focusIndex)
                             }
                             .buttonStyle(.plain)
+                            .contextMenu { // touch's way to the game menu (a controller uses Y)
+                                let isFavorite = history.favorites.contains(GameHistory.key(app))
+                                Button(isFavorite ? "Remove from Favorites" : "Add to Favorites",
+                                       systemImage: isFavorite ? "star.slash" : "star") { toggleFavorite(app) }
+                            }
                             .id(app.id)
                         }
                     }
@@ -85,6 +104,13 @@ struct AppLibraryView: View {
             } else if apps.isEmpty {
                 ContentUnavailableView("No games", systemImage: "gamecontroller",
                                        description: Text("Add games in the streaming software on \(name)."))
+            } else if ordered.isEmpty {
+                if !query.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                } else {
+                    ContentUnavailableView("No favorites yet", systemImage: "star",
+                                           description: Text("Long-press a game, or press Y on a controller, to add it."))
+                }
             }
         }
         .overlay {
@@ -94,11 +120,32 @@ struct AppLibraryView: View {
         }
         .disabled(busy != nil)
         .navigationTitle(name)
+        .searchable(text: $query, isPresented: $isSearching, prompt: "Search games")
+        .safeAreaInset(edge: .bottom) {
+            ControllerHints(hints: [([.l1, .r1], "All / Favorites"), ([.view], "Sort & Search"),
+                                    ([.y], "Game Menu"), ([.menu], "Settings")])
+        }
         .refreshable { await load() }
-        .task { await load() }
+        .task {
+            history = GameHistory.load(hostID: client.hostID)
+            await load()
+        }
+        .onChange(of: filter) { focus = 0 }
+        .onChange(of: query) { focus = 0 }
         .onGamepad { command in
             guard busy == nil else { return }
             switch command {
+            case .up where !isOnFilters && focusIndex < columns:
+                isOnFilters = true
+            case .down where isOnFilters:
+                isOnFilters = false
+            case .left where isOnFilters, .right where isOnFilters, .previousTab, .nextTab:
+                let all = LibraryFilter.allCases, index = all.firstIndex(of: filter) ?? 0
+                filter = all[min(max(index + (command == .left || command == .previousTab ? -1 : 1), 0), all.count - 1)]
+            case .options:
+                menu = sortAndSearchMenu()
+            case _ where isOnFilters && (command == .select || command == .menu):
+                break
             case .up, .down, .left, .right:
                 focus = FocusMove.next(focusIndex, count: ordered.count, columns: columns, command)
             case .select:
@@ -106,7 +153,7 @@ struct AppLibraryView: View {
             case .menu:
                 if ordered.indices.contains(focusIndex) { menu = gameMenu(ordered[focusIndex]) }
             case .back:
-                dismiss()
+                if isSearching { isSearching = false } else { dismiss() }
             case .settings:
                 isShowingSettings = true
             case .streamMenu:
@@ -116,6 +163,11 @@ struct AppLibraryView: View {
         .actionMenu($menu)
         .sheet(isPresented: $isShowingSettings) { SettingsView() }
         .toolbar {
+            Menu("Sort", systemImage: "arrow.up.arrow.down") {
+                Picker("Sort", selection: $sort) {
+                    ForEach(LibrarySort.allCases, id: \.self) { Text($0.rawValue) }
+                }
+            }
             Button("Settings", systemImage: "gearshape") { isShowingSettings = true }
         }
         .fullScreenCover(item: $stream, onDismiss: { Task { await load() } }) { target in
@@ -136,8 +188,29 @@ struct AppLibraryView: View {
         if runningID == 0 { launch(app) } else { menu = gameMenu(app) }
     }
 
-    /// What can be done with `app` given what's running.
+    /// What can be done with `app` given what's running, plus adding or removing it from Favorites.
     private func gameMenu(_ app: HostApp) -> MenuSpec {
+        var spec = playMenu(app)
+        let isFavorite = history.favorites.contains(GameHistory.key(app))
+        spec.actions.append(.init(title: isFavorite ? "Remove from Favorites" : "Add to Favorites") { toggleFavorite(app) })
+        return spec
+    }
+
+    /// The controller's way to the toolbar's Sort and the search field (View button).
+    private func sortAndSearchMenu() -> MenuSpec {
+        MenuSpec(title: "Sort & Search", actions: [.init(title: "Search…") { isSearching = true }]
+            + LibrarySort.allCases.map { option in
+                .init(title: "Sort by \(option.rawValue)" + (option == sort ? " ✓" : "")) { sort = option }
+            })
+    }
+
+    private func toggleFavorite(_ app: HostApp) {
+        let key = GameHistory.key(app)
+        if history.favorites.remove(key) == nil { history.favorites.insert(key) }
+        history.save(hostID: client.hostID)
+    }
+
+    private func playMenu(_ app: HostApp) -> MenuSpec {
         if app.id == runningID {
             return MenuSpec(title: "\(app.title) is running", actions: [
                 .init(title: "Resume") {
@@ -178,6 +251,8 @@ struct AppLibraryView: View {
                 if let launch = try await action(), let app {
                     streamingApp = app
                     stream = streamTarget(app, launch)
+                    history.lastPlayed[GameHistory.key(app)] = .now
+                    history.save(hostID: client.hostID)
                 }
             } catch {
                 menu = .error(error.localizedDescription)
@@ -242,6 +317,7 @@ private struct AppTile: View {
     let client: HostClient
     let app: HostApp
     let isRunning: Bool
+    let isFavorite: Bool
     let isFocused: Bool
     @State private var art: UIImage?
 
@@ -267,6 +343,16 @@ private struct AppTile: View {
                             .padding(8)
                     }
                 }
+                .overlay(alignment: .topTrailing) {
+                    if isFavorite {
+                        Image(systemName: "star.fill")
+                            .font(.caption.bold())
+                            .padding(6)
+                            .background(.yellow, in: .circle)
+                            .foregroundStyle(.black)
+                            .padding(8)
+                    }
+                }
                 .overlay {
                     if isRunning { RoundedRectangle(cornerRadius: 12).stroke(.green, lineWidth: 4) }
                 }
@@ -275,7 +361,7 @@ private struct AppTile: View {
         }
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
-        .accessibilityValue(isRunning ? "Running" : "")
+        .accessibilityValue([isRunning ? "Running" : nil, isFavorite ? "Favorite" : nil].compactMap { $0 }.joined(separator: ", "))
         .task(id: app.artVersion) {
             if let png = try? await client.boxArt(for: app) { art = UIImage(data: png) }
         }

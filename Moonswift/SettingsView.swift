@@ -172,7 +172,7 @@ struct SettingsView: View {
                 case .left: change(current, by: -1)
                 case .right, .select: change(current, by: 1)
                 case .back: dismiss()
-                case .menu, .streamMenu, .settings: break
+                case .menu, .streamMenu, .settings, .options, .previousTab, .nextTab: break
                 }
             }
         }
