@@ -2,12 +2,28 @@ import Foundation
 import MoonlightCore
 
 /// A game or app the host offers, from GET /applist.
-nonisolated struct HostApp: Identifiable, Equatable, Sendable {
+/// Vibepollo's remote-session controls: entries it adds to the game list (each with a fixed UUID), some only while
+/// another device is streaming. Other hosts never send these.
+nonisolated enum SessionControl: Int, Sendable {
+    case join = 1, disconnectMonitor, disconnectInput, end, monitor, input, runningGame
+
+    static let uuidPrefix = "9a1c5a25-58fe-40e0-b9aa-7d3f0000000"
+
+    /// Only there while another device streams; Remote Monitor and Remote Input are always listed.
+    var isContextual: Bool { self != .monitor && self != .input }
+}
+
+nonisolated struct HostApp: Identifiable, Hashable, Sendable, Codable {
     let id: Int
     let uuid: String
     let title: String
     /// Changes when the box art changes on the host, so it doubles as a cache key.
     let artVersion: String
+
+    var sessionControl: SessionControl? {
+        guard uuid.lowercased().hasPrefix(SessionControl.uuidPrefix), let last = uuid.last?.wholeNumberValue else { return nil }
+        return SessionControl(rawValue: last)
+    }
 
     init?(fields: [String: String]) {
         guard let id = fields["ID"].flatMap({ Int($0) }), let title = fields["AppTitle"] else { return nil }

@@ -758,3 +758,14 @@ struct AdaptiveTriggerTests {
         #expect(AdaptiveTriggerEffect(type: 0x21, bytes: [1, 2]).mode == .off) // too short
     }
 }
+
+struct SessionControlTests {
+    @Test func controlsAreRecognisedByUUIDNotTitle() {
+        let resume = HostApp(fields: ["ID": "9", "AppTitle": "Resume", "UUID": "9a1c5a25-58fe-40e0-b9aa-7d3f00000001"])
+        let monitor = HostApp(fields: ["ID": "8", "AppTitle": "Remote Monitor", "UUID": "9A1C5A25-58FE-40E0-B9AA-7D3F00000005"])
+        let game = HostApp(fields: ["ID": "3", "AppTitle": "Resume", "UUID": "ABC"]) // a game that happens to be called Resume
+        #expect(resume?.sessionControl == .join && resume?.sessionControl?.isContextual == true)
+        #expect(monitor?.sessionControl == .monitor && monitor?.sessionControl?.isContextual == false)
+        #expect(game?.sessionControl == nil)
+    }
+}

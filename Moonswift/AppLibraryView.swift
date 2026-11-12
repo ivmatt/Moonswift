@@ -8,7 +8,7 @@ struct AppLibraryView: View {
     /// The PC's home and public addresses, to find which one answers before reconnecting.
     let localAddress: String
     let remoteAddress: String?
-    /// Starts at the address that answered last; reconnects switch it (home ↔ remote) when the network changes.
+    /// The address that answered last.
     @State private var client: HostClient
 
     init(client: HostClient, name: String, localAddress: String, remoteAddress: String?) {
@@ -20,17 +20,16 @@ struct AppLibraryView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(GamepadInput.self) private var gamepad
+    @Environment(StreamLauncher.self) private var launcher
+    @Environment(GameCatalog.self) private var catalog
     @State private var apps: [HostApp] = []
     @State private var runningID = 0 // 0 = nothing running
     @State private var loadError: String?
     @State private var isLoaded = false
-    @State private var busy: String? // e.g. "Launching Hades…" while a request is in flight
     @State private var menu: MenuSpec?
     @State private var focus = 0
     @State private var columns = 1
-    @State private var stream: StreamTarget? // set after a successful Launch or Resume
     @State private var isShowingSettings = false
-    @State private var streamingApp: HostApp? // the game the open stream shows
     @State private var history = GameHistory()
     @State private var query = ""
     @State private var filter = LibraryFilter.all
@@ -38,18 +37,8 @@ struct AppLibraryView: View {
     @State private var isSearching = false
     @AppStorage("librarySort") private var sort = LibrarySort.pc
     @Environment(\.scenePhase) private var scenePhase
-    // Not @AppStorage: the stream screen calls reconnect() on its copy of this view, whose @AppStorage values don't
-    // follow later changes (Apply & Reconnect). Reading UserDefaults is always current.
-    private var resolution: ResolutionOption {
-        UserDefaults.standard.string(forKey: SettingsKey.resolution).flatMap(ResolutionOption.init) ?? .fullScreen
-    }
-    private var savedFPS: Int { UserDefaults.standard.object(forKey: SettingsKey.fps) as? Int ?? 60 }
-    private var codec: CodecOption { UserDefaults.standard.string(forKey: SettingsKey.codec).flatMap(CodecOption.init) ?? .automatic }
-    private var savedBitrate: Int { UserDefaults.standard.integer(forKey: SettingsKey.bitrate) }
-    private var videoFormats: Int32 {
-        StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware, av1InHardware: ScreenInfo.av1InHardware,
-                                    hdr: ScreenInfo.supportsHDR && UserDefaults.standard.bool(forKey: SettingsKey.hdr))
-    }
+    private var busy: String? { launcher.busy }
+    private var pc: PCRef { PCRef(id: client.hostID, name: name, client: client, localAddress: localAddress, remoteAddress: remoteAddress) }
 
     private static let tileWidth: CGFloat = 170
     private static let spacing: CGFloat = 24
@@ -116,11 +105,6 @@ struct AppLibraryView: View {
                 }
             }
         }
-        .overlay {
-            if let busy {
-                ProgressView(busy).padding(24).background(.regularMaterial, in: .rect(cornerRadius: 16))
-            }
-        }
         .disabled(busy != nil)
         .navigationTitle(name)
         .searchable(text: $query, isPresented: $isSearching, prompt: "Search games")
@@ -158,7 +142,7 @@ struct AppLibraryView: View {
             case .menu:
                 if ordered.indices.contains(focusIndex) { toggleFavorite(ordered[focusIndex]) }
             case .alternate:
-                if runningID != 0 { confirmQuit() }
+                if runningID != 0 { launcher.confirmQuit(running?.title, on: pc) }
             case .back:
                 if isSearching { isSearching = false } else { dismiss() }
             case .settings:
@@ -171,16 +155,15 @@ struct AppLibraryView: View {
         .sheet(isPresented: $isShowingSettings) { SettingsView() }
         .sensoryFeedback(.selection, trigger: history.favorites)
         .toolbar { toolbar }
-        .fullScreenCover(item: $stream, onDismiss: { Task { await load() } }) { target in
-            StreamView(client: client, target: target, resume: reconnect)
-        }
+        // After a launch, resume, quit or stream, what's running has changed.
+        .onChange(of: launcher.revision) { Task { await load() } }
         // The PC can change while you're elsewhere: a game quits, Playnite adds one. Reload when coming back...
-        .onChange(of: scenePhase) { _, phase in if phase == .active, stream == nil { Task { await load() } } }
+        .onChange(of: scenePhase) { _, phase in if phase == .active, launcher.stream == nil { Task { await load() } } }
         // ...and keep the Running badge current while this list is open (a cheap status request).
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
-                if stream == nil, busy == nil { refreshRunning() }
+                if launcher.stream == nil, busy == nil { refreshRunning() }
             }
         }
     }
@@ -190,7 +173,7 @@ struct AppLibraryView: View {
     private func startRequested() {
         guard isLoaded, let request = LaunchRouter.shared.pending, request.pc == client.hostID else { return }
         LaunchRouter.shared.pending = nil
-        guard stream == nil, busy == nil else { return } // already streaming: leave it be
+        guard launcher.stream == nil, busy == nil else { return } // already streaming: leave it be
         guard let app = request.game(in: apps) else { return menu = .error("\(name) has no game called \(request.game).") }
         tapped(app)
     }
@@ -199,7 +182,7 @@ struct AppLibraryView: View {
         if let running {
             // Apart from the other buttons, beside Back: shaped like it, in red glass.
             ToolbarItem(placement: .topBarLeading) {
-                Button("Quit \(running.title)", systemImage: "xmark", role: .destructive) { confirmQuit() }
+                Button("Quit \(running.title)", systemImage: "xmark", role: .destructive) { launcher.confirmQuit(running.title, on: pc) }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.glassProminent)
                     .buttonBorderShape(.circle)
@@ -218,31 +201,7 @@ struct AppLibraryView: View {
 
     /// A PC runs one game at a time: the running one resumes straight away; another asks to quit it first.
     private func tapped(_ app: HostApp) {
-        if runningID == 0 {
-            launch(app)
-        } else if app.id == runningID {
-            perform("Resuming \(app.title)…", streaming: app) {
-                try await client.resume(app, width: mode.width, height: mode.height, fps: fps, videoFormats: videoFormats)
-            }
-        } else {
-            menu = MenuSpec(title: "Quit \(running?.title ?? "the running game") to launch \(app.title)?",
-                            message: "Unsaved progress in the running game may be lost.", actions: [
-                .init(title: "Quit and Launch", isDestructive: true) {
-                    perform("Launching \(app.title)…", streaming: app) {
-                        try await client.quit()
-                        return try await client.launch(app, width: mode.width, height: mode.height, fps: fps, videoFormats: videoFormats)
-                    }
-                },
-            ])
-        }
-    }
-
-    /// Quitting can lose unsaved progress, so it asks once.
-    private func confirmQuit() {
-        let title = running?.title ?? "the running game"
-        menu = MenuSpec(title: "Quit \(title)?", message: "Unsaved progress may be lost.", actions: [
-            .init(title: "Quit", isDestructive: true) { perform("Quitting \(title)…") { try await client.quit(); return nil } },
-        ])
+        launcher.play(app, on: pc, running: runningID, runningTitle: running?.title)
     }
 
     /// The controller's way to the toolbar's Sort and the search field (View button).
@@ -257,33 +216,7 @@ struct AppLibraryView: View {
         let key = GameHistory.key(app)
         if history.favorites.remove(key) == nil { history.favorites.insert(key) }
         history.save(hostID: client.hostID)
-    }
-
-    private func launch(_ app: HostApp) {
-        perform("Launching \(app.title)…", streaming: app) {
-            try await client.launch(app, width: mode.width, height: mode.height, fps: fps, videoFormats: videoFormats)
-        }
-    }
-
-    /// Runs a host action behind a progress overlay, then re-checks which game is running. A launch or
-    /// resume returns its session, and the stream screen opens for `streaming`.
-    private func perform(_ label: String, streaming app: HostApp? = nil, _ action: @escaping () async throws -> LaunchSession?) {
-        busy = label
-        Task {
-            do {
-                if let launch = try await action(), let app {
-                    streamingApp = app
-                    stream = streamTarget(app, launch)
-                    LaunchRequest.last = LaunchRequest(pc: client.hostID, game: app.uuid.isEmpty ? app.title : app.uuid)
-                    history.lastPlayed[GameHistory.key(app)] = .now
-                    history.save(hostID: client.hostID)
-                }
-            } catch {
-                menu = .error(error.localizedDescription)
-            }
-            if let info = try? await client.serverInfo() { runningID = info.currentGame }
-            busy = nil
-        }
+        catalog.reloadHistory(client.hostID)
     }
 
     /// A failed request is tried once more (the PC sometimes refuses one, such as a one-off "permission denied" for
@@ -306,40 +239,6 @@ struct AppLibraryView: View {
             }
         }
         isLoaded = true
-    }
-
-    /// From the saved settings; a frame rate the screen can't show falls back to 60.
-    private var fps: Int { StreamSettings.frameRates(screenMaximum: ScreenInfo.maximumFramesPerSecond).contains(savedFPS) ? savedFPS : 60 }
-    private var mode: (width: Int, height: Int) {
-        StreamSettings.size(for: resolution, nativePixels: ScreenInfo.nativePixels, safeAreaPixels: ScreenInfo.safeAreaPixels)
-    }
-
-    /// The stream screen's reconnect (after the background, a network switch, Apply & Reconnect): find the PC at
-    /// whichever address answers now, and resume with the current settings.
-    private func reconnect() async throws -> (HostClient, StreamTarget) {
-        guard let app = streamingApp, let address = await answeringAddress() else { throw ServerInfoError.unreachable(.timedOut) }
-        client = HostClient(hostID: client.hostID, address: address, httpsPort: client.httpsPort, serverCert: client.serverCert)
-        let launch = try await client.resume(app, width: mode.width, height: mode.height, fps: fps, videoFormats: videoFormats)
-        return (client, streamTarget(app, launch))
-    }
-
-    private func streamTarget(_ app: HostApp, _ launch: LaunchSession) -> StreamTarget {
-        StreamTarget(
-            title: app.title, launch: launch, width: mode.width, height: mode.height, fps: fps,
-            bitrate: StreamSettings.effectiveBitrate(saved: savedBitrate, width: mode.width, height: mode.height, fps: fps),
-            videoFormats: videoFormats,
-            fitsSafeArea: resolution == .safeArea)
-    }
-
-    /// The home or public address that answers now, trying a few times while a new network settles.
-    private func answeringAddress() async -> String? {
-        for attempt in 1...3 {
-            let result = await checkHost(address: localAddress, remoteAddress: remoteAddress,
-                                         httpsPort: client.httpsPort, serverCert: client.serverCert)
-            if result.status == .online(paired: true), let address = result.address { return address }
-            if attempt < 3 { try? await Task.sleep(for: .seconds(4)) }
-        }
-        return nil
     }
 
     private func refreshRunning() {

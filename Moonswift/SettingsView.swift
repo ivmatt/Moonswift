@@ -14,8 +14,13 @@ struct LiveStream {
 /// up/down, changes the focused row with left/right (A also steps it forward, or presses a button) and closes with B.
 struct SettingsView: View {
     var live: LiveStream?
+    /// As a tab: L1/R1 move to the neighbouring tab.
+    var switchTab: ((Int) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.isPresented) private var isPresented
+    @State private var topInset: CGFloat = 0
+    private var isTab: Bool { !isPresented && live == nil }
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage(SettingsKey.resolution) private var resolution = ResolutionOption.fullScreen
     @AppStorage(SettingsKey.fps) private var fps = 60
@@ -169,11 +174,21 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle(live == nil ? "Settings" : "Stream Settings")
+            // As a tab, the title is TabTitle, placed like Home's; as a sheet (from a stream) it keeps its bar and Done.
+            .toolbar(isTab ? .hidden : .automatic, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) { // as a tab: the title, fixed and placed like every tab's
+                if isTab {
+                    TabTitle(text: "Settings", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 4).background(Color.black)
+                }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
             .navigationDestination(isPresented: $isShowingAbout) { AboutView() }
             .navigationDestination(isPresented: $isShowingButtonMapping) { ButtonMappingView() }
             .onChange(of: effectiveBitrate) { _, kbps in applyLive(kbps) }
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                if isPresented { // a sheet (from a stream); as a tab there's nothing to close
+                    ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                }
             }
             .onAppear {
                 // A saved choice the device can't do (for example 120 fps restored on a 60 Hz screen) falls back.
@@ -194,7 +209,9 @@ struct SettingsView: View {
                 case .left: change(current, by: -1)
                 case .right, .select: change(current, by: 1)
                 case .back: dismiss()
-                case .menu, .alternate, .streamMenu, .settings, .options, .previousTab, .nextTab: break
+                case .previousTab: switchTab?(-1)
+                case .nextTab: switchTab?(1)
+                case .menu, .alternate, .streamMenu, .settings, .options: break
                 }
             }
         }

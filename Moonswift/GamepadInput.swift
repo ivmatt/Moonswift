@@ -213,13 +213,16 @@ extension View {
         modifier(GamepadHandler(handle: handle))
     }
 
-    /// The controller focus highlight: slightly bigger, an accent ring and a shadow.
+    /// The controller focus highlight: slightly bigger, a thin white ring an even gap outside the shape, and a shadow.
+    /// `cornerRadius` is the shape's own; `.infinity` for a capsule.
     func focusRing(_ isOn: Bool, cornerRadius: CGFloat = 12) -> some View {
-        self
+        let gap: CGFloat = 3, line: CGFloat = 2
+        return self
             .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius + 4)
-                    .stroke(Color.accentColor, lineWidth: 4)
-                    .padding(-6)
+                // Concentric: the ring's radius grows by exactly how far out it sits, so it follows the shape.
+                RoundedRectangle(cornerRadius: cornerRadius + gap + line)
+                    .strokeBorder(.white, lineWidth: line)
+                    .padding(-(gap + line))
                     .opacity(isOn ? 1 : 0)
             }
             .scaleEffect(isOn ? 1.05 : 1)

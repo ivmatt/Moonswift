@@ -1,9 +1,13 @@
 import SwiftData
 import SwiftUI
 
-/// Home screen: paired PCs with live status and the game each is running, "Pair a New PC" and Settings. Touch or
-/// controller: up/down to move, A to open (or pair), Y/X (or a long press) for a PC's menu: Edit (name, addresses) or Remove.
-struct ContentView: View {
+/// The PCs tab: paired PCs with live status and the game each is running, "Pair a New PC" and Settings. Opening a
+/// PC shows its own game list. Touch or controller: up/down to move, A to open (or pair), Y/X (or a long press) for a
+/// PC's menu: Sleep, Edit (name, addresses) or Remove.
+struct PCsView: View {
+    var openSettings: () -> Void = {}
+    var switchTab: (Int) -> Void = { _ in }
+
     struct PairTarget: Identifiable {
         let address: String
         let name: String
@@ -25,22 +29,19 @@ struct ContentView: View {
 
     @Environment(\.modelContext) private var context
     @Environment(GamepadInput.self) private var gamepad
+    @Environment(PCDirectory.self) private var directory
+    @Environment(GameCatalog.self) private var catalog
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
-    @State private var statuses: [String: HostStatus] = [:] // by uniqueID; missing = not checked yet
-    @State private var activeAddresses: [String: String] = [:] // by uniqueID: the address that last answered
-    @State private var misses: [String: Int] = [:] // by uniqueID: checks in a row that found it offline
-    @State private var checkedPublicIP: Set<String> = [] // hosts whose public IP was looked up this launch
     @State private var editing: SavedHost? // the PC whose Edit page is open
-    @State private var playing: [String: Int] = [:] // by uniqueID: the running game's ID (0 or missing: none)
-    @State private var gameTitles: [String: [Int: String]] = [:] // by uniqueID: game titles, looked up when one runs
-    @State private var sleepable: Set<String> = [] // uniqueIDs of PCs that let this device put them to sleep
-    @State private var isStarting = true // the start screen, until the only PC's status is known (or Home is chosen)
     @State private var isAdding = false
-    @State private var isShowingSettings = false
     @State private var pairing: PairTarget?
     @State private var path: [String] = [] // uniqueIDs of opened PCs
     @State private var focus = 0
     @State private var menu: MenuSpec?
+    @State private var topInset: CGFloat = 0
+    private var statuses: [String: HostStatus] { directory.statuses }
+    private var activeAddresses: [String: String] { directory.activeAddresses }
+    private var sleepable: Set<String> { directory.sleepable }
 
     /// Must match the on-screen order, or up/down feel inverted.
     private var items: [Item] { hosts.map(Item.saved) + [.add] }
@@ -76,12 +77,17 @@ struct ContentView: View {
                         }
                     }
                 }
-                .refreshable { await checkAll(isManual: true) } // pull down: fresh status now
+                .refreshable { await directory.checkAll(hosts, context: context, isManual: true) } // pull down: fresh status now
                 .onChange(of: focusIndex) { withAnimation { scroller.scrollTo(items[focusIndex].id) } }
             }
             .tint(.primary) // rows are buttons, but shouldn't look like links
             .safeAreaInset(edge: .bottom) { ControllerHints(hints: [([.y], "PC Menu"), ([.menu], "Settings")]) }
-            .navigationTitle("Moonswift")
+            .navigationTitle("PCs")
+            .toolbar(.hidden, for: .navigationBar) // the title is TabTitle, placed like Home's
+            .safeAreaInset(edge: .top, spacing: 0) { // the tab's title, fixed and placed like every tab's
+                TabTitle(text: "PCs", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 4).background(Color.black)
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
             .navigationDestination(for: String.self) { id in
                 if let host = hosts.first(where: { $0.uniqueID == id }) {
                     AppLibraryView(client: HostClient(hostID: host.uniqueID, address: activeAddresses[id] ?? host.address,
@@ -90,11 +96,6 @@ struct ContentView: View {
                 }
             }
             .sheet(isPresented: $isAdding) { AddHostView() }
-            .sheet(isPresented: $isShowingSettings) { SettingsView() }
-            .toolbar {
-                // On iPhone Duo this sits in the side rail; elsewhere, top right. A controller uses its Menu button.
-                Button("Settings", systemImage: "gearshape") { isShowingSettings = true }
-            }
             .sheet(item: $pairing) { target in
                 NavigationStack {
                     PairingView(address: target.address, name: target.name) { pairing = nil }
@@ -108,76 +109,14 @@ struct ContentView: View {
                 case .up, .down: focus = FocusMove.next(focusIndex, count: items.count, columns: 1, command)
                 case .select: activate(items[focusIndex])
                 case .menu, .alternate: showMenu(items[focusIndex])
-                case .settings: isShowingSettings = true
-                case .left, .right, .back, .streamMenu, .options, .previousTab, .nextTab: break
+                case .settings: openSettings()
+                case .previousTab: switchTab(-1)
+                case .nextTab: switchTab(1)
+                case .left, .right, .back, .streamMenu, .options: break
                 }
             }
             .actionMenu($menu)
             .sheet(item: $editing) { EditPCView(host: $0) }
-            // Restarts at once when a host is added, removed, (re)paired or gets a new address.
-            .onOpenURL { url in if let request = LaunchRequest(url: url) { LaunchRouter.shared.pending = request } }
-            .onChange(of: LaunchRouter.shared.pending) { routePending() }
-            .onAppear { if hosts.count != 1 { isStarting = false } } // the start screen is only for a single PC
-            .onChange(of: statuses) {
-                routePending()
-                openOnlyPC()
-            }
-            .task(id: hosts.map { "\($0.uniqueID)|\($0.serverCert.count)|\($0.address)|\($0.remoteAddress ?? "")" }) { await pollStatus() }
-        }
-        .overlay {
-            // With one PC, the app opens on this instead of Home, then jumps straight to the PC's games.
-            if isStarting, hosts.count == 1, let host = hosts.first {
-                StartingView(name: host.displayName) { showHome() }
-                    .transition(.opacity)
-            }
-        }
-    }
-
-    /// With a single PC, Home is an extra step: open its games as soon as it's known to be up, once per app launch
-    /// (Back still returns here). With several, Home asks which one, like picking a user.
-    private func openOnlyPC() {
-        guard isStarting, LaunchRouter.shared.pending == nil, hosts.count == 1, let host = hosts.first,
-              let status = statuses[host.uniqueID] else { return }
-        if status == .online(paired: true) {
-            open(host.uniqueID)
-        } else {
-            showHome() // offline or unpaired: Home says which
-        }
-    }
-
-    /// Goes to a PC's games with no push animation, so opening the app doesn't flash Home first.
-    private func open(_ id: String) {
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            if path != [id] { path = [id] }
-            isStarting = false
-        }
-    }
-
-    private func showHome() {
-        withAnimation { isStarting = false }
-    }
-
-    /// A link or Shortcut asked for a game: open its PC once its status is known; the game list starts the game.
-    private func routePending() {
-        guard let request = LaunchRouter.shared.pending else { return }
-        guard let host = hosts.first(where: { request.matches(pcID: $0.uniqueID, name: $0.displayName)
-                                              || request.matches(pcID: $0.uniqueID, name: $0.name) }) else {
-            LaunchRouter.shared.pending = nil
-            showHome()
-            return menu = .error("There's no PC called \(request.pc) in Moonswift.")
-        }
-        switch statuses[host.uniqueID] {
-        case nil:
-            return // still checking; this runs again when the status arrives
-        case .online(paired: true)?:
-            LaunchRouter.shared.pending = LaunchRequest(pc: host.uniqueID, game: request.game) // the game list matches by ID
-            open(host.uniqueID)
-        default:
-            LaunchRouter.shared.pending = nil
-            showHome()
-            menu = .error("\(host.displayName) isn't available. It may be asleep or off, or not paired.")
         }
     }
 
@@ -255,6 +194,7 @@ struct ContentView: View {
             unpairedOnPC = (try? await client.unpair()) != nil
         }
         let name = host.displayName
+        catalog.forget(host.uniqueID)
         context.delete(host)
         try? context.save()
         if !unpairedOnPC {
@@ -263,79 +203,14 @@ struct ContentView: View {
         }
     }
 
-    /// While a PC answers on its home address, the phone is on its network, so this network's public IP is the PC's.
-    // shortcut: a VPN that routes the home subnet would make a remote network look like home; ignore until it matters.
-    private func learnPublicIP(for host: SavedHost) {
-        guard !checkedPublicIP.contains(host.uniqueID) else { return }
-        checkedPublicIP.insert(host.uniqueID)
-        Task {
-            guard let publicIP = await Task.detached(operation: { findPublicIPv4() }).value,
-                  publicIP != host.remoteAddress else { return }
-            host.remoteAddress = publicIP
-            try? context.save()
-        }
-    }
-
     /// "Hades" when the PC is running it, once its game list has been fetched.
     private func playingTitle(_ host: SavedHost) -> String? {
-        guard let game = playing[host.uniqueID], game != 0 else { return nil }
-        return gameTitles[host.uniqueID]?[game] ?? Self.unknownGame
+        guard let game = directory.playing[host.uniqueID], game != 0 else { return nil }
+        return catalog.title(of: game, on: host.uniqueID) ?? Self.unknownGame
     }
 
     private static let unknownGame = "a game"
 
-    /// Fetches the PC's game list for the running game's title (only when a game the app hasn't seen starts).
-    private func lookUpTitles(for host: SavedHost, at address: String, running game: Int) {
-        let id = host.uniqueID
-        gameTitles[id, default: [:]][game] = Self.unknownGame // so the next check (in 3 s) doesn't ask again
-        let client = HostClient(hostID: id, address: address, httpsPort: host.httpsPort, serverCert: host.serverCert)
-        Task {
-            guard let apps = try? await client.apps() else { return gameTitles[id]?[game] = nil } // try again next check
-            var titles = Dictionary(apps.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
-            titles[game] = titles[game] ?? Self.unknownGame // a game missing from the list isn't looked up again
-            gameTitles[id] = titles
-        }
-    }
-
-    /// Like moonlight-ios's DiscoveryWorker: ask every saved host for /serverinfo on a loop.
-    private func pollStatus() async {
-        while !Task.isCancelled {
-            await checkAll()
-            try? await Task.sleep(for: .seconds(3))
-        }
-    }
-
-    /// Asks every saved PC for its status once. `isManual` (pull to refresh) reports exactly what it finds;
-    /// the background loop forgives a single missed check.
-    private func checkAll(isManual: Bool = false) async {
-        let targets = hosts.map { (id: $0.uniqueID, address: $0.address, remote: $0.remoteAddress,
-                                   httpsPort: $0.httpsPort, serverCert: $0.serverCert) }
-        await withTaskGroup(of: (String, HostStatus, ServerInfo?, String?).self) { group in
-            for target in targets {
-                group.addTask {
-                    let result = await checkHost(address: target.address, remoteAddress: target.remote,
-                                                 httpsPort: target.httpsPort, serverCert: target.serverCert)
-                    return (target.id, result.status, result.info, result.address)
-                }
-            }
-            for await (id, status, info, address) in group {
-                // One missed check (a slow cellular wake-up, a dropped packet) isn't enough to call a PC offline.
-                if !isManual, status == .offline, let previous = statuses[id], previous != .offline, misses[id, default: 0] < 1 {
-                    misses[id, default: 0] += 1
-                    continue
-                }
-                misses[id] = 0
-                statuses[id] = status
-                activeAddresses[id] = address
-                guard let host = hosts.first(where: { $0.uniqueID == id }) else { continue }
-                if let info, host.name != info.hostname { host.name = info.hostname } // PC was renamed
-                if info?.canSleep == true { sleepable.insert(id) } else if info != nil { sleepable.remove(id) }
-                playing[id] = info?.currentGame
-                if let game = info?.currentGame, game != 0, gameTitles[id]?[game] == nil, let address { lookUpTitles(for: host, at: address, running: game) }
-                if status == .online(paired: true), address == host.address { learnPublicIP(for: host) }
-            }
-        }
-    }
 }
 
 private struct HostRow: View {
@@ -371,35 +246,3 @@ private struct HostRow: View {
     }
 }
 
-#Preview {
-    ContentView()
-        .modelContainer(for: SavedHost.self, inMemory: true)
-        .environment(GamepadInput())
-}
-
-/// What the app opens on when there's one PC, while it checks that the PC is up. After a few seconds it offers Home,
-/// for choosing or adding another PC.
-private struct StartingView: View {
-    let name: String
-    let showHome: () -> Void
-
-    @State private var offersHome = false
-
-    var body: some View {
-        VStack(spacing: 18) {
-            ProgressView().controlSize(.large)
-            Text("Connecting to \(name)…").font(.headline)
-            Button("Choose Another PC", action: showHome)
-                .buttonStyle(.bordered)
-                .opacity(offersHome ? 1 : 0)
-                .disabled(!offersHome)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
-        .onGamepad { command in if offersHome, command == .select || command == .back { showHome() } }
-        .task {
-            try? await Task.sleep(for: .seconds(2.5))
-            withAnimation { offersHome = true }
-        }
-    }
-}
