@@ -27,6 +27,31 @@ nonisolated struct LaunchSession: Hashable, Sendable {
     let riKeyID: Int32
 }
 
+nonisolated enum PowerError: LocalizedError, Equatable {
+    case notAllowed, busy, failed(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .notAllowed: "This device isn't allowed to put the PC to sleep. Turn on \"Allow this device to put the PC to sleep\" for it in the streaming software's web page on the PC."
+        case .busy: "The PC is busy. Quit the running game and end any stream, then try again."
+        case .failed(let code): "The PC didn't go to sleep (error \(code))."
+        }
+    }
+}
+
+nonisolated struct ClipboardError: LocalizedError, Equatable {
+    let status: Int
+
+    var errorDescription: String? {
+        switch status {
+        case 401: "This device isn't allowed to use the PC's clipboard. Turn on the clipboard permissions for it in the streaming software's web page on the PC."
+        case 403: "The clipboard is only shared during a stream."
+        case 404, 405: "This PC doesn't share its clipboard."
+        default: "The clipboard couldn't be shared (error \(status))."
+        }
+    }
+}
+
 nonisolated enum GameError: LocalizedError, Equatable {
     case launchFailed, quitFailed
     case permissionDenied(String)
@@ -107,6 +132,46 @@ nonisolated struct HostClient: Sendable {
         guard fields["unpaired"] != "0" else { throw ServerInfoError.hostError(code: 200, message: "The PC didn't unpair this device.") }
     }
 
+    /// Puts the PC to sleep (Vibepollo's power actions). The PC only accepts while nothing is streaming or waiting to
+    /// resume, so quit the game first. Accepted means asked, not done: the PC reports offline once it's asleep.
+    func sleep() async throws {
+        let offer = try parseHostResponse(await data("/power-actions/v1", timeout: 5))
+        guard offer["SleepSupported"] == "1", offer["SleepAllowed"] == "1" else { throw PowerError.notAllowed }
+        guard offer["SleepAvailable"] == "1", let token = offer["SleepToken"] else { throw PowerError.busy }
+        do {
+            // Exactly one query argument and an empty body: the PC rejects anything else.
+            let reply = try parseHostResponse(await data("/power-actions/v1/sleep", timeout: 10, method: "POST",
+                                                         query: [URLQueryItem(name: "token", value: token)], identify: false))
+            guard reply["SleepAccepted"] == "1" else { throw PowerError.busy }
+        } catch ServerInfoError.httpStatus(let code), ServerInfoError.hostError(let code, _) {
+            switch code {
+            case 403, 401: throw PowerError.notAllowed
+            case 409, 503: throw PowerError.busy
+            default: throw PowerError.failed(code)
+            }
+        }
+    }
+
+    /// Vibepollo's clipboard sharing: text only, only while this device is streaming, and only with the clipboard
+    /// permissions granted to this device on the PC.
+    func pcClipboard() async throws -> String {
+        do {
+            return String(decoding: try await data("/actions/clipboard", timeout: 5, query: [URLQueryItem(name: "type", value: "text")]),
+                          as: UTF8.self)
+        } catch ServerInfoError.httpStatus(let code) {
+            throw ClipboardError(status: code)
+        }
+    }
+
+    func setPCClipboard(_ text: String) async throws {
+        do {
+            _ = try await data("/actions/clipboard", timeout: 5, method: "POST", query: [URLQueryItem(name: "type", value: "text")],
+                               body: Data(text.utf8))
+        } catch ServerInfoError.httpStatus(let code) {
+            throw ClipboardError(status: code)
+        }
+    }
+
     func quit() async throws {
         let fields = try parseHostResponse(await data("/cancel", timeout: 60))
         guard fields["cancel"] == "1" else { throw GameError.quitFailed }
@@ -157,10 +222,12 @@ nonisolated struct HostClient: Sendable {
         ]
     }
 
-    private func data(_ path: String, timeout: TimeInterval, query: [URLQueryItem] = []) async throws -> Data {
+    /// `identify: false` leaves out the uniqueid argument, for requests that must carry exactly their own arguments.
+    private func data(_ path: String, timeout: TimeInterval, method: String = "GET", query: [URLQueryItem] = [],
+                      body: Data? = nil, identify: Bool = true) async throws -> Data {
         let tls = PairedTLS(serverCert: serverCert, identity: try ClientIdentity.current.get().identity)
         let url = try hostURL(for: address, path: path, httpsPort: httpsPort,
-                              query: [URLQueryItem(name: "uniqueid", value: Pairing.uniqueID)] + query)
-        return try await hostData(url, timeout: timeout, tls: tls)
+                              query: (identify ? [URLQueryItem(name: "uniqueid", value: Pairing.uniqueID)] : []) + query)
+        return try await hostData(url, timeout: timeout, tls: tls, method: method, body: body)
     }
 }

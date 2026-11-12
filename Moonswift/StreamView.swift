@@ -46,6 +46,8 @@ struct StreamView: View {
     @State private var rates = ""
     @State private var isLeaving = false
     @State private var isShowingSettings = false
+    /// A short confirmation at the top of the stream, like "Copied from PC".
+    @State private var toast: String?
     /// Shown over the blurred last frame while reconnecting (or leaving).
     @State private var status: String?
     /// Between stopping the old connection and starting the new one: its "ended" isn't an ending.
@@ -80,6 +82,17 @@ struct StreamView: View {
                 PerformanceOverlay(readout: performance, adaptiveNote: adaptiveNote)
                     .padding(8)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            if let toast {
+                Text(toast)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(.black.opacity(0.7), in: .capsule)
+                    .padding(.top, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
             }
             if let status = shownStatus {
                 ZStack {
@@ -177,12 +190,46 @@ struct StreamView: View {
                                     touchMode = touchMode == .touchscreen ? .trackpad : .touchscreen
                                 },
                                 .init(title: "Stream Settings") { isShowingSettings = true },
+                                .init(title: "Copy from PC") { copyFromPC() },
+                                .init(title: "Send Clipboard to PC") { sendClipboardToPC() },
                                 .init(title: showsPerformance ? "Hide Performance Overlay" : "Show Performance Overlay") {
                                     showsPerformance.toggle()
                                 },
                                 .init(title: "Disconnect") { leave() },
                                 .init(title: "Quit Game", isDestructive: true) { leave(quitting: true) },
                             ])
+        }
+    }
+
+    private func copyFromPC() {
+        Task {
+            do {
+                UIPasteboard.general.string = try await client.pcClipboard()
+                show("Copied from PC")
+            } catch {
+                show(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Puts this device's clipboard on the PC, to paste there with Ctrl+V.
+    private func sendClipboardToPC() {
+        guard let text = UIPasteboard.general.string, !text.isEmpty else { return show("The clipboard has no text to send.") }
+        Task {
+            do {
+                try await client.setPCClipboard(text)
+                show("Sent to the PC's clipboard. Paste with Ctrl+V.")
+            } catch {
+                show(error.localizedDescription)
+            }
+        }
+    }
+
+    private func show(_ message: String) {
+        withAnimation { toast = message }
+        Task {
+            try? await Task.sleep(for: .seconds(message.count > 40 ? 5 : 2))
+            if toast == message { withAnimation { toast = nil } }
         }
     }
 

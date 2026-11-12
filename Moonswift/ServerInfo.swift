@@ -18,6 +18,9 @@ nonisolated struct ServerInfo: Equatable {
     let appVersion: String
     let gfeVersion: String?
     let codecModeSupport: Int
+    /// The PC can be put to sleep from this device: Vibepollo's power actions, with sleep allowed for this device in its
+    /// web UI. Only reported over paired HTTPS.
+    let canSleep: Bool
 
     /// Parses `<root status_code="200"><hostname>…</hostname>…</root>`.
     init(xml: Data) throws(ServerInfoError) {
@@ -38,6 +41,7 @@ nonisolated struct ServerInfo: Equatable {
         appVersion = fields["appversion"] ?? ""
         gfeVersion = fields["GfeVersion"]
         codecModeSupport = fields["ServerCodecModeSupport"].flatMap { Int($0) } ?? 0
+        canSleep = fields["PowerActionVersion"] == "1" && fields["SleepSupported"] == "1" && fields["SleepAllowed"] == "1"
     }
 }
 
@@ -117,12 +121,15 @@ nonisolated func hostRequest(_ url: URL, timeout: TimeInterval, tls: PairedTLS? 
 }
 
 /// The raw body of a host reply (XML, or a PNG for /appasset).
-nonisolated func hostData(_ url: URL, timeout: TimeInterval, tls: PairedTLS? = nil) async throws(ServerInfoError) -> Data {
+nonisolated func hostData(_ url: URL, timeout: TimeInterval, tls: PairedTLS? = nil, method: String = "GET",
+                              body: Data? = nil) async throws(ServerInfoError) -> Data {
     // ATS is off (Info.plist) because PCs use self-signed certificates that ATS can't except by IP address; HTTPS
     // is protected by pinning instead. This is the part of ATS we keep: plain HTTP never leaves the home network.
     if url.scheme == "http", !isHomeNetworkHost(url.host(percentEncoded: false) ?? "") { throw .insecureBlocked }
     var request = URLRequest(url: url)
     request.timeoutInterval = timeout
+    request.httpMethod = method
+    request.httpBody = body
     let delegate = tls.map(PinnedTLSDelegate.init)
     let session = delegate.map { URLSession(configuration: .ephemeral, delegate: $0, delegateQueue: nil) }
         ?? URLSession(configuration: .ephemeral)
@@ -138,7 +145,7 @@ nonisolated func hostData(_ url: URL, timeout: TimeInterval, tls: PairedTLS? = n
         throw .unreachable((error as? URLError)?.code ?? .unknown)
     }
 
-    if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+    if let http = response as? HTTPURLResponse, http.statusCode != 200, http.statusCode != 202 { // 202: accepted (sleep)
         throw .httpStatus(http.statusCode)
     }
     return data

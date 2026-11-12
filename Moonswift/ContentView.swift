@@ -33,6 +33,7 @@ struct ContentView: View {
     @State private var editing: SavedHost? // the PC whose Edit page is open
     @State private var playing: [String: Int] = [:] // by uniqueID: the running game's ID (0 or missing: none)
     @State private var gameTitles: [String: [Int: String]] = [:] // by uniqueID: game titles, looked up when one runs
+    @State private var sleepable: Set<String> = [] // uniqueIDs of PCs that let this device put them to sleep
     @State private var isAdding = false
     @State private var isShowingSettings = false
     @State private var pairing: PairTarget?
@@ -59,6 +60,9 @@ struct ContentView: View {
                                         isRemote: active != host.address, playing: playingTitle(host))
                             }
                             .contextMenu { // touch's way to the PC menu (a controller uses Y)
+                                if sleepable.contains(host.uniqueID) {
+                                    Button("Sleep PC…", systemImage: "moon.zzz") { confirmSleep(host) }
+                                }
                                 Button("Edit…", systemImage: "pencil") { editing = host }
                                 Button("Remove PC…", systemImage: "trash", role: .destructive) { confirmRemove(host) }
                             }
@@ -148,10 +152,28 @@ struct ContentView: View {
         if statuses[host.uniqueID] == .online(paired: true) {
             actions.append(.init(title: "Open") { path.append(host.uniqueID) })
         }
+        if sleepable.contains(host.uniqueID) { actions.append(.init(title: "Sleep PC…") { confirmSleep(host) }) }
         actions.append(.init(title: "Edit…") { editing = host })
         actions.append(.init(title: "Remove PC…", isDestructive: true) { confirmRemove(host) })
         let message = host.address + (host.remoteAddress.map { " · remote \($0)" } ?? "")
         menu = MenuSpec(title: host.displayName, message: message, actions: actions)
+    }
+
+    /// The PC only sleeps when asked deliberately, once per confirmation; a failure needs a new confirmation.
+    private func confirmSleep(_ host: SavedHost) {
+        let name = host.displayName
+        menu = MenuSpec(title: "Put \(name) to sleep?", message: "Quit any running game first. Wake it with its power button or keyboard.",
+                        actions: [.init(title: "Sleep") {
+            let client = HostClient(hostID: host.uniqueID, address: activeAddresses[host.uniqueID] ?? host.address,
+                                    httpsPort: host.httpsPort, serverCert: host.serverCert)
+            Task {
+                do {
+                    try await client.sleep()
+                } catch {
+                    menu = .error(error.localizedDescription)
+                }
+            }
+        }])
     }
 
     private func confirmRemove(_ host: SavedHost) {
@@ -244,6 +266,7 @@ struct ContentView: View {
                 activeAddresses[id] = address
                 guard let host = hosts.first(where: { $0.uniqueID == id }) else { continue }
                 if let info, host.name != info.hostname { host.name = info.hostname } // PC was renamed
+                if info?.canSleep == true { sleepable.insert(id) } else if info != nil { sleepable.remove(id) }
                 playing[id] = info?.currentGame
                 if let game = info?.currentGame, game != 0, gameTitles[id]?[game] == nil, let address { lookUpTitles(for: host, at: address, running: game) }
                 if status == .online(paired: true), address == host.address { learnPublicIP(for: host) }

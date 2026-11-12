@@ -664,3 +664,12 @@ struct AV1Tests {
         #expect(AV1SequenceHeader.find(in: truncated) == nil) // cut short
     }
 }
+
+struct PowerActionTests {
+    @Test func sleepNeedsVersionSupportAndPermission() throws {
+        let base = ["hostname": "PC", "PowerActionVersion": "1", "SleepSupported": "1"]
+        #expect(try ServerInfo(fields: base.merging(["SleepAllowed": "1"]) { $1 }).canSleep)
+        #expect(try !ServerInfo(fields: base.merging(["SleepAllowed": "0"]) { $1 }).canSleep) // not granted on the PC
+        #expect(try !ServerInfo(fields: ["hostname": "PC"]).canSleep) // other hosts
+    }
+}
