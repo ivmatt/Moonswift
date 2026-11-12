@@ -45,12 +45,13 @@ enum SettingsKey {
 
 /// The stream size, frame rate, codecs and bitrate to ask for. Pure functions, so they can be tested.
 nonisolated enum StreamSettings {
-    static let bitrateRange = 1_000...1_000_000 // kbps: 1 Mbps to 1 Gbps for the custom slider
-    /// "Unlimited": the protocol has no such value, so send the most the host itself treats as sane: Vibepollo caps
-    /// runtime bitrate changes at 500 Mbps (absolute_max_bitrate_kbps). 2 Gbps reached the GPU encoder uncapped
-    /// and it produced no video at all (error -100). The PC's own Maximum Bitrate setting can lower it further.
-    static let unlimitedBitrate = 500_000
-    /// What's saved for "Unlimited": not a bitrate, so a custom 500 Mbps stays "Custom".
+    static let bitrateRange = 10_000...1_000_000 // kbps: 10 Mbps to 1 Gbps for the custom slider, in 10 Mbps steps
+    static let bitrateStep = 10_000
+    /// "Unlimited": the protocol has no such value, so it sends the highest rate tested to work: 1 Gbps streamed fine,
+    /// while 2 Gbps reached the GPU encoder uncapped and it produced no video at all (error -100). The PC's own
+    /// Maximum Bitrate setting can lower it.
+    static let unlimitedBitrate = 1_000_000
+    /// What's saved for "Unlimited": not a bitrate, so a custom 1000 Mbps stays "Custom".
     static let unlimitedSetting = -1
 
     /// Pixel size for a resolution option, landscape. `safeAreaPixels` is the screen minus its cutout and
@@ -97,6 +98,14 @@ nonisolated enum StreamSettings {
         return min(max(Int(20_000 * scale), 10_000), 100_000)
     }
 
+    /// Resolution, frame rate and codec are fixed when a stream starts (the PC sets up its display mode and encoder
+    /// for them), so changing any of them needs a reconnect. Bitrate doesn't: Vibepollo can change it live.
+    static func needsReconnect(running: (width: Int, height: Int, fps: Int, videoFormats: Int32),
+                               wanted: (width: Int, height: Int, fps: Int, videoFormats: Int32)) -> Bool {
+        running.width != wanted.width || running.height != wanted.height || running.fps != wanted.fps
+            || running.videoFormats != wanted.videoFormats
+    }
+
     /// The saved bitrate (0 = automatic) for this stream.
     static func effectiveBitrate(saved: Int, width: Int, height: Int, fps: Int) -> Int {
         switch saved {
@@ -106,22 +115,21 @@ nonisolated enum StreamSettings {
         }
     }
 
-    /// The custom slider is logarithmic (0...1 ↔ 1...1000 Mbps), so low bitrates aren't squeezed into a sliver.
+    /// The custom slider is logarithmic (0...1 ↔ 10...1000 Mbps), so low bitrates aren't squeezed into a sliver.
     static func sliderPosition(kbps: Int) -> Double {
-        log(Double(min(max(kbps, bitrateRange.lowerBound), bitrateRange.upperBound)) / 1000) / log(1000)
+        log(Double(min(max(kbps, bitrateRange.lowerBound), bitrateRange.upperBound)) / Double(bitrateRange.lowerBound)) / log(100)
     }
 
+    /// The bitrate at a slider position, snapped to 10 Mbps.
     static func kbps(sliderPosition position: Double) -> Int {
-        Int((pow(1000, min(max(position, 0), 1))).rounded()) * 1000 // whole Mbps
+        let raw = Double(bitrateRange.lowerBound) * pow(100, min(max(position, 0), 1))
+        return Int((raw / Double(bitrateStep)).rounded()) * bitrateStep
     }
 
-    /// One controller step on the custom slider: 1 Mbps up to 20, 5 up to 100, then 25.
+    /// One controller step on the custom slider: 10 Mbps.
     static func steppedBitrate(_ kbps: Int, by direction: Int) -> Int {
-        let mbps = kbps / 1000
-        // Going down, the step is chosen by the value below, so 100 → 95 and 20 → 19 (not 75 and 15).
-        let reference = direction > 0 ? mbps : mbps - 1
-        let step = reference < 20 ? 1 : reference < 100 ? 5 : 25
-        return min(max((mbps + direction * step) * 1000, bitrateRange.lowerBound), bitrateRange.upperBound)
+        let snapped = Int((Double(kbps) / Double(bitrateStep)).rounded()) * bitrateStep
+        return min(max(snapped + direction * bitrateStep, bitrateRange.lowerBound), bitrateRange.upperBound)
     }
 }
 

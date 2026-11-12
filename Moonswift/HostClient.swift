@@ -93,6 +93,14 @@ nonisolated struct HostClient: Sendable {
         try await start("/resume", app: app, width: width, height: height, fps: fps)
     }
 
+    /// Vibepollo extension: changes the running stream's bitrate without reconnecting (other hosts answer 404).
+    /// Returns the bitrate the host applied, in kbps; it caps live changes at its own maximum (500 Mbps).
+    func setBitrate(_ kbps: Int) async throws -> Int {
+        let fields = try parseHostResponse(await data("/bitrate", timeout: 5, query: [URLQueryItem(name: "bitrate", value: String(kbps))]))
+        guard let applied = fields["bitrate"].flatMap({ Int($0) }), applied > 0 else { throw ServerInfoError.malformedResponse }
+        return applied
+    }
+
     func quit() async throws {
         let fields = try parseHostResponse(await data("/cancel", timeout: 60))
         guard fields["cancel"] == "1" else { throw GameError.quitFailed }

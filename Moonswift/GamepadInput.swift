@@ -8,6 +8,7 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
     case back // B, Esc
     case menu // X or Y, Space
     case streamMenu // Menu + View held for a second: the in-stream menu, since every other button goes to the game
+    case settings // Menu (≡ / Options) pressed: open Settings from the home screen or a game list
 }
 
 /// iPadOS doesn't move UI focus with a game controller (only tvOS and visionOS do), so the app reads the
@@ -87,6 +88,7 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
 
     /// Menu + View held together for a second sends .streamMenu once.
     private func combo(_ button: String, pressed: Bool) {
+        if pressed, button == "menu" { send(.settings) }
         if pressed { comboButtons.insert(button) } else { comboButtons.remove(button) }
         comboTask?.cancel()
         comboTask = nil

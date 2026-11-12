@@ -14,13 +14,11 @@ struct ContentView: View {
     private enum Item {
         case saved(SavedHost)
         case add
-        case settings
 
         var id: String {
             switch self {
             case .saved(let host): "saved-\(host.uniqueID)"
             case .add: "add"
-            case .settings: "settings"
             }
         }
     }
@@ -42,7 +40,7 @@ struct ContentView: View {
     @State private var menu: MenuSpec?
 
     /// Must match the on-screen order, or up/down feel inverted.
-    private var items: [Item] { hosts.map(Item.saved) + [.add, .settings] }
+    private var items: [Item] { hosts.map(Item.saved) + [.add] }
     private var focusIndex: Int { min(focus, items.count - 1) }
 
     var body: some View {
@@ -72,9 +70,6 @@ struct ContentView: View {
                             Label("Pair a New PC", systemImage: "plus.circle")
                         }
                     }
-                    Section {
-                        row(.settings) { Label("Settings", systemImage: "gearshape") }
-                    }
                 }
                 .onChange(of: focusIndex) { withAnimation { scroller.scrollTo(items[focusIndex].id) } }
             }
@@ -89,6 +84,10 @@ struct ContentView: View {
             }
             .sheet(isPresented: $isAdding) { AddHostView() }
             .sheet(isPresented: $isShowingSettings) { SettingsView() }
+            .toolbar {
+                // On iPhone Duo this sits in the side rail; elsewhere, top right. A controller uses its Menu button.
+                Button("Settings", systemImage: "gearshape") { isShowingSettings = true }
+            }
             .sheet(item: $pairing) { target in
                 NavigationStack {
                     PairingView(address: target.address, name: target.name) { pairing = nil }
@@ -102,6 +101,7 @@ struct ContentView: View {
                 case .up, .down: focus = FocusMove.next(focusIndex, count: items.count, columns: 1, command)
                 case .select: activate(items[focusIndex])
                 case .menu: showMenu(items[focusIndex])
+                case .settings: isShowingSettings = true
                 case .left, .right, .back, .streamMenu: break
                 }
             }
@@ -145,8 +145,6 @@ struct ContentView: View {
             }
         case .add:
             isAdding = true
-        case .settings:
-            isShowingSettings = true
         }
     }
 

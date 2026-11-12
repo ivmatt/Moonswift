@@ -364,28 +364,34 @@ struct StreamSettingsTests {
 
     @Test func savedBitrateOverridesAutomaticWithinRange() {
         #expect(StreamSettings.effectiveBitrate(saved: 0, width: 1920, height: 1080, fps: 60) == 20_000)
-        #expect(StreamSettings.effectiveBitrate(saved: 45_000, width: 1920, height: 1080, fps: 60) == 45_000)
-        #expect(StreamSettings.effectiveBitrate(saved: 999_000, width: 1920, height: 1080, fps: 60) == 999_000)
-        #expect(StreamSettings.effectiveBitrate(saved: 2_000_000, width: 1920, height: 1080, fps: 60) == 500_000) // old Unlimited
+        #expect(StreamSettings.effectiveBitrate(saved: 450_000, width: 1920, height: 1080, fps: 60) == 450_000)
+        #expect(StreamSettings.effectiveBitrate(saved: 1_000, width: 1920, height: 1080, fps: 60) == 10_000) // range floor
         #expect(StreamSettings.effectiveBitrate(saved: StreamSettings.unlimitedSetting, width: 1920, height: 1080, fps: 60)
-                == 500_000) // Vibepollo's own ceiling; 2 Gbps produced no video
-        #expect(StreamSettings.effectiveBitrate(saved: 500_000, width: 1920, height: 1080, fps: 60) == 500_000) // custom 500
+                == 1_000_000) // highest rate tested to work; 2 Gbps produced no video
+        #expect(StreamSettings.effectiveBitrate(saved: 2_000_000, width: 1920, height: 1080, fps: 60) == 1_000_000) // old Unlimited
     }
 
-    @Test func bitrateSliderIsLogarithmic() {
-        #expect(StreamSettings.kbps(sliderPosition: 0) == 1_000)
+    @Test func bitrateSliderIsLogarithmicInTenMbpsSteps() {
+        #expect(StreamSettings.kbps(sliderPosition: 0) == 10_000)
         #expect(StreamSettings.kbps(sliderPosition: 1) == 1_000_000)
-        #expect(StreamSettings.kbps(sliderPosition: 0.5) == 32_000) // the middle is ~32 Mbps, not 500
+        #expect(StreamSettings.kbps(sliderPosition: 0.5) == 100_000) // the middle is 100 Mbps, not 500
+        #expect(StreamSettings.kbps(sliderPosition: 0.3) % 10_000 == 0)
         #expect(StreamSettings.kbps(sliderPosition: StreamSettings.sliderPosition(kbps: 50_000)) == 50_000) // round trip
     }
 
-    @Test func controllerStepsGrowWithBitrate() {
-        #expect(StreamSettings.steppedBitrate(10_000, by: 1) == 11_000)
-        #expect(StreamSettings.steppedBitrate(20_000, by: 1) == 25_000)
-        #expect(StreamSettings.steppedBitrate(20_000, by: -1) == 19_000)
-        #expect(StreamSettings.steppedBitrate(100_000, by: -1) == 95_000)
-        #expect(StreamSettings.steppedBitrate(100_000, by: 1) == 125_000)
-        #expect(StreamSettings.steppedBitrate(1_000, by: -1) == 1_000) // stays in range
+    @Test func onlyStartupSettingsNeedAReconnect() {
+        let running = (width: 2664, height: 1872, fps: 60, videoFormats: VIDEO_FORMAT_H265)
+        #expect(!StreamSettings.needsReconnect(running: running, wanted: running)) // e.g. only the bitrate changed
+        #expect(StreamSettings.needsReconnect(running: running, wanted: (2664, 1872, 120, VIDEO_FORMAT_H265)))
+        #expect(StreamSettings.needsReconnect(running: running, wanted: (1920, 1080, 60, VIDEO_FORMAT_H265)))
+        #expect(StreamSettings.needsReconnect(running: running, wanted: (2664, 1872, 60, VIDEO_FORMAT_H264)))
+    }
+
+    @Test func controllerStepsAreTenMbps() {
+        #expect(StreamSettings.steppedBitrate(50_000, by: 1) == 60_000)
+        #expect(StreamSettings.steppedBitrate(50_000, by: -1) == 40_000)
+        #expect(StreamSettings.steppedBitrate(54_000, by: 1) == 60_000) // snaps from an automatic value
+        #expect(StreamSettings.steppedBitrate(10_000, by: -1) == 10_000) // stays in range
         #expect(StreamSettings.steppedBitrate(1_000_000, by: 1) == 1_000_000)
     }
 }

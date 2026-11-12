@@ -17,6 +17,10 @@ struct AppLibraryView: View {
     @State private var focus = 0
     @State private var columns = 1
     @State private var stream: StreamTarget? // set after a successful Launch or Resume
+    @State private var isShowingSettings = false
+    @State private var streamingApp: HostApp? // the game the open stream shows
+    @State private var reconnecting: HostApp? // Apply & Reconnect: resume this one once the stream has closed
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage(SettingsKey.resolution) private var resolution = ResolutionOption.fullScreen
     @AppStorage(SettingsKey.fps) private var savedFPS = 60
     @AppStorage(SettingsKey.codec) private var codec = CodecOption.automatic
@@ -89,12 +93,29 @@ struct AppLibraryView: View {
                 if ordered.indices.contains(focusIndex) { menu = gameMenu(ordered[focusIndex]) }
             case .back:
                 dismiss()
+            case .settings:
+                isShowingSettings = true
             case .streamMenu:
                 break
             }
         }
         .actionMenu($menu)
-        .fullScreenCover(item: $stream, onDismiss: refreshRunning) { target in StreamView(client: client, target: target) }
+        .sheet(isPresented: $isShowingSettings) { SettingsView() }
+        .toolbar {
+            Button("Settings", systemImage: "gearshape") { isShowingSettings = true }
+        }
+        .fullScreenCover(item: $stream, onDismiss: afterStream) { target in
+            StreamView(client: client, target: target, onReconnect: { reconnecting = streamingApp })
+        }
+        // The PC can change while you're elsewhere: a game quits, Playnite adds one. Reload when coming back...
+        .onChange(of: scenePhase) { _, phase in if phase == .active, stream == nil { Task { await load() } } }
+        // ...and keep the Running badge current while this list is open (a cheap status request).
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                if stream == nil, busy == nil { refreshRunning() }
+            }
+        }
     }
 
     private func tapped(_ app: HostApp) {
@@ -141,6 +162,7 @@ struct AppLibraryView: View {
         Task {
             do {
                 if let launch = try await action(), let app {
+                    streamingApp = app
                     stream = StreamTarget(
                         title: app.title, launch: launch, width: mode.width, height: mode.height, fps: fps,
                         bitrate: StreamSettings.effectiveBitrate(saved: savedBitrate, width: mode.width, height: mode.height, fps: fps),
@@ -171,6 +193,18 @@ struct AppLibraryView: View {
     private var fps: Int { StreamSettings.frameRates(screenMaximum: ScreenInfo.maximumFramesPerSecond).contains(savedFPS) ? savedFPS : 60 }
     private var mode: (width: Int, height: Int) {
         StreamSettings.size(for: resolution, nativePixels: ScreenInfo.nativePixels, safeAreaPixels: ScreenInfo.safeAreaPixels)
+    }
+
+    /// After a stream: resume straight away for Apply & Reconnect (new settings are read now), else reload the list.
+    private func afterStream() {
+        if let app = reconnecting {
+            reconnecting = nil
+            perform("Reconnecting to \(app.title)…", streaming: app) {
+                try await client.resume(app, width: mode.width, height: mode.height, fps: fps)
+            }
+        } else {
+            Task { await load() }
+        }
     }
 
     private func refreshRunning() {
