@@ -70,7 +70,7 @@ struct AppLibraryView: View {
                 ContentUnavailableView("Can't load games", systemImage: "exclamationmark.triangle", description: Text(loadError))
             } else if apps.isEmpty {
                 ContentUnavailableView("No games", systemImage: "gamecontroller",
-                                       description: Text("Add games to \(name) in Vibepollo's web UI."))
+                                       description: Text("Add games in the streaming software on \(name)."))
             }
         }
         .overlay {

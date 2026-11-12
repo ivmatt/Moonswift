@@ -20,7 +20,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.resolution) private var resolution = ResolutionOption.fullScreen
     @AppStorage(SettingsKey.fps) private var fps = 60
     @AppStorage(SettingsKey.codec) private var codec = CodecOption.automatic
-    @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic, unlimitedSetting = unlimited
+    @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic
     @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = false
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
     @State private var focus = 0
@@ -28,10 +28,9 @@ struct SettingsView: View {
     @State private var bitrateChange: Task<Void, Never>?
 
     private enum Row { case reconnect, resolution, fps, codec, bitrateMode, bitrate, adaptive, overlay }
-    private enum BitrateMode: String, CaseIterable { case automatic = "Automatic", custom = "Custom", unlimited = "Unlimited" }
+    private enum BitrateMode: String, CaseIterable { case automatic = "Automatic", custom = "Custom" }
     private var bitrateMode: BitrateMode {
-        bitrate == 0 ? .automatic
-            : bitrate == StreamSettings.unlimitedSetting || bitrate > StreamSettings.bitrateRange.upperBound ? .unlimited : .custom
+        bitrate == 0 ? .automatic : .custom
     }
     private var rows: [Row] {
         (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec, .bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay]
@@ -112,12 +111,11 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         switch bitrateMode {
                         case .automatic: Text("\(automaticBitrate / 1000) Mbps for this resolution and frame rate.")
-                        case .custom: Text("Higher looks sharper but needs a faster network.")
-                        case .unlimited: Text("1000 Mbps, the highest that works with your PC. Vibepollo's Maximum Bitrate setting can lower it.")
+                        case .custom: Text("Higher looks sharper but needs a faster network. The streaming software on your PC may also cap it.")
                         }
                         if adaptive {
                             Text("Adaptive lowers the bitrate when the network struggles and raises it back, never above this setting "
-                                 + "(and at most 500 Mbps, Vibepollo's limit for changes during a stream).")
+                                 + "(and at most 500 Mbps, the usual limit for changes during a stream). It needs a PC that supports bitrate changes while streaming.")
                         }
                     }
                 }
@@ -145,6 +143,8 @@ struct SettingsView: View {
                 // A saved choice the device can't do (for example 120 fps restored on a 60 Hz screen) falls back.
                 if !frameRates.contains(fps) { fps = 60 }
                 if !codecs.contains(codec) { codec = .automatic }
+                // "Unlimited" from older versions (-1, or above the range) becomes the highest custom setting.
+                if bitrate < 0 || bitrate > StreamSettings.bitrateRange.upperBound { bitrate = StreamSettings.bitrateRange.upperBound }
             }
             .onGamepad { command in
                 let current = rows[min(focus, rows.count - 1)]
@@ -174,7 +174,6 @@ struct SettingsView: View {
         switch mode {
         case .automatic: bitrate = 0
         case .custom: if bitrateMode != .custom { bitrate = StreamSettings.steppedBitrate(automaticBitrate, by: 0) } // snapped to 10
-        case .unlimited: bitrate = StreamSettings.unlimitedSetting
         }
     }
 

@@ -366,9 +366,13 @@ struct StreamSettingsTests {
         #expect(StreamSettings.effectiveBitrate(saved: 0, width: 1920, height: 1080, fps: 60) == 20_000)
         #expect(StreamSettings.effectiveBitrate(saved: 450_000, width: 1920, height: 1080, fps: 60) == 450_000)
         #expect(StreamSettings.effectiveBitrate(saved: 1_000, width: 1920, height: 1080, fps: 60) == 10_000) // range floor
-        #expect(StreamSettings.effectiveBitrate(saved: StreamSettings.unlimitedSetting, width: 1920, height: 1080, fps: 60)
-                == 1_000_000) // highest rate tested to work; 2 Gbps produced no video
-        #expect(StreamSettings.effectiveBitrate(saved: 2_000_000, width: 1920, height: 1080, fps: 60) == 1_000_000) // old Unlimited
+        #expect(StreamSettings.effectiveBitrate(saved: -1, width: 1920, height: 1080, fps: 60) == 1_000_000) // old "Unlimited"
+        #expect(StreamSettings.effectiveBitrate(saved: 2_000_000, width: 1920, height: 1080, fps: 60) == 1_000_000) // older "Unlimited"
+    }
+
+    @Test func endedStreamsExplainThemselves() {
+        #expect(terminationReason(ML_ERROR_NO_VIDEO_TRAFFIC) == "The PC sent no video. A lower bitrate may help.")
+        #expect(terminationReason(-999) == "Connection lost (error -999).")
     }
 
     @Test func bitrateSliderIsLogarithmicInTenMbpsSteps() {

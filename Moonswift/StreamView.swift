@@ -215,7 +215,7 @@ struct StreamView: View {
             return
         }
         guard adaptiveController != nil else {
-            // Unlimited's 1000 Mbps is above the live limit, so it starts by dropping to 500.
+            // A setting above the live limit (up to 1000 Mbps) starts by dropping to it.
             let controller = BitrateController(ceiling: ceiling, start: target.bitrate)
             adaptiveController = controller
             if controller.target != target.bitrate { sendBitrate(controller.target) }

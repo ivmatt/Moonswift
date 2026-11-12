@@ -121,7 +121,7 @@ nonisolated private let audioRenderer = AudioRenderer()
             liveStats.withLock { $0.isPoor = status == CONN_STATUS_POOR }
         }
         listener.connectionTerminated = { code in
-            liveStats.withLock { $0.state = .ended(code == 0 ? "The host ended the stream." : "Connection lost (error \(code)).") }
+            liveStats.withLock { $0.state = .ended(terminationReason(code)) }
         }
         // The host's requests for the controllers arrive on the library's threads; apply them on the main thread.
         listener.rumble = { number, low, high in
@@ -205,6 +205,18 @@ nonisolated private let audioRenderer = AudioRenderer()
 
     /// AUDIO_CONFIGURATION_STEREO, a function-like macro Swift can't import: channel mask 0x3, 2 channels, 0xCA marker.
     nonisolated static let stereoAudioConfiguration: Int32 = (0x3 << 16) | (2 << 8) | 0xCA
+}
+
+/// Why a stream ended, in plain words, from the library's ML_ERROR_* code.
+nonisolated func terminationReason(_ code: Int32) -> String {
+    switch code {
+    case ML_ERROR_GRACEFUL_TERMINATION: "The PC ended the stream."
+    case ML_ERROR_NO_VIDEO_TRAFFIC: "The PC sent no video. A lower bitrate may help."
+    case ML_ERROR_NO_VIDEO_FRAME: "Video arrived but couldn't be shown. A lower bitrate may help."
+    case ML_ERROR_UNEXPECTED_EARLY_TERMINATION: "The PC ended the stream unexpectedly. The game may have closed."
+    case ML_ERROR_PROTECTED_CONTENT: "The PC can't stream protected content (DRM video)."
+    default: "Connection lost (error \(code))."
+    }
 }
 
 nonisolated private func videoFormatName(_ format: Int32) -> String {

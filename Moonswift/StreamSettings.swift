@@ -42,21 +42,16 @@ enum SettingsKey {
     static let codec = "codec"
     static let performanceOverlay = "performanceOverlay" // Bool: live stats in a corner of the stream
     static let adaptiveBitrate = "adaptiveBitrate" // Bool: the bitrate setting becomes a ceiling
-    static let bitrate = "bitrateKbps" // 0 = automatic, StreamSettings.unlimitedSetting = unlimited, else kbps
+    static let bitrate = "bitrateKbps" // 0 = automatic, else kbps
 }
 
 /// The stream size, frame rate, codecs and bitrate to ask for. Pure functions, so they can be tested.
 nonisolated enum StreamSettings {
     static let bitrateRange = 10_000...1_000_000 // kbps: 10 Mbps to 1 Gbps for the custom slider, in 10 Mbps steps
     static let bitrateStep = 10_000
-    /// "Unlimited": the protocol has no such value, so it sends the highest rate tested to work: 1 Gbps streamed fine,
-    /// while 2 Gbps reached the GPU encoder uncapped and it produced no video at all (error -100). The PC's own
-    /// Maximum Bitrate setting can lower it.
-    static let unlimitedBitrate = 1_000_000
-    /// Vibepollo's cap for bitrate changes during a stream (absolute_max_bitrate_kbps in nvhttp.cpp).
+    /// The most a host accepts for bitrate changes during a stream (Vibepollo: absolute_max_bitrate_kbps in nvhttp.cpp).
+    // shortcut: assumes that cap; if another host allows more, read the applied value it returns instead.
     static let liveBitrateLimit = 500_000
-    /// What's saved for "Unlimited": not a bitrate, so a custom 1000 Mbps stays "Custom".
-    static let unlimitedSetting = -1
 
     /// Pixel size for a resolution option, landscape. `safeAreaPixels` is the screen minus its cutout and
     /// home-indicator insets, in pixels.
@@ -114,7 +109,8 @@ nonisolated enum StreamSettings {
     static func effectiveBitrate(saved: Int, width: Int, height: Int, fps: Int) -> Int {
         switch saved {
         case 0: bitrate(width: width, height: height, fps: fps)
-        case unlimitedSetting, (bitrateRange.upperBound + 1)...: unlimitedBitrate // above range: older "Unlimited"
+        // Older versions saved "Unlimited" as -1 or 2,000,000: both mean the highest setting now.
+        case ..<0, (bitrateRange.upperBound + 1)...: bitrateRange.upperBound
         default: min(max(saved, bitrateRange.lowerBound), bitrateRange.upperBound)
         }
     }
