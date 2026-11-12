@@ -551,3 +551,14 @@ struct ErrorMessageTests {
         #expect(portAdvice(ports: 0, testResult: 0) == nil)
     }
 }
+
+struct OnScreenKeyboardTests {
+    @Test func charactersMapToTheirKeys() {
+        #expect(KeyMap.hidUsage(for: "c") == 0x06)
+        #expect(KeyMap.hidUsage(for: "C") == 0x06)
+        #expect(KeyMap.hidUsage(for: "1") == 0x1E)
+        #expect(KeyMap.hidUsage(for: "0") == 0x27)
+        #expect(KeyMap.hidUsage(for: "é") == nil)
+        #expect(KeyMap.key(hidUsage: KeyMap.hidUsage(for: "c")!)?.virtualKey == 0x43) // VK_C
+    }
+}

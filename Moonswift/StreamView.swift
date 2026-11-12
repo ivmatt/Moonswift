@@ -15,7 +15,8 @@ struct StreamTarget: Hashable, Identifiable {
     var id: LaunchSession { launch }
 }
 
-/// The game, full screen with sound, played with controllers, touch, keyboard and mouse. A four-finger tap or
+/// The game, full screen with sound, played with controllers, touch, keyboard and mouse. A three-finger tap shows the
+/// on-screen keyboard. A four-finger tap or
 /// holding Menu + View on the controller opens a menu: switch touch mode, disconnect (the game keeps running) or
 /// quit the game. The screen stays awake while streaming. Leaving the app, switching networks and Apply & Reconnect
 /// reconnect in place: the last frame stays up, blurred, with the status in the middle.
@@ -99,6 +100,7 @@ struct StreamView: View {
             }
         }
         .animation(.easeInOut(duration: 0.45), value: shownStatus == nil)
+        .ignoresSafeArea(.keyboard) // the on-screen keyboard covers the picture rather than squeezing it
         .statusBarHidden()
         .persistentSystemOverlays(.hidden) // the home indicator fades out until touched
         .onGamepad { command in

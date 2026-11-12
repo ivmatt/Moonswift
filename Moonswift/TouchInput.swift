@@ -1,3 +1,4 @@
+import GameController
 import MoonlightCore
 import SwiftUI
 import UIKit
@@ -97,11 +98,18 @@ nonisolated struct TrackpadGestures {
     }
 }
 
-/// A transparent view over the video that sends touches to the host, and opens the stream menu on a four-finger tap.
-final class TouchInputView: UIView {
+/// A transparent view over the video that sends touches to the host. A four-finger tap opens the stream menu; a
+/// three-finger tap shows or hides the on-screen keyboard, whose text and keys it sends to the PC.
+final class TouchInputView: UIView, UIKeyInput {
     var mode = TouchMode.touchscreen { didSet { if mode != oldValue { cancelAll() } } }
     var streamSize = CGSize(width: 1920, height: 1080)
-    var isPaused = false { didSet { if isPaused { cancelAll() } } }
+    var isPaused = false {
+        didSet {
+            guard isPaused else { return }
+            cancelAll()
+            _ = resignFirstResponder() // the keyboard goes away with the menu
+        }
+    }
     var onMenu: () -> Void = {}
 
     private var ids: [ObjectIdentifier: UInt32] = [:]
@@ -109,8 +117,10 @@ final class TouchInputView: UIView {
     private var trackpad = TrackpadGestures()
     /// The finger driving the absolute mouse on hosts without touch support.
     private var mouseFinger: ObjectIdentifier?
-    /// Four fingers down: this gesture is the menu shortcut and nothing else reaches the host until all lift.
-    private var isMenuGesture = false
+    /// Three or more fingers down: this gesture is a shortcut (keyboard or menu) and nothing else reaches the host
+    /// until all lift. Games lose three-finger touches in exchange.
+    private var isShortcutGesture = false
+    private var mostFingers = 0
     private var gestureStart: TimeInterval = 0
     private var activeTouches = 0
 
@@ -127,15 +137,17 @@ final class TouchInputView: UIView {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         if activeTouches == 0 {
-            isMenuGesture = false
+            isShortcutGesture = false
+            mostFingers = 0
             gestureStart = event?.timestamp ?? 0
         }
         activeTouches += touches.count
-        if activeTouches >= 4, !isMenuGesture {
+        mostFingers = max(mostFingers, activeTouches)
+        if activeTouches >= 3, !isShortcutGesture {
             cancelAll()
-            isMenuGesture = true
+            isShortcutGesture = true
         }
-        guard !isMenuGesture, !isPaused else { return }
+        guard !isShortcutGesture, !isPaused else { return }
         for touch in touches {
             let id = nextID
             nextID &+= 1
@@ -151,7 +163,7 @@ final class TouchInputView: UIView {
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard !isMenuGesture, !isPaused else { return }
+        guard !isShortcutGesture, !isPaused else { return }
         for touch in touches {
             guard let id = ids[ObjectIdentifier(touch)] else { continue }
             switch mode {
@@ -171,7 +183,7 @@ final class TouchInputView: UIView {
 
     private func finish(_ touches: Set<UITouch>, event: UIEvent?, cancelled: Bool) {
         activeTouches = max(0, activeTouches - touches.count)
-        if !isMenuGesture, !isPaused {
+        if !isShortcutGesture, !isPaused {
             for touch in touches {
                 guard let id = ids[ObjectIdentifier(touch)] else { continue }
                 switch mode {
@@ -183,9 +195,75 @@ final class TouchInputView: UIView {
             }
         }
         for touch in touches { ids[ObjectIdentifier(touch)] = nil }
-        if activeTouches == 0, isMenuGesture, !cancelled, (event?.timestamp ?? 0) - gestureStart < 0.6 {
-            onMenu()
+        if activeTouches == 0, isShortcutGesture, !cancelled, (event?.timestamp ?? 0) - gestureStart < 0.6 {
+            if mostFingers >= 4 {
+                onMenu()
+            } else if !isPaused {
+                _ = isFirstResponder ? resignFirstResponder() : becomeFirstResponder()
+            }
         }
+    }
+
+    // MARK: On-screen keyboard
+
+    override var canBecomeFirstResponder: Bool { true }
+    override var inputAccessoryView: UIView? { keyBar }
+    var hasText: Bool { true } // so Backspace always reaches deleteBackward, even with nothing typed here
+    // Typed text goes straight to the PC, so iOS shouldn't "fix" it on the way.
+    var autocorrectionType = UITextAutocorrectionType.no
+    var autocapitalizationType = UITextAutocapitalizationType.none
+    var spellCheckingType = UITextSpellCheckingType.no
+    var smartQuotesType = UITextSmartQuotesType.no
+    var smartDashesType = UITextSmartDashesType.no
+    var smartInsertDeleteType = UITextSmartInsertDeleteType.no
+    var inlinePredictionType = UITextInlinePredictionType.no
+    var keyboardAppearance = UIKeyboardAppearance.dark
+
+    /// Ctrl and Alt from the key bar, held for the next key (HID usages).
+    private var stickyModifiers: [Int] = [] { didSet { keyBar.highlight(stickyModifiers) } }
+    private lazy var keyBar = KeyBar { [weak self] usage in self?.keyBarTapped(usage) }
+
+    /// A hardware keyboard already reaches the PC through GameController; taking its keys here too would type twice.
+    private var isSoftKeyboardInput: Bool { !isPaused && GCKeyboard.coalesced == nil }
+
+    func insertText(_ text: String) {
+        guard isSoftKeyboardInput else { return }
+        if text == "\n" { return tap(0x28) } // Return
+        // A shortcut like Ctrl+C has to be the key itself; plain text goes as text, so any language and emoji work.
+        if !stickyModifiers.isEmpty, text.count == 1, let usage = text.first.flatMap(KeyMap.hidUsage) { return tap(usage) }
+        stickyModifiers = []
+        LiSendUtf8TextEvent(text, UInt32(text.utf8.count))
+    }
+
+    func deleteBackward() {
+        if isSoftKeyboardInput { tap(0x2A) } // Backspace
+    }
+
+    private func keyBarTapped(_ usage: Int) {
+        switch usage {
+        case KeyBar.hide: _ = resignFirstResponder()
+        case 0xE0, 0xE2: // Ctrl, Alt: toggle for the next key
+            if let index = stickyModifiers.firstIndex(of: usage) { stickyModifiers.remove(at: index) } else { stickyModifiers.append(usage) }
+        default: tap(usage)
+        }
+    }
+
+    /// Presses and releases one key, with any held Ctrl/Alt around it.
+    private func tap(_ usage: Int) {
+        guard let key = KeyMap.key(hidUsage: usage) else { return }
+        let held = stickyModifiers.compactMap { usage in KeyMap.key(hidUsage: usage).map { (usage, $0) } }
+        var flags: Int8 = 0
+        for (usage, modifier) in held {
+            flags |= KeyMap.modifier(hidUsage: usage)
+            KeyMap.send(modifier, down: true, modifiers: flags)
+        }
+        KeyMap.send(key, down: true, modifiers: flags)
+        KeyMap.send(key, down: false, modifiers: flags)
+        for (usage, modifier) in held.reversed() {
+            flags &= ~KeyMap.modifier(hidUsage: usage)
+            KeyMap.send(modifier, down: false, modifiers: flags)
+        }
+        stickyModifiers = []
     }
 
     /// Lifts everything already sent, so nothing stays pressed on the host.
@@ -252,5 +330,53 @@ struct TouchInputLayer: UIViewRepresentable {
         view.streamSize = streamSize
         view.isPaused = isPaused
         view.onMenu = onMenu
+    }
+}
+
+/// The row above the on-screen keyboard: keys it lacks. Each button reports a HID usage (or `hide`).
+private final class KeyBar: UIInputView {
+    static let hide = -1
+    private static let keys: [(title: String?, symbol: String?, usage: Int)] = [
+        ("Esc", nil, 0x29), ("Tab", nil, 0x2B), ("Ctrl", nil, 0xE0), ("Alt", nil, 0xE2), ("Win", nil, 0xE3),
+        (nil, "arrow.left", 0x50), (nil, "arrow.up", 0x52), (nil, "arrow.down", 0x51), (nil, "arrow.right", 0x4F),
+        (nil, "keyboard.chevron.compact.down", hide),
+    ]
+    private var buttons: [Int: UIButton] = [:]
+
+    init(onTap: @escaping (Int) -> Void) {
+        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 48), inputViewStyle: .keyboard)
+        allowsSelfSizing = true
+        let row = UIStackView()
+        row.axis = .horizontal
+        row.spacing = 6
+        row.distribution = .fillEqually
+        row.translatesAutoresizingMaskIntoConstraints = false
+        for key in Self.keys {
+            var config = UIButton.Configuration.gray()
+            config.title = key.title
+            config.image = key.symbol.map { UIImage(systemName: $0) } ?? nil
+            config.contentInsets = .init(top: 6, leading: 2, bottom: 6, trailing: 2)
+            let button = UIButton(configuration: config, primaryAction: UIAction { _ in onTap(key.usage) })
+            if key.usage == Self.hide { button.accessibilityLabel = "Hide keyboard" }
+            buttons[key.usage] = button
+            row.addArrangedSubview(button)
+        }
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 6),
+            row.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -6),
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used from storyboards") }
+
+    /// Held modifiers look pressed.
+    func highlight(_ usages: [Int]) {
+        for usage in [0xE0, 0xE2] {
+            buttons[usage]?.configuration?.baseBackgroundColor = usages.contains(usage) ? .tintColor : nil
+            buttons[usage]?.configuration?.baseForegroundColor = usages.contains(usage) ? .white : nil
+        }
     }
 }

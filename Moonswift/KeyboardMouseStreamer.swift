@@ -37,6 +37,24 @@ nonisolated enum KeyMap {
         return table[usage].map { Key(virtualKey: $0.0, extended: $0.1) }
     }
 
+    /// The key a typed character comes from (without Shift), for shortcuts like Ctrl+C from the on-screen keyboard.
+    static func hidUsage(for character: Character) -> Int? {
+        guard let ascii = character.lowercased().first?.asciiValue else { return nil }
+        switch ascii {
+        case UInt8(ascii: "a")...UInt8(ascii: "z"): return Int(ascii - UInt8(ascii: "a")) + 0x04
+        case UInt8(ascii: "1")...UInt8(ascii: "9"): return Int(ascii - UInt8(ascii: "1")) + 0x1E
+        case UInt8(ascii: "0"): return 0x27
+        case UInt8(ascii: " "): return 0x2C
+        default: return nil
+        }
+    }
+
+    /// Sends one key press or release. 0x8000 marks the code as a virtual-key code, as moonlight-ios sends it.
+    static func send(_ key: Key, down: Bool, modifiers: Int8) {
+        let flags = modifiers | (key.extended ? Int8(MODIFIER_EXTENDED) : 0)
+        LiSendKeyboardEvent(Int16(bitPattern: 0x8000) | key.virtualKey, CChar(down ? KEY_ACTION_DOWN : KEY_ACTION_UP), CChar(flags))
+    }
+
     /// The modifier bit a key sets while held (Shift, Ctrl, Alt, Windows/Command), if any.
     static func modifier(hidUsage usage: Int) -> Int8 {
         switch usage {
@@ -86,19 +104,13 @@ final class KeyboardMouseStreamer {
         let bit = KeyMap.modifier(hidUsage: usage)
         if down { modifiers |= bit } else { modifiers &= ~bit }
         if down { pressed[usage] = key } else { pressed[usage] = nil }
-        send(key, down: down)
-    }
-
-    private func send(_ key: KeyMap.Key, down: Bool) {
-        let flags = modifiers | (key.extended ? Int8(MODIFIER_EXTENDED) : 0)
-        // 0x8000 marks the code as a virtual-key code in the protocol, as moonlight-ios sends it.
-        LiSendKeyboardEvent(Int16(bitPattern: 0x8000) | key.virtualKey, CChar(down ? KEY_ACTION_DOWN : KEY_ACTION_UP), CChar(flags))
+        KeyMap.send(key, down: down, modifiers: modifiers)
     }
 
     /// Lifts every held key, so nothing stays stuck down on the host (menu opened, stream closed).
     private func releaseAll() {
         modifiers = 0
-        for key in pressed.values { send(key, down: false) }
+        for key in pressed.values { KeyMap.send(key, down: false, modifiers: 0) }
         pressed = [:]
     }
 
