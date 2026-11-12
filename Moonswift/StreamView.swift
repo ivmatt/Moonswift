@@ -128,7 +128,8 @@ struct StreamView: View {
                 status = nil
                 startInput()
             case .failed, .ended:
-                guard !isRestarting else { return }
+                // Ending it ourselves (Disconnect, Quit, reconnecting) isn't news: the screen just closes or reconnects.
+                guard !isRestarting, !isLeaving else { return }
                 status = nil
                 stopInput()
                 showMenu()
