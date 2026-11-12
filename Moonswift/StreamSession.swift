@@ -30,6 +30,8 @@ nonisolated struct StreamStats: Sendable {
 nonisolated let liveStats = Mutex(StreamStats())
 /// Set while a stream screen is up; the library's video callbacks reach it on the main thread.
 var activeVideoRenderer: VideoRenderer?
+/// Set while controllers are being streamed; receives the host's rumble, motion and light requests.
+var activeControllers: ControllerStreamer?
 nonisolated private let audioRenderer = AudioRenderer()
 
 /// One streaming connection: starts moonlight-common-c after a successful /launch or /resume.
@@ -105,6 +107,19 @@ nonisolated private let audioRenderer = AudioRenderer()
         }
         listener.connectionTerminated = { code in
             liveStats.withLock { $0.state = .ended(code == 0 ? "The host ended the stream." : "Connection lost (error \(code)).") }
+        }
+        // The host's requests for the controllers arrive on the library's threads; apply them on the main thread.
+        listener.rumble = { number, low, high in
+            DispatchQueue.main.async { MainActor.assumeIsolated { activeControllers?.rumble(controller: Int(number), low: low, high: high) } }
+        }
+        listener.rumbleTriggers = { number, left, right in
+            DispatchQueue.main.async { MainActor.assumeIsolated { activeControllers?.rumbleTriggers(controller: Int(number), left: left, right: right) } }
+        }
+        listener.setMotionEventState = { number, type, rate in
+            DispatchQueue.main.async { MainActor.assumeIsolated { activeControllers?.setMotion(controller: Int(number), type: type, rateHz: Int(rate)) } }
+        }
+        listener.setControllerLED = { number, red, green, blue in
+            DispatchQueue.main.async { MainActor.assumeIsolated { activeControllers?.setLight(controller: Int(number), red: red, green: green, blue: blue) } }
         }
         MCInstallLogSink(&listener) { message in
             guard let message else { return }

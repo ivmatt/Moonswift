@@ -17,6 +17,8 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
     private(set) var isActive = false
 
     @ObservationIgnored private var handlers: [(id: UUID, handle: (GamepadCommand) -> Void)] = []
+    /// While streaming, the keyboard goes to the game instead of the menus (there can only be one handler).
+    @ObservationIgnored var keyboardOverride: ((GCKeyCode, Bool) -> Void)?
     @ObservationIgnored private var dpad = HeldDirection()
     @ObservationIgnored private var stick = HeldDirection()
     @ObservationIgnored private var held: GamepadCommand?
@@ -99,6 +101,10 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
     private func hold(stick x: Float, _ y: Float) { setHeld(stick.update(x: x, y: y)) }
 
     private func key(_ key: GCKeyCode, pressed: Bool) {
+        if let keyboardOverride {
+            keyboardOverride(key, pressed)
+            return
+        }
         let arrows: [GCKeyCode: GamepadCommand] = [.upArrow: .up, .downArrow: .down, .leftArrow: .left, .rightArrow: .right]
         if let direction = arrows[key] {
             setHeld(pressed ? direction : nil)

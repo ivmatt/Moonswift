@@ -11,14 +11,20 @@ struct StreamTarget: Hashable, Identifiable {
     var id: LaunchSession { launch }
 }
 
-/// The game, full screen with sound. Tapping the screen or holding Menu + View on the controller opens a menu
-/// to disconnect (the game keeps running) or quit the game. The screen stays awake while streaming.
+/// The game, full screen with sound, played with controllers, touch, keyboard and mouse. A four-finger tap or
+/// holding Menu + View on the controller opens a menu: switch touch mode, disconnect (the game keeps running) or
+/// quit the game. The screen stays awake while streaming.
 struct StreamView: View {
     let client: HostClient
     let target: StreamTarget
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(GamepadInput.self) private var gamepad
+    @AppStorage("touchMode") private var touchMode = TouchMode.touchscreen
     @State private var session = StreamSession()
+    @State private var controllers = ControllerStreamer()
+    @State private var keyboardMouse = KeyboardMouseStreamer()
+    @State private var isSendingInput = false
     @State private var renderer = VideoRenderer()
     @State private var menu: MenuSpec?
     @State private var rates = ""
@@ -30,6 +36,8 @@ struct StreamView: View {
         ZStack {
             Color.black
             VideoLayerView(renderer: renderer)
+            TouchInputLayer(mode: touchMode, streamSize: CGSize(width: target.width, height: target.height),
+                            isPaused: menu != nil || !isSendingInput, onMenu: showMenu)
             if stats.state == .connecting || isLeaving {
                 ProgressView(isLeaving ? "Disconnecting…" : "Connecting to \(target.title)…")
                     .tint(.white)
@@ -37,8 +45,6 @@ struct StreamView: View {
             }
         }
         .ignoresSafeArea()
-        .contentShape(.rect)
-        .onTapGesture { if menu == nil { showMenu() } }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden) // the home indicator fades out until touched
         .onGamepad { command in
@@ -46,12 +52,40 @@ struct StreamView: View {
         }
         .actionMenu($menu)
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
-        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
+            stopInput()
+        }
         .task { await run() }
         .onChange(of: stats.state) { _, state in
-            if case .failed = state { showMenu() }
-            if case .ended = state { showMenu() }
+            switch state {
+            case .connected: startInput()
+            case .failed, .ended: stopInput(); showMenu()
+            case .connecting: break
+            }
         }
+        .onChange(of: menu == nil) { _, isPlaying in
+            // While the menu is up, input drives the menu; held buttons and keys are released on the host.
+            controllers.isPaused = !isPlaying
+            keyboardMouse.isPaused = !isPlaying
+        }
+    }
+
+    /// Input can only be sent once the connection is up (controller arrival events need the control stream).
+    private func startInput() {
+        guard !isSendingInput else { return }
+        isSendingInput = true
+        activeControllers = controllers
+        controllers.start()
+        keyboardMouse.start(gamepad: gamepad)
+    }
+
+    private func stopInput() {
+        guard isSendingInput else { return }
+        isSendingInput = false
+        controllers.stop()
+        keyboardMouse.stop()
+        activeControllers = nil
     }
 
     private func showMenu() {
@@ -61,6 +95,9 @@ struct StreamView: View {
         case .connecting, .connected:
             menu = MenuSpec(title: target.title, message: [stats.video, rates].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
                             actions: [
+                                .init(title: touchMode == .touchscreen ? "Switch to Trackpad" : "Switch to Touchscreen") {
+                                    touchMode = touchMode == .touchscreen ? .trackpad : .touchscreen
+                                },
                                 .init(title: "Disconnect") { leave() },
                                 .init(title: "Quit Game", isDestructive: true) { leave(quitting: true) },
                             ],
@@ -72,6 +109,7 @@ struct StreamView: View {
     private func leave(quitting: Bool = false) {
         guard !isLeaving else { return }
         isLeaving = true
+        stopInput() // lift held buttons and keys before the connection closes
         Task {
             await session.stop()
             if quitting { try? await client.quit() }

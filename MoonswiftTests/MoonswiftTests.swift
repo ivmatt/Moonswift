@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import MoonlightCore
 import Security
@@ -259,6 +260,79 @@ struct StreamMediaTests {
         samples = [1, 2]
         samples.withUnsafeBufferPointer { ring.write($0) }
         #expect(ring.queuedFrames == 1)
+    }
+}
+
+struct InputTests {
+    @Test func padSnapshotMapsToLibraryFlags() {
+        var pad = PadSnapshot(a: true, up: true, menu: true)
+        pad.touchpadClick = true
+        pad.paddles = [false, true]
+        pad.leftTrigger = 1
+        pad.leftStick = (1, -1)
+        let state = ControllerMapping.state(pad)
+        #expect(state.buttons == A_FLAG | UP_FLAG | PLAY_FLAG | TOUCHPAD_FLAG | PADDLE2_FLAG)
+        #expect(state.leftTrigger == 255 && state.rightTrigger == 0)
+        #expect(state.leftX == 32767 && state.leftY == -32767)
+        #expect(ControllerMapping.axis(2) == 32767) // clamped
+    }
+
+    @Test func motionUnitsMatchTheLibrary() {
+        let (ax, ay, az) = ControllerMapping.acceleration(x: 0, y: -1, z: 0) // resting: gravity along -y in g
+        #expect(ax == 0 && abs(ay - 9.80665) < 0.0001 && az == 0)
+        let (gx, gy, gz) = ControllerMapping.rotation(x: .pi, y: .pi / 2, z: 0)
+        #expect(abs(gx - 180) < 0.001 && gy == 0 && abs(gz + 90) < 0.001) // y and z swap, y negated
+        let corner = ControllerMapping.touchpadPoint(x: -1, y: 1) // top-left of the touchpad
+        #expect(corner.0 == 0 && corner.1 == 0)
+    }
+
+    @Test func trackpadTapsClick() {
+        var pad = TrackpadGestures()
+        pad.began(1, at: CGPoint(x: 100, y: 100), time: 0)
+        #expect(pad.ended(1, time: 0.1) == [.click(BUTTON_LEFT)])
+        pad.began(1, at: CGPoint(x: 100, y: 100), time: 1)
+        pad.began(2, at: CGPoint(x: 150, y: 100), time: 1.02)
+        #expect(pad.ended(1, time: 1.1).isEmpty)
+        #expect(pad.ended(2, time: 1.12) == [.click(BUTTON_RIGHT)])
+        pad.began(1, at: .zero, time: 2)
+        #expect(pad.ended(1, time: 2.5).isEmpty) // held too long to be a tap
+    }
+
+    @Test func trackpadMovesAndScrolls() {
+        var pad = TrackpadGestures()
+        pad.cursorScale = 2
+        pad.began(1, at: CGPoint(x: 0, y: 0), time: 0)
+        #expect(pad.moved(1, to: CGPoint(x: 5, y: -3)) == [.move(dx: 10, dy: -6)])
+        #expect(pad.moved(1, to: CGPoint(x: 5.2, y: -3)).isEmpty) // fraction carried over...
+        #expect(pad.moved(1, to: CGPoint(x: 5.6, y: -3)) == [.move(dx: 1, dy: 0)]) // ...until it adds up
+        _ = pad.moved(1, to: CGPoint(x: 20, y: -3)) // past the 10 pt tap tolerance
+        #expect(pad.ended(1, time: 0.1).isEmpty) // moved: not a tap
+
+        pad.scrollScale = 3
+        pad.began(1, at: CGPoint(x: 0, y: 0), time: 1)
+        pad.began(2, at: CGPoint(x: 50, y: 0), time: 1)
+        #expect(pad.moved(1, to: CGPoint(x: 0, y: 20)) == [.scroll(30)]) // half of 20 * 3: each finger counts half
+        #expect(pad.moved(2, to: CGPoint(x: 50, y: 20)) == [.scroll(30)])
+        #expect(pad.ended(1, time: 1.1).isEmpty && pad.ended(2, time: 1.1).isEmpty) // a scroll isn't a right-click
+    }
+
+    @Test func touchesMapIntoTheVideoArea() {
+        // A 16:9 stream on a 4:3 screen sits in a letterbox.
+        let video = VideoGeometry.videoRect(stream: CGSize(width: 1920, height: 1080), in: CGRect(x: 0, y: 0, width: 1200, height: 900))
+        #expect(video == CGRect(x: 0, y: 112.5, width: 1200, height: 675))
+        #expect(VideoGeometry.normalized(CGPoint(x: 600, y: 450), in: video) == CGPoint(x: 0.5, y: 0.5))
+        #expect(VideoGeometry.normalized(CGPoint(x: -10, y: 0), in: video) == CGPoint(x: 0, y: 0)) // bars clamp to the edge
+    }
+
+    @Test func keyboardMapsToWindowsKeys() {
+        #expect(KeyMap.key(hidUsage: 0x04) == KeyMap.Key(virtualKey: 0x41, extended: false)) // A
+        #expect(KeyMap.key(hidUsage: 0x27) == KeyMap.Key(virtualKey: 0x30, extended: false)) // 0
+        #expect(KeyMap.key(hidUsage: 0x3A) == KeyMap.Key(virtualKey: 0x70, extended: false)) // F1
+        #expect(KeyMap.key(hidUsage: 0x28) == KeyMap.Key(virtualKey: 0x0D, extended: false)) // Enter
+        #expect(KeyMap.key(hidUsage: 0x58) == KeyMap.Key(virtualKey: 0x0D, extended: true)) // Numpad Enter
+        #expect(KeyMap.key(hidUsage: 0x50) == KeyMap.Key(virtualKey: 0x25, extended: true)) // Left arrow
+        #expect(KeyMap.modifier(hidUsage: 0xE5) == Int8(MODIFIER_SHIFT))
+        #expect(KeyMap.key(hidUsage: 0x00) == nil)
     }
 }
 
