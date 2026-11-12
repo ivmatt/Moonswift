@@ -169,7 +169,7 @@ struct StreamView: View {
             ], closable: false)
         case .connecting, .connected:
             menu = MenuSpec(title: target.title,
-                            message: ([stats.video, rates].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                            message: ([stats.videoLabel, rates].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                                 + (adaptiveNote.map { "\n" + $0 } ?? ""),
                             actions: [
                                 .init(title: touchMode == .touchscreen ? "Switch to Trackpad" : "Switch to Touchscreen") {
@@ -284,7 +284,7 @@ struct StreamView: View {
 
             rates = "\(window.fps.formatted(.number.precision(.fractionLength(0)))) fps, "
                 + "\(window.mbps.formatted(.number.precision(.fractionLength(1)))) Mbps"
-            performance = PerformanceOverlay.Readout(window: window, targetFPS: target.fps, video: stats.video,
+            performance = PerformanceOverlay.Readout(window: window, targetFPS: target.fps, video: stats.videoLabel,
                                                      rtt: hasRTT ? (Int(rtt), Int(rttVariance)) : nil,
                                                      isRemote: !isHomeNetworkHost(hostAddress(client.address)))
             if isLive {

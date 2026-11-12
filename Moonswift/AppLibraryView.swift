@@ -46,6 +46,10 @@ struct AppLibraryView: View {
     private var savedFPS: Int { UserDefaults.standard.object(forKey: SettingsKey.fps) as? Int ?? 60 }
     private var codec: CodecOption { UserDefaults.standard.string(forKey: SettingsKey.codec).flatMap(CodecOption.init) ?? .automatic }
     private var savedBitrate: Int { UserDefaults.standard.integer(forKey: SettingsKey.bitrate) }
+    private var videoFormats: Int32 {
+        StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware,
+                                    hdr: ScreenInfo.supportsHDR && UserDefaults.standard.bool(forKey: SettingsKey.hdr))
+    }
 
     private static let tileWidth: CGFloat = 170
     private static let spacing: CGFloat = 24
@@ -197,7 +201,7 @@ struct AppLibraryView: View {
             launch(app)
         } else if app.id == runningID {
             perform("Resuming \(app.title)…", streaming: app) {
-                try await client.resume(app, width: mode.width, height: mode.height, fps: fps)
+                try await client.resume(app, width: mode.width, height: mode.height, fps: fps, videoFormats: videoFormats)
             }
         } else {
             menu = MenuSpec(title: "Quit \(running?.title ?? "the running game") to launch \(app.title)?",
@@ -205,7 +209,7 @@ struct AppLibraryView: View {
                 .init(title: "Quit and Launch", isDestructive: true) {
                     perform("Launching \(app.title)…", streaming: app) {
                         try await client.quit()
-                        return try await client.launch(app, width: mode.width, height: mode.height, fps: fps)
+                        return try await client.launch(app, width: mode.width, height: mode.height, fps: fps, videoFormats: videoFormats)
                     }
                 },
             ])
@@ -236,7 +240,7 @@ struct AppLibraryView: View {
 
     private func launch(_ app: HostApp) {
         perform("Launching \(app.title)…", streaming: app) {
-            try await client.launch(app, width: mode.width, height: mode.height, fps: fps)
+            try await client.launch(app, width: mode.width, height: mode.height, fps: fps, videoFormats: videoFormats)
         }
     }
 
@@ -283,7 +287,7 @@ struct AppLibraryView: View {
     private func reconnect() async throws -> (HostClient, StreamTarget) {
         guard let app = streamingApp, let address = await answeringAddress() else { throw ServerInfoError.unreachable(.timedOut) }
         client = HostClient(hostID: client.hostID, address: address, httpsPort: client.httpsPort, serverCert: client.serverCert)
-        let launch = try await client.resume(app, width: mode.width, height: mode.height, fps: fps)
+        let launch = try await client.resume(app, width: mode.width, height: mode.height, fps: fps, videoFormats: videoFormats)
         return (client, streamTarget(app, launch))
     }
 
@@ -291,7 +295,7 @@ struct AppLibraryView: View {
         StreamTarget(
             title: app.title, launch: launch, width: mode.width, height: mode.height, fps: fps,
             bitrate: StreamSettings.effectiveBitrate(saved: savedBitrate, width: mode.width, height: mode.height, fps: fps),
-            videoFormats: StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware),
+            videoFormats: videoFormats,
             fitsSafeArea: resolution == .safeArea)
     }
 

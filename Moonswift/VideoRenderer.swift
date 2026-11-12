@@ -13,10 +13,23 @@ final class VideoRenderer: NSObject {
     private var isHEVC = false
     private var format: CMVideoFormatDescription?
     private var parameterSets: [Data] = []
+    /// The PC's HDR brightness data, attached to the video so iOS maps HDR to this screen. Empty while SDR.
+    private var hdrExtensions: [CFString: Data] = [:]
 
     override init() {
         layer.videoGravity = .resizeAspect // fill the screen without stretching; black bars only if the aspect differs
         layer.backgroundColor = UIColor.black.cgColor
+        layer.preferredDynamicRange = .high // let HDR video use the screen's extra brightness (SDR is unaffected)
+    }
+
+    /// Called (on the main thread) when the PC turns HDR on or off. The new metadata needs a new format description,
+    /// which the next keyframe brings.
+    func setHDR(_ metadata: SS_HDR_METADATA?) {
+        let extensions = metadata.map(HDRMetadata.extensions) ?? [:]
+        guard extensions != hdrExtensions else { return }
+        hdrExtensions = extensions
+        parameterSets = [] // rebuild the format on the next keyframe
+        LiRequestIdrFrame()
     }
 
     /// Called (on the main thread) when the library starts its video stream.
@@ -118,7 +131,8 @@ final class VideoRenderer: NSObject {
         let status = isHEVC
             ? CMVideoFormatDescriptionCreateFromHEVCParameterSets(
                 allocator: nil, parameterSetCount: sets.count, parameterSetPointers: copies, parameterSetSizes: sizes,
-                nalUnitHeaderLength: 4, extensions: nil, formatDescriptionOut: &format)
+                nalUnitHeaderLength: 4, extensions: hdrExtensions.isEmpty ? nil : hdrExtensions as CFDictionary,
+                formatDescriptionOut: &format)
             : CMVideoFormatDescriptionCreateFromH264ParameterSets(
                 allocator: nil, parameterSetCount: sets.count, parameterSetPointers: copies, parameterSetSizes: sizes,
                 nalUnitHeaderLength: 4, formatDescriptionOut: &format)
@@ -181,5 +195,48 @@ nonisolated enum AnnexB {
             output.append(unit)
         }
         return output
+    }
+}
+
+/// HDR10 metadata in the form Core Media wants: the ISO "mdcv" and "clli" boxes, big-endian. Like moonlight-ios.
+nonisolated enum HDRMetadata {
+    /// SS_HDR_METADATA's 13 fields in order: red, green, blue primaries (x, y), white point (x, y), max and min display
+    /// luminance, max content and frame-average light level, max full-frame luminance. Swift can't see the C struct's
+    /// nested anonymous structs, so its memory is read as the plain list of UInt16s it is.
+    static func fields(_ metadata: SS_HDR_METADATA) -> [UInt16] {
+        withUnsafeBytes(of: metadata) { Array($0.bindMemory(to: UInt16.self).prefix(13)) }
+    }
+
+    static func extensions(_ metadata: SS_HDR_METADATA) -> [CFString: Data] {
+        let values = fields(metadata)
+        var result: [CFString: Data] = [:]
+        if let volume = masteringDisplay(values) { result[kCMFormatDescriptionExtension_MasteringDisplayColorVolume] = volume }
+        if let light = contentLightLevel(values) { result[kCMFormatDescriptionExtension_ContentLightLevelInfo] = light }
+        return result
+    }
+
+    /// The PC display's primaries (green, blue, red: mdcv's order), white point and brightness range.
+    static func masteringDisplay(_ v: [UInt16]) -> Data? {
+        guard v.count >= 10, v[0] != 0, v[8] != 0 else { return nil }
+        var data = Data()
+        for index in [2, 3, 4, 5, 0, 1, 6, 7] { data.appendBigEndian(v[index]) }
+        data.appendBigEndian(UInt32(v[8]) * 10_000) // nits to 1/10000 nit
+        data.appendBigEndian(UInt32(v[9])) // already 1/10000 nit
+        return data
+    }
+
+    /// The content's brightest pixel and brightest frame average, when the PC knows them.
+    static func contentLightLevel(_ v: [UInt16]) -> Data? {
+        guard v.count >= 12, v[10] != 0, v[11] != 0 else { return nil }
+        var data = Data()
+        data.appendBigEndian(v[10])
+        data.appendBigEndian(v[11])
+        return data
+    }
+}
+
+nonisolated private extension Data {
+    mutating func appendBigEndian<T: FixedWidthInteger>(_ value: T) {
+        Swift.withUnsafeBytes(of: value.bigEndian) { append(contentsOf: $0) }
     }
 }

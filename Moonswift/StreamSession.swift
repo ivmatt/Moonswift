@@ -12,7 +12,9 @@ nonisolated struct StreamStats: Sendable {
     }
 
     var state = State.connecting
-    var video: String? // e.g. "HEVC 2752×2064 @ 60"
+    var video: String? // e.g. "HEVC 10-bit 2752×2064 @ 60"
+    /// The PC's display is in HDR, so the 10-bit stream carries HDR.
+    var isHDR = false
     var videoFormat: Int32 = 0
     var fps = 60
     var videoFrames = 0
@@ -28,6 +30,9 @@ nonisolated struct StreamStats: Sendable {
     var receiveMicroseconds = 0 // first to last packet of a frame
     var queueMicroseconds = 0 // fully received to handed to the decoder
     var log: [String] = []
+
+    /// What to show: the video line, with "HDR" once the PC's display is in HDR.
+    var videoLabel: String? { isHDR ? video?.replacingOccurrences(of: "10-bit", with: "10-bit HDR") : video }
 
     mutating func append(_ line: String) {
         log.append(line)
@@ -117,6 +122,13 @@ nonisolated private let audioRenderer = AudioRenderer()
         }
         listener.connectionStarted = {
             liveStats.withLock { $0.state = .connected; $0.append("Connection started") }
+        }
+        listener.setHdrMode = { enabled in
+            // Only valid while HDR is on; read here, on the library's thread, then applied on the main thread.
+            var metadata = SS_HDR_METADATA()
+            let hdr: SS_HDR_METADATA? = enabled && LiGetHdrMetadata(&metadata) ? metadata : enabled ? SS_HDR_METADATA() : nil
+            liveStats.withLock { $0.isHDR = enabled }
+            DispatchQueue.main.async { MainActor.assumeIsolated { activeVideoRenderer?.setHDR(hdr) } }
         }
         listener.connectionStatusUpdate = { status in
             liveStats.withLock { $0.isPoor = status == CONN_STATUS_POOR }
@@ -251,7 +263,7 @@ nonisolated func portNames(_ flags: UInt32) -> String {
 }
 
 nonisolated private func videoFormatName(_ format: Int32) -> String {
-    if format & VIDEO_FORMAT_MASK_H265 != 0 { return "HEVC" }
+    if format & VIDEO_FORMAT_MASK_H265 != 0 { return format & VIDEO_FORMAT_MASK_10BIT != 0 ? "HEVC 10-bit" : "HEVC" }
     if format & VIDEO_FORMAT_MASK_H264 != 0 { return "H.264" }
     return String(format: "format 0x%X", format)
 }

@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreGraphics
 import MoonlightCore
 import UIKit
@@ -44,6 +45,7 @@ nonisolated enum SettingsKey {
     static let adaptiveBitrate = "adaptiveBitrate" // Bool: the bitrate setting becomes a ceiling
     static let bitrate = "bitrateKbps" // 0 = automatic, else kbps
     static let playAudioOnPC = "playAudioOnPC" // Bool: sound also plays from the PC's speakers
+    static let hdr = "hdr" // Bool: ask for HDR (10-bit HEVC) on HDR screens
 }
 
 /// The stream size, frame rate, codecs and bitrate to ask for. Pure functions, so they can be tested.
@@ -84,12 +86,14 @@ nonisolated enum StreamSettings {
     }
 
     /// The library's video format flags for a codec choice.
-    static func videoFormats(for codec: CodecOption, hevcInHardware: Bool) -> Int32 {
-        switch codec {
+    /// HDR adds 10-bit HEVC, which the PC picks when its display is in HDR (it falls back to 8-bit otherwise).
+    static func videoFormats(for codec: CodecOption, hevcInHardware: Bool, hdr: Bool = false) -> Int32 {
+        let formats: Int32 = switch codec {
         case .automatic: VIDEO_FORMAT_H264 | (hevcInHardware ? VIDEO_FORMAT_H265 : 0)
         case .h264: VIDEO_FORMAT_H264
         case .hevc: VIDEO_FORMAT_H265
         }
+        return formats | (hdr && formats & VIDEO_FORMAT_H265 != 0 ? VIDEO_FORMAT_H265_MAIN10 : 0)
     }
 
     /// kbps: 20 Mbps for 1080p60, scaled by pixels per second, kept between 10 and 100 Mbps.
@@ -141,6 +145,8 @@ enum ScreenInfo {
     static var nativePixels: CGSize { scene?.screen.nativeBounds.size ?? CGSize(width: 1920, height: 1080) }
     static var maximumFramesPerSecond: Int { scene?.screen.maximumFramesPerSecond ?? 60 }
     static var hevcInHardware: Bool { VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) }
+    /// The screen can show HDR10 video (and HEVC is decoded in hardware, which HDR streams use).
+    static var supportsHDR: Bool { AVPlayer.eligibleForHDRPlayback && hevcInHardware }
 
     /// The screen minus its insets, in pixels. The cutout's inset is mirrored on both sides in landscape, so
     /// in portrait the long side loses top and bottom, and in landscape left and right.

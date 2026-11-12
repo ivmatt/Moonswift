@@ -24,20 +24,25 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = false
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
     @AppStorage(SettingsKey.playAudioOnPC) private var playAudioOnPC = false
+    @AppStorage(SettingsKey.hdr) private var hdr = false
     @State private var focus = 0
     @State private var liveBitrateNote: String?
     @State private var bitrateChange: Task<Void, Never>?
     @State private var isShowingAbout = false
 
-    private enum Row { case reconnect, resolution, fps, codec, bitrateMode, bitrate, adaptive, overlay, pcAudio, about }
+    private enum Row { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, about }
     private enum BitrateMode: String, CaseIterable { case automatic = "Automatic", custom = "Custom" }
     private var bitrateMode: BitrateMode {
         bitrate == 0 ? .automatic : .custom
     }
     private var rows: [Row] {
-        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec, .bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay, .pcAudio, .about]
+        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : []) + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay, .pcAudio, .about]
     }
-    private var videoFormats: Int32 { StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware) }
+    private var videoFormats: Int32 {
+        StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware, hdr: showsHDR && hdr)
+    }
+    /// HDR needs an HDR screen and HEVC, so it's hidden on other devices and when H.264 is chosen.
+    private var showsHDR: Bool { ScreenInfo.supportsHDR && codec != .h264 }
     private var effectiveBitrate: Int { StreamSettings.effectiveBitrate(saved: bitrate, width: size.width, height: size.height, fps: fps) }
     private var needsReconnect: Bool {
         guard let target = live?.target else { return false }
@@ -83,11 +88,15 @@ struct SettingsView: View {
                             ForEach(codecs, id: \.self) { Text($0.title) }
                         }
                     }
+                    if showsHDR {
+                        row(.hdr) { Toggle("HDR", isOn: $hdr) }
+                    }
                 } header: {
                     Text("Video")
                 } footer: {
                     Text("\(size.width)×\(size.height) at \(fps) fps"
-                         + (codec == .automatic ? ", \(ScreenInfo.hevcInHardware ? "HEVC" : "H.264") on this device." : "."))
+                         + (codec == .automatic ? ", \(ScreenInfo.hevcInHardware ? "HEVC" : "H.264") on this device." : ".")
+                         + (showsHDR && hdr ? " HDR streams in 10-bit HEVC when HDR is on in the PC's display settings." : ""))
                 }
                 Section {
                     row(.bitrateMode) {
@@ -208,6 +217,7 @@ struct SettingsView: View {
         case .adaptive: adaptive.toggle()
         case .overlay: showsPerformance.toggle()
         case .pcAudio: playAudioOnPC.toggle()
+        case .hdr: hdr.toggle()
         case .reconnect, .about: break
         }
     }

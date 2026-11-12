@@ -84,13 +84,13 @@ nonisolated struct HostClient: Sendable {
     }
 
     /// Starts `app`. Blocks while the host starts it; the host then waits for the stream to connect.
-    func launch(_ app: HostApp, width: Int, height: Int, fps: Int) async throws -> LaunchSession {
-        try await start("/launch", app: app, width: width, height: height, fps: fps)
+    func launch(_ app: HostApp, width: Int, height: Int, fps: Int, videoFormats: Int32) async throws -> LaunchSession {
+        try await start("/launch", app: app, width: width, height: height, fps: fps, videoFormats: videoFormats)
     }
 
     /// Reconnects to the game that's already running.
-    func resume(_ app: HostApp, width: Int, height: Int, fps: Int) async throws -> LaunchSession {
-        try await start("/resume", app: app, width: width, height: height, fps: fps)
+    func resume(_ app: HostApp, width: Int, height: Int, fps: Int, videoFormats: Int32) async throws -> LaunchSession {
+        try await start("/resume", app: app, width: width, height: height, fps: fps, videoFormats: videoFormats)
     }
 
     /// Vibepollo extension: changes the running stream's bitrate without reconnecting (other hosts answer 404).
@@ -112,10 +112,11 @@ nonisolated struct HostClient: Sendable {
         guard fields["cancel"] == "1" else { throw GameError.quitFailed }
     }
 
-    private func start(_ path: String, app: HostApp, width: Int, height: Int, fps: Int) async throws -> LaunchSession {
+    private func start(_ path: String, app: HostApp, width: Int, height: Int, fps: Int, videoFormats: Int32) async throws -> LaunchSession {
         let key = Pairing.randomBytes(16), keyID = Int32.random(in: .min ... .max)
         let query = Self.launchQuery(app: app, width: width, height: height, fps: fps, rikey: key, rikeyID: keyID,
-                                     playAudioOnPC: UserDefaults.standard.bool(forKey: SettingsKey.playAudioOnPC))
+                                     playAudioOnPC: UserDefaults.standard.bool(forKey: SettingsKey.playAudioOnPC),
+                                     hdr: videoFormats & VIDEO_FORMAT_MASK_10BIT != 0)
             + Self.libraryLaunchQuery(String(cString: LiGetLaunchUrlQueryParameters()))
         let fields = try parseHostResponse(await data(path, timeout: 120, query: query))
         // /launch answers gamesession=1; /resume (or a launch of the running game) answers resume=1.
@@ -131,10 +132,19 @@ nonisolated struct HostClient: Sendable {
         }
     }
 
-    /// The query moonlight-ios's HttpManager sends to /launch and /resume, minus the HDR and controller options.
+    /// The query moonlight-ios's HttpManager sends to /launch and /resume, minus the controller options.
     static func launchQuery(app: HostApp, width: Int, height: Int, fps: Int, rikey: Data, rikeyID: Int32,
-                            playAudioOnPC: Bool = false) -> [URLQueryItem] {
-        [
+                            playAudioOnPC: Bool = false, hdr: Bool = false) -> [URLQueryItem] {
+        // HDR: the PC switches its encoder to 10-bit when its display is in HDR. The client display fields are zeros,
+        // as moonlight-ios sends them; the PC then uses its own display's metadata.
+        let hdrItems = hdr ? [
+            URLQueryItem(name: "hdrMode", value: "1"),
+            URLQueryItem(name: "clientHdrCapVersion", value: "0"),
+            URLQueryItem(name: "clientHdrCapSupportedFlagsInUint32", value: "0"),
+            URLQueryItem(name: "clientHdrCapMetaDataId", value: "NV_STATIC_METADATA_TYPE_1"),
+            URLQueryItem(name: "clientHdrCapDisplayData", value: "0x0x0x0x0x0x0x0x0x0x0"),
+        ] : []
+        return hdrItems + [
             URLQueryItem(name: "appid", value: String(app.id)),
             URLQueryItem(name: "appuuid", value: app.uuid),
             URLQueryItem(name: "mode", value: "\(width)x\(height)x\(fps)"),

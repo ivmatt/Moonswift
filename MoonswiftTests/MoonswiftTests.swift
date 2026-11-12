@@ -147,6 +147,10 @@ struct AppListTests {
         #expect(query["localAudioPlayMode"] == "0")
         let withPCAudio = HostClient.launchQuery(app: app, width: 1, height: 1, fps: 60, rikey: Data(count: 16), rikeyID: 0, playAudioOnPC: true)
         #expect(withPCAudio.first { $0.name == "localAudioPlayMode" }?.value == "1")
+        #expect(query["hdrMode"] == nil)
+        let withHDR = HostClient.launchQuery(app: app, width: 1, height: 1, fps: 60, rikey: Data(count: 16), rikeyID: 0, hdr: true)
+        #expect(withHDR.first { $0.name == "hdrMode" }?.value == "1")
+        #expect(withHDR.first { $0.name == "clientHdrCapMetaDataId" }?.value == "NV_STATIC_METADATA_TYPE_1")
     }
 }
 
@@ -362,6 +366,9 @@ struct StreamSettingsTests {
         #expect(StreamSettings.videoFormats(for: .automatic, hevcInHardware: false) == VIDEO_FORMAT_H264)
         #expect(StreamSettings.videoFormats(for: .h264, hevcInHardware: true) == VIDEO_FORMAT_H264)
         #expect(StreamSettings.videoFormats(for: .hevc, hevcInHardware: true) == VIDEO_FORMAT_H265)
+        #expect(StreamSettings.videoFormats(for: .automatic, hevcInHardware: true, hdr: true) == VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10)
+        #expect(StreamSettings.videoFormats(for: .h264, hevcInHardware: true, hdr: true) == VIDEO_FORMAT_H264) // HDR needs HEVC
+        #expect(StreamSettings.videoFormats(for: .automatic, hevcInHardware: false, hdr: true) == VIDEO_FORMAT_H264)
     }
 
     @Test func savedBitrateOverridesAutomaticWithinRange() {
@@ -589,5 +596,30 @@ struct GameLibraryTests {
         history.save(hostID: "pc", to: defaults)
         #expect(GameHistory.load(hostID: "pc", from: defaults) == history)
         #expect(GameHistory.load(hostID: "other", from: defaults) == GameHistory())
+    }
+}
+
+struct HDRMetadataTests {
+    @Test func boxesAreBigEndianInCoreMediaOrder() {
+        // red, green, blue (x, y), white (x, y), max/min display luminance, max content / frame-average light, full frame
+        var v: [UInt16] = [34000, 16000, 13250, 34500, 7500, 3000, 15635, 16450, 1000, 50, 0, 0, 0]
+        let volume = HDRMetadata.masteringDisplay(v)
+        #expect(volume?.count == 24)
+        #expect(volume?.prefix(2) == Data([0x33, 0xC2])) // green x (13250) first, big-endian
+        #expect(volume?.suffix(8) == Data([0x00, 0x98, 0x96, 0x80, 0x00, 0x00, 0x00, 0x32])) // 1000 nits ×10000, then 50
+        #expect(HDRMetadata.contentLightLevel(v) == nil) // the PC didn't report content levels
+        v[10] = 800
+        v[11] = 400
+        #expect(HDRMetadata.contentLightLevel(v) == Data([0x03, 0x20, 0x01, 0x90]))
+        #expect(HDRMetadata.masteringDisplay(HDRMetadata.fields(SS_HDR_METADATA())) == nil) // no data: no box
+        #expect(MemoryLayout<SS_HDR_METADATA>.size == 26) // 13 UInt16s, as fields(_:) reads it
+    }
+
+    @Test func labelSaysHDROnlyWhileOn() {
+        var stats = StreamStats()
+        stats.video = "HEVC 10-bit 2752×2064 @ 60"
+        #expect(stats.videoLabel == "HEVC 10-bit 2752×2064 @ 60")
+        stats.isHDR = true
+        #expect(stats.videoLabel == "HEVC 10-bit HDR 2752×2064 @ 60")
     }
 }
