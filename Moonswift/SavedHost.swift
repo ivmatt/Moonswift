@@ -4,7 +4,11 @@ import SwiftData
 /// A host PC the app has paired with. Identified by the host's serverinfo `uniqueid`.
 @Model final class SavedHost {
     @Attribute(.unique) var uniqueID: String
+    /// The PC's own name (its hostname), kept current by status checks.
     var name: String
+    /// A name chosen in this app, which wins over the PC's own.
+    var customName: String?
+    var displayName: String { customName ?? name }
     var address: String
     var httpsPort: Int = 47984
     /// The host's certificate from pairing (DER), pinned for HTTPS. Empty means never paired.

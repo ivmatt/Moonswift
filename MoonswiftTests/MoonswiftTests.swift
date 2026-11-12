@@ -145,6 +145,8 @@ struct AppListTests {
         #expect(query["rikey"] == String(repeating: "AB", count: 16))
         #expect(query["rikeyid"] == "-5")
         #expect(query["localAudioPlayMode"] == "0")
+        let withPCAudio = HostClient.launchQuery(app: app, width: 1, height: 1, fps: 60, rikey: Data(count: 16), rikeyID: 0, playAudioOnPC: true)
+        #expect(withPCAudio.first { $0.name == "localAudioPlayMode" }?.value == "1")
     }
 }
 

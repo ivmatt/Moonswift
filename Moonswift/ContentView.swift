@@ -1,8 +1,8 @@
 import SwiftData
 import SwiftUI
 
-/// Home screen: paired PCs with live status, "Pair a New PC" and Settings. Touch or controller:
-/// up/down to move, A to open (or pair), Y/X for a PC's menu.
+/// Home screen: paired PCs with live status and the game each is running, "Pair a New PC" and Settings. Touch or
+/// controller: up/down to move, A to open (or pair), Y/X (or a long press) for a PC's menu: Edit (name, addresses) or Remove.
 struct ContentView: View {
     struct PairTarget: Identifiable {
         let address: String
@@ -30,8 +30,9 @@ struct ContentView: View {
     @State private var activeAddresses: [String: String] = [:] // by uniqueID: the address that last answered
     @State private var misses: [String: Int] = [:] // by uniqueID: checks in a row that found it offline
     @State private var checkedPublicIP: Set<String> = [] // hosts whose public IP was looked up this launch
-    @State private var editingRemote: SavedHost? // the PC whose remote address is being typed
-    @State private var remoteText = ""
+    @State private var editing: SavedHost? // the PC whose Edit page is open
+    @State private var playing: [String: Int] = [:] // by uniqueID: the running game's ID (0 or missing: none)
+    @State private var gameTitles: [String: [Int: String]] = [:] // by uniqueID: game titles, looked up when one runs
     @State private var isAdding = false
     @State private var isShowingSettings = false
     @State private var pairing: PairTarget?
@@ -54,17 +55,16 @@ struct ContentView: View {
                         ForEach(hosts) { host in
                             let active = activeAddresses[host.uniqueID] ?? host.address
                             row(.saved(host)) {
-                                HostRow(name: host.name, address: active, status: statuses[host.uniqueID],
-                                        isRemote: active != host.address)
+                                HostRow(name: host.displayName, address: active, status: statuses[host.uniqueID],
+                                        isRemote: active != host.address, playing: playingTitle(host))
                             }
                             .contextMenu { // touch's way to the PC menu (a controller uses Y)
-                                Button("Set Remote Address…", systemImage: "globe") { editRemote(host) }
-                                Button("Remove PC", systemImage: "trash", role: .destructive) { remove(host) }
+                                Button("Edit…", systemImage: "pencil") { editing = host }
+                                Button("Remove PC…", systemImage: "trash", role: .destructive) { confirmRemove(host) }
                             }
                         }
                         .onDelete { offsets in
-                            for index in offsets { context.delete(hosts[index]) }
-                            try? context.save()
+                            if let index = offsets.first { confirmRemove(hosts[index]) }
                         }
                         row(.add) {
                             Label("Pair a New PC", systemImage: "plus.circle")
@@ -80,7 +80,7 @@ struct ContentView: View {
                 if let host = hosts.first(where: { $0.uniqueID == id }) {
                     AppLibraryView(client: HostClient(hostID: host.uniqueID, address: activeAddresses[id] ?? host.address,
                                                       httpsPort: host.httpsPort, serverCert: host.serverCert),
-                                   name: host.name, localAddress: host.address, remoteAddress: host.remoteAddress)
+                                   name: host.displayName, localAddress: host.address, remoteAddress: host.remoteAddress)
                 }
             }
             .sheet(isPresented: $isAdding) { AddHostView() }
@@ -107,17 +107,9 @@ struct ContentView: View {
                 }
             }
             .actionMenu($menu)
-            .alert("Remote Address", isPresented: Binding(get: { editingRemote != nil }, set: { if !$0 { editingRemote = nil } })) {
-                TextField("Public IP address", text: $remoteText)
-                    .keyboardType(.numbersAndPunctuation)
-                    .autocorrectionDisabled()
-                Button("Save") { if let host = editingRemote { Task { await saveRemote(remoteText, for: host) } } }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Used over a secure connection when the PC doesn't answer on your home network. Leave empty to remove.")
-            }
-            // Restarts at once when a host is added, removed, (re)paired or gets a new remote address.
-            .task(id: hosts.map { "\($0.uniqueID)|\($0.serverCert.count)|\($0.remoteAddress ?? "")" }) { await pollStatus() }
+            .sheet(item: $editing) { EditPCView(host: $0) }
+            // Restarts at once when a host is added, removed, (re)paired or gets a new address.
+            .task(id: hosts.map { "\($0.uniqueID)|\($0.serverCert.count)|\($0.address)|\($0.remoteAddress ?? "")" }) { await pollStatus() }
         }
     }
 
@@ -141,7 +133,7 @@ struct ContentView: View {
         case .saved(let host):
             switch statuses[host.uniqueID] {
             case .online(paired: true)?: path.append(host.uniqueID)
-            case .online(paired: false)?: pairing = PairTarget(address: host.address, name: host.name)
+            case .online(paired: false)?: pairing = PairTarget(address: host.address, name: host.displayName)
             case .offline?, nil: break // shortcut: nothing to do for an offline PC until Wake-on-LAN exists.
             }
         case .add:
@@ -155,41 +147,33 @@ struct ContentView: View {
         if statuses[host.uniqueID] == .online(paired: true) {
             actions.append(.init(title: "Open") { path.append(host.uniqueID) })
         }
-        actions.append(.init(title: "Set Remote Address…") { editRemote(host) })
-        actions.append(.init(title: "Remove PC", isDestructive: true) { remove(host) })
+        actions.append(.init(title: "Edit…") { editing = host })
+        actions.append(.init(title: "Remove PC…", isDestructive: true) { confirmRemove(host) })
         let message = host.address + (host.remoteAddress.map { " · remote \($0)" } ?? "")
-        menu = MenuSpec(title: host.name, message: message, actions: actions)
+        menu = MenuSpec(title: host.displayName, message: message, actions: actions)
     }
 
-    private func remove(_ host: SavedHost) {
+    private func confirmRemove(_ host: SavedHost) {
+        let isPaired = !host.serverCert.isEmpty
+        menu = MenuSpec(title: "Remove \(host.displayName)?",
+                        message: isPaired ? "This device is also unpaired on the PC. Adding it again needs a new PIN." : nil,
+                        actions: [.init(title: "Remove PC", isDestructive: true) { Task { await remove(host) } }])
+    }
+
+    /// Unpairs on the PC when it answers, then forgets it here.
+    private func remove(_ host: SavedHost) async {
+        var unpairedOnPC = host.serverCert.isEmpty // nothing to undo on a PC that was never paired
+        if !unpairedOnPC {
+            let client = HostClient(hostID: host.uniqueID, address: activeAddresses[host.uniqueID] ?? host.address,
+                                    httpsPort: host.httpsPort, serverCert: host.serverCert)
+            unpairedOnPC = (try? await client.unpair()) != nil
+        }
+        let name = host.displayName
         context.delete(host)
         try? context.save()
-    }
-
-    private func editRemote(_ host: SavedHost) {
-        remoteText = host.remoteAddress ?? ""
-        editingRemote = host
-    }
-
-    /// Checks the address really reaches this PC (pinned HTTPS, same unique ID) before saving it.
-    private func saveRemote(_ text: String, for host: SavedHost) async {
-        let address = text.trimmingCharacters(in: .whitespaces)
-        func store(_ value: String?) {
-            host.remoteAddress = value
-            try? context.save()
-        }
-        guard !address.isEmpty else { return store(nil) }
-        do {
-            let info = try await fetchPairedServerInfo(address: address, httpsPort: host.httpsPort, serverCert: host.serverCert)
-            guard info.uniqueID == host.uniqueID else {
-                menu = .error("\(address) is a different PC (\(info.hostname)).")
-                return
-            }
-            store(address)
-        } catch {
-            // It may just be off or unreachable from here: let the user keep it anyway.
-            menu = MenuSpec(title: "Couldn't reach \(host.name) at \(address)", message: error.localizedDescription,
-                            actions: [.init(title: "Save Anyway") { store(address) }])
+        if !unpairedOnPC {
+            menu = .error("\(name) was removed here, but it couldn't be reached to unpair. It still lists this device; "
+                          + "remove it in the PC's streaming software to stop it from connecting.")
         }
     }
 
@@ -203,6 +187,27 @@ struct ContentView: View {
                   publicIP != host.remoteAddress else { return }
             host.remoteAddress = publicIP
             try? context.save()
+        }
+    }
+
+    /// "Hades" when the PC is running it, once its game list has been fetched.
+    private func playingTitle(_ host: SavedHost) -> String? {
+        guard let game = playing[host.uniqueID], game != 0 else { return nil }
+        return gameTitles[host.uniqueID]?[game] ?? Self.unknownGame
+    }
+
+    private static let unknownGame = "a game"
+
+    /// Fetches the PC's game list for the running game's title (only when a game the app hasn't seen starts).
+    private func lookUpTitles(for host: SavedHost, at address: String, running game: Int) {
+        let id = host.uniqueID
+        gameTitles[id, default: [:]][game] = Self.unknownGame // so the next check (in 3 s) doesn't ask again
+        let client = HostClient(hostID: id, address: address, httpsPort: host.httpsPort, serverCert: host.serverCert)
+        Task {
+            guard let apps = try? await client.apps() else { return gameTitles[id]?[game] = nil } // try again next check
+            var titles = Dictionary(apps.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
+            titles[game] = titles[game] ?? Self.unknownGame // a game missing from the list isn't looked up again
+            gameTitles[id] = titles
         }
     }
 
@@ -238,6 +243,8 @@ struct ContentView: View {
                 activeAddresses[id] = address
                 guard let host = hosts.first(where: { $0.uniqueID == id }) else { continue }
                 if let info, host.name != info.hostname { host.name = info.hostname } // PC was renamed
+                playing[id] = info?.currentGame
+                if let game = info?.currentGame, game != 0, gameTitles[id]?[game] == nil, let address { lookUpTitles(for: host, at: address, running: game) }
                 if status == .online(paired: true), address == host.address { learnPublicIP(for: host) }
             }
         }
@@ -249,11 +256,15 @@ private struct HostRow: View {
     let address: String
     let status: HostStatus?
     let isRemote: Bool
+    let playing: String?
 
     var body: some View {
         HStack {
             VStack(alignment: .leading) {
                 Text(name)
+                if let playing {
+                    Text("\(Image(systemName: "play.fill")) Streaming \(playing)").font(.caption).foregroundStyle(.green)
+                }
                 Text(address).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()

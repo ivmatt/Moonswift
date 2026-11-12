@@ -101,6 +101,12 @@ nonisolated struct HostClient: Sendable {
         return applied
     }
 
+    /// Removes this device from the PC's paired devices; pairing again needs a PIN.
+    func unpair() async throws {
+        let fields = try parseHostResponse(await data("/unpair", timeout: 5))
+        guard fields["unpaired"] != "0" else { throw ServerInfoError.hostError(code: 200, message: "The PC didn't unpair this device.") }
+    }
+
     func quit() async throws {
         let fields = try parseHostResponse(await data("/cancel", timeout: 60))
         guard fields["cancel"] == "1" else { throw GameError.quitFailed }
@@ -108,7 +114,8 @@ nonisolated struct HostClient: Sendable {
 
     private func start(_ path: String, app: HostApp, width: Int, height: Int, fps: Int) async throws -> LaunchSession {
         let key = Pairing.randomBytes(16), keyID = Int32.random(in: .min ... .max)
-        let query = Self.launchQuery(app: app, width: width, height: height, fps: fps, rikey: key, rikeyID: keyID)
+        let query = Self.launchQuery(app: app, width: width, height: height, fps: fps, rikey: key, rikeyID: keyID,
+                                     playAudioOnPC: UserDefaults.standard.bool(forKey: SettingsKey.playAudioOnPC))
             + Self.libraryLaunchQuery(String(cString: LiGetLaunchUrlQueryParameters()))
         let fields = try parseHostResponse(await data(path, timeout: 120, query: query))
         // /launch answers gamesession=1; /resume (or a launch of the running game) answers resume=1.
@@ -125,7 +132,8 @@ nonisolated struct HostClient: Sendable {
     }
 
     /// The query moonlight-ios's HttpManager sends to /launch and /resume, minus the HDR and controller options.
-    static func launchQuery(app: HostApp, width: Int, height: Int, fps: Int, rikey: Data, rikeyID: Int32) -> [URLQueryItem] {
+    static func launchQuery(app: HostApp, width: Int, height: Int, fps: Int, rikey: Data, rikeyID: Int32,
+                            playAudioOnPC: Bool = false) -> [URLQueryItem] {
         [
             URLQueryItem(name: "appid", value: String(app.id)),
             URLQueryItem(name: "appuuid", value: app.uuid),
@@ -134,7 +142,7 @@ nonisolated struct HostClient: Sendable {
             URLQueryItem(name: "sops", value: "0"), // don't let the host change game settings
             URLQueryItem(name: "rikey", value: rikey.hex),
             URLQueryItem(name: "rikeyid", value: String(rikeyID)),
-            URLQueryItem(name: "localAudioPlayMode", value: "0"), // audio plays on the iPad, not the PC
+            URLQueryItem(name: "localAudioPlayMode", value: playAudioOnPC ? "1" : "0"), // 1: the PC's speakers play too
             URLQueryItem(name: "surroundAudioInfo", value: "196610"), // stereo: channel mask 0x3 << 16 | 2 channels
         ]
     }

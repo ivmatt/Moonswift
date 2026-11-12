@@ -36,13 +36,14 @@ enum CodecOption: String, CaseIterable {
 }
 
 /// Where each setting is saved (UserDefaults, through @AppStorage).
-enum SettingsKey {
+nonisolated enum SettingsKey {
     static let resolution = "resolution"
     static let fps = "fps"
     static let codec = "codec"
     static let performanceOverlay = "performanceOverlay" // Bool: live stats in a corner of the stream
     static let adaptiveBitrate = "adaptiveBitrate" // Bool: the bitrate setting becomes a ceiling
     static let bitrate = "bitrateKbps" // 0 = automatic, else kbps
+    static let playAudioOnPC = "playAudioOnPC" // Bool: sound also plays from the PC's speakers
 }
 
 /// The stream size, frame rate, codecs and bitrate to ask for. Pure functions, so they can be tested.

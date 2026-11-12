@@ -23,18 +23,19 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic
     @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = false
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
+    @AppStorage(SettingsKey.playAudioOnPC) private var playAudioOnPC = false
     @State private var focus = 0
     @State private var liveBitrateNote: String?
     @State private var bitrateChange: Task<Void, Never>?
     @State private var isShowingAbout = false
 
-    private enum Row { case reconnect, resolution, fps, codec, bitrateMode, bitrate, adaptive, overlay, about }
+    private enum Row { case reconnect, resolution, fps, codec, bitrateMode, bitrate, adaptive, overlay, pcAudio, about }
     private enum BitrateMode: String, CaseIterable { case automatic = "Automatic", custom = "Custom" }
     private var bitrateMode: BitrateMode {
         bitrate == 0 ? .automatic : .custom
     }
     private var rows: [Row] {
-        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec, .bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay, .about]
+        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec, .bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay, .pcAudio, .about]
     }
     private var videoFormats: Int32 { StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware) }
     private var effectiveBitrate: Int { StreamSettings.effectiveBitrate(saved: bitrate, width: size.width, height: size.height, fps: fps) }
@@ -128,6 +129,15 @@ struct SettingsView: View {
                     Text("Live frame rate, bitrate, delay and packet loss in a corner of the stream.")
                 }
                 Section {
+                    row(.pcAudio) {
+                        Toggle("Play Sound on PC", isOn: $playAudioOnPC)
+                    }
+                } header: {
+                    Text("Audio")
+                } footer: {
+                    Text("Sound always plays on this device; this also plays it from the PC's speakers. Applies the next time a stream starts.")
+                }
+                Section {
                     row(.about) { Button("About Moonswift") { isShowingAbout = true }.foregroundStyle(.primary) }
                 }
                 Section {
@@ -197,6 +207,7 @@ struct SettingsView: View {
         case .bitrate: bitrate = StreamSettings.steppedBitrate(bitrate, by: step)
         case .adaptive: adaptive.toggle()
         case .overlay: showsPerformance.toggle()
+        case .pcAudio: playAudioOnPC.toggle()
         case .reconnect, .about: break
         }
     }
