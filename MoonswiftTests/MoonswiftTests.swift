@@ -365,7 +365,28 @@ struct StreamSettingsTests {
     @Test func savedBitrateOverridesAutomaticWithinRange() {
         #expect(StreamSettings.effectiveBitrate(saved: 0, width: 1920, height: 1080, fps: 60) == 20_000)
         #expect(StreamSettings.effectiveBitrate(saved: 45_000, width: 1920, height: 1080, fps: 60) == 45_000)
-        #expect(StreamSettings.effectiveBitrate(saved: 999_000, width: 1920, height: 1080, fps: 60) == 150_000)
+        #expect(StreamSettings.effectiveBitrate(saved: 999_000, width: 1920, height: 1080, fps: 60) == 999_000)
+        #expect(StreamSettings.effectiveBitrate(saved: 1_500_000, width: 1920, height: 1080, fps: 60) == 1_000_000)
+        #expect(StreamSettings.effectiveBitrate(saved: StreamSettings.unlimitedBitrate, width: 1920, height: 1080, fps: 60)
+                == StreamSettings.unlimitedBitrate)
+        #expect(StreamSettings.unlimitedBitrate * 1000 <= Int(Int32.max)) // fits the host's 32-bit bps fields
+    }
+
+    @Test func bitrateSliderIsLogarithmic() {
+        #expect(StreamSettings.kbps(sliderPosition: 0) == 1_000)
+        #expect(StreamSettings.kbps(sliderPosition: 1) == 1_000_000)
+        #expect(StreamSettings.kbps(sliderPosition: 0.5) == 32_000) // the middle is ~32 Mbps, not 500
+        #expect(StreamSettings.kbps(sliderPosition: StreamSettings.sliderPosition(kbps: 50_000)) == 50_000) // round trip
+    }
+
+    @Test func controllerStepsGrowWithBitrate() {
+        #expect(StreamSettings.steppedBitrate(10_000, by: 1) == 11_000)
+        #expect(StreamSettings.steppedBitrate(20_000, by: 1) == 25_000)
+        #expect(StreamSettings.steppedBitrate(20_000, by: -1) == 19_000)
+        #expect(StreamSettings.steppedBitrate(100_000, by: -1) == 95_000)
+        #expect(StreamSettings.steppedBitrate(100_000, by: 1) == 125_000)
+        #expect(StreamSettings.steppedBitrate(1_000, by: -1) == 1_000) // stays in range
+        #expect(StreamSettings.steppedBitrate(1_000_000, by: 1) == 1_000_000)
     }
 }
 

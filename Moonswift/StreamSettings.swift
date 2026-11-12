@@ -40,12 +40,15 @@ enum SettingsKey {
     static let resolution = "resolution"
     static let fps = "fps"
     static let codec = "codec"
-    static let bitrate = "bitrateKbps" // 0 = automatic
+    static let bitrate = "bitrateKbps" // 0 = automatic, StreamSettings.unlimitedBitrate = unlimited
 }
 
 /// The stream size, frame rate, codecs and bitrate to ask for. Pure functions, so they can be tested.
 nonisolated enum StreamSettings {
-    static let bitrateRange = 1_000...150_000 // kbps, Moonlight's slider range
+    static let bitrateRange = 1_000...1_000_000 // kbps: 1 Mbps to 1 Gbps for the custom slider
+    /// "Unlimited": the protocol has no such value, so send the most that safely fits the host's encoder settings
+    /// (Vibepollo: kbps × 1000 must fit a 32-bit field). The PC's own Maximum Bitrate setting then decides.
+    static let unlimitedBitrate = 2_000_000
 
     /// Pixel size for a resolution option, landscape. `safeAreaPixels` is the screen minus its cutout and
     /// home-indicator insets, in pixels.
@@ -93,8 +96,29 @@ nonisolated enum StreamSettings {
 
     /// The saved bitrate (0 = automatic) for this stream.
     static func effectiveBitrate(saved: Int, width: Int, height: Int, fps: Int) -> Int {
-        saved == 0 ? bitrate(width: width, height: height, fps: fps)
-            : min(max(saved, bitrateRange.lowerBound), bitrateRange.upperBound)
+        switch saved {
+        case 0: bitrate(width: width, height: height, fps: fps)
+        case unlimitedBitrate: unlimitedBitrate
+        default: min(max(saved, bitrateRange.lowerBound), bitrateRange.upperBound)
+        }
+    }
+
+    /// The custom slider is logarithmic (0...1 ↔ 1...1000 Mbps), so low bitrates aren't squeezed into a sliver.
+    static func sliderPosition(kbps: Int) -> Double {
+        log(Double(min(max(kbps, bitrateRange.lowerBound), bitrateRange.upperBound)) / 1000) / log(1000)
+    }
+
+    static func kbps(sliderPosition position: Double) -> Int {
+        Int((pow(1000, min(max(position, 0), 1))).rounded()) * 1000 // whole Mbps
+    }
+
+    /// One controller step on the custom slider: 1 Mbps up to 20, 5 up to 100, then 25.
+    static func steppedBitrate(_ kbps: Int, by direction: Int) -> Int {
+        let mbps = kbps / 1000
+        // Going down, the step is chosen by the value below, so 100 → 95 and 20 → 19 (not 75 and 15).
+        let reference = direction > 0 ? mbps : mbps - 1
+        let step = reference < 20 ? 1 : reference < 100 ? 5 : 25
+        return min(max((mbps + direction * step) * 1000, bitrateRange.lowerBound), bitrateRange.upperBound)
     }
 }
 

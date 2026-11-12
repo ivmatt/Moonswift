@@ -8,11 +8,15 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.resolution) private var resolution = ResolutionOption.fullScreen
     @AppStorage(SettingsKey.fps) private var fps = 60
     @AppStorage(SettingsKey.codec) private var codec = CodecOption.automatic
-    @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic
+    @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic, unlimitedBitrate = unlimited
     @State private var focus = 0
 
-    private enum Row { case resolution, fps, codec, automaticBitrate, bitrate }
-    private var rows: [Row] { [.resolution, .fps, .codec, .automaticBitrate] + (bitrate == 0 ? [] : [.bitrate]) }
+    private enum Row { case resolution, fps, codec, bitrateMode, bitrate }
+    private enum BitrateMode: String, CaseIterable { case automatic = "Automatic", custom = "Custom", unlimited = "Unlimited" }
+    private var bitrateMode: BitrateMode {
+        bitrate == 0 ? .automatic : bitrate == StreamSettings.unlimitedBitrate ? .unlimited : .custom
+    }
+    private var rows: [Row] { [.resolution, .fps, .codec, .bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) }
 
     private let frameRates = StreamSettings.frameRates(screenMaximum: ScreenInfo.maximumFramesPerSecond)
     private let codecs: [CodecOption] = ScreenInfo.hevcInHardware ? CodecOption.allCases : [.automatic, .h264]
@@ -47,26 +51,28 @@ struct SettingsView: View {
                          + (codec == .automatic ? ", \(ScreenInfo.hevcInHardware ? "HEVC" : "H.264") on this device." : "."))
                 }
                 Section {
-                    row(.automaticBitrate) {
-                        Toggle("Automatic Bitrate", isOn: Binding(
-                            get: { bitrate == 0 },
-                            set: { bitrate = $0 ? 0 : automaticBitrate }))
+                    row(.bitrateMode) {
+                        Picker("Bitrate", selection: Binding(get: { bitrateMode }, set: { setMode($0) })) {
+                            ForEach(BitrateMode.allCases, id: \.self) { Text($0.rawValue) }
+                        }
                     }
-                    if bitrate != 0 {
+                    if bitrateMode == .custom {
                         row(.bitrate) {
                             VStack(alignment: .leading) {
                                 Text("\(bitrate / 1000) Mbps")
-                                Slider(value: Binding(get: { Double(bitrate) }, set: { bitrate = Int($0) }),
-                                       in: Double(StreamSettings.bitrateRange.lowerBound)...Double(StreamSettings.bitrateRange.upperBound),
-                                       step: 1000)
+                                Slider(value: Binding(get: { StreamSettings.sliderPosition(kbps: bitrate) },
+                                                      set: { bitrate = StreamSettings.kbps(sliderPosition: $0) }))
                             }
                         }
                     }
                 } header: {
                     Text("Bitrate")
                 } footer: {
-                    Text(bitrate == 0 ? "\(automaticBitrate / 1000) Mbps for this resolution and frame rate."
-                                      : "Higher looks sharper but needs a faster network.")
+                    switch bitrateMode {
+                    case .automatic: Text("\(automaticBitrate / 1000) Mbps for this resolution and frame rate.")
+                    case .custom: Text("Higher looks sharper but needs a faster network.")
+                    case .unlimited: Text("As high as the PC allows: its Maximum Bitrate setting in Vibepollo is the limit.")
+                    }
                 }
                 Section {
                     Text("Changes apply the next time you launch or resume a game.").foregroundStyle(.secondary)
@@ -101,6 +107,15 @@ struct SettingsView: View {
             .animation(.snappy(duration: 0.15), value: isFocused)
     }
 
+    /// Custom starts from the automatic value, so switching to it doesn't jump somewhere unexpected.
+    private func setMode(_ mode: BitrateMode) {
+        switch mode {
+        case .automatic: bitrate = 0
+        case .custom: if bitrateMode != .custom { bitrate = automaticBitrate }
+        case .unlimited: bitrate = StreamSettings.unlimitedBitrate
+        }
+    }
+
     /// Steps a setting to its previous (-1) or next (+1) value, stopping at the ends.
     private func change(_ row: Row, by step: Int) {
         func stepped<T: Equatable>(_ value: T, in options: [T]) -> T {
@@ -111,9 +126,8 @@ struct SettingsView: View {
         case .resolution: resolution = stepped(resolution, in: ResolutionOption.allCases)
         case .fps: fps = stepped(fps, in: frameRates)
         case .codec: codec = stepped(codec, in: codecs)
-        case .automaticBitrate: bitrate = bitrate == 0 ? automaticBitrate : 0
-        case .bitrate:
-            bitrate = min(max(bitrate + step * 1000, StreamSettings.bitrateRange.lowerBound), StreamSettings.bitrateRange.upperBound)
+        case .bitrateMode: setMode(stepped(bitrateMode, in: BitrateMode.allCases))
+        case .bitrate: bitrate = StreamSettings.steppedBitrate(bitrate, by: step)
         }
     }
 }

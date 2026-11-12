@@ -1,7 +1,7 @@
 import SwiftData
 import SwiftUI
 
-/// Home screen: paired PCs with live status, PCs found on the network, and "Pair a New PC". Touch or controller:
+/// Home screen: paired PCs with live status, "Pair a New PC" and Settings. Touch or controller:
 /// up/down to move, A to open (or pair), Y/X for a PC's menu.
 struct ContentView: View {
     struct PairTarget: Identifiable {
@@ -13,14 +13,12 @@ struct ContentView: View {
     /// One focusable row, in screen order.
     private enum Item {
         case saved(SavedHost)
-        case found(HostDiscovery.Found)
         case add
         case settings
 
         var id: String {
             switch self {
             case .saved(let host): "saved-\(host.uniqueID)"
-            case .found(let found): "found-\(found.id)"
             case .add: "add"
             case .settings: "settings"
             }
@@ -30,7 +28,6 @@ struct ContentView: View {
     @Environment(\.modelContext) private var context
     @Environment(GamepadInput.self) private var gamepad
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
-    @State private var discovery = HostDiscovery()
     @State private var statuses: [String: HostStatus] = [:] // by uniqueID; missing = not checked yet
     @State private var activeAddresses: [String: String] = [:] // by uniqueID: the address that last answered
     @State private var checkedPublicIP: Set<String> = [] // hosts whose public IP was looked up this launch
@@ -43,12 +40,8 @@ struct ContentView: View {
     @State private var focus = 0
     @State private var menu: MenuSpec?
 
-    private var newlyFound: [HostDiscovery.Found] {
-        discovery.found.filter { found in !hosts.contains { $0.uniqueID == found.id } }
-    }
-
     /// Must match the on-screen order, or up/down feel inverted.
-    private var items: [Item] { hosts.map(Item.saved) + [.add] + newlyFound.map(Item.found) + [.settings] }
+    private var items: [Item] { hosts.map(Item.saved) + [.add, .settings] }
     private var focusIndex: Int { min(focus, items.count - 1) }
 
     var body: some View {
@@ -78,16 +71,6 @@ struct ContentView: View {
                             Label("Pair a New PC", systemImage: "plus.circle")
                         }
                     }
-                    Section("Found on your network") {
-                        if newlyFound.isEmpty {
-                            Text("Searching…").foregroundStyle(.secondary)
-                        }
-                        ForEach(newlyFound) { found in
-                            row(.found(found)) {
-                                HostRow(name: found.info.hostname, address: found.address, status: .online(paired: false), isRemote: false)
-                            }
-                        }
-                    }
                     Section {
                         row(.settings) { Label("Settings", systemImage: "gearshape") }
                     }
@@ -105,9 +88,6 @@ struct ContentView: View {
             }
             .sheet(isPresented: $isAdding) { AddHostView() }
             .sheet(isPresented: $isShowingSettings) { SettingsView() }
-            .toolbar {
-                Button("Settings", systemImage: "gearshape") { isShowingSettings = true }
-            }
             .sheet(item: $pairing) { target in
                 NavigationStack {
                     PairingView(address: target.address, name: target.name) { pairing = nil }
@@ -134,7 +114,6 @@ struct ContentView: View {
             } message: {
                 Text("Used over a secure connection when the PC doesn't answer on your home network. Leave empty to remove.")
             }
-            .task { discovery.start() }
             // Restarts at once when a host is added, removed, (re)paired or gets a new remote address.
             .task(id: hosts.map { "\($0.uniqueID)|\($0.serverCert.count)|\($0.remoteAddress ?? "")" }) { await pollStatus() }
         }
@@ -163,8 +142,6 @@ struct ContentView: View {
             case .online(paired: false)?: pairing = PairTarget(address: host.address, name: host.name)
             case .offline?, nil: break // shortcut: nothing to do for an offline PC until Wake-on-LAN exists.
             }
-        case .found(let found):
-            pairing = PairTarget(address: found.address, name: found.info.hostname)
         case .add:
             isAdding = true
         case .settings:

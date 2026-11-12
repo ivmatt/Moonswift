@@ -19,6 +19,12 @@ import Observation
         byService.values.sorted { $0.info.hostname < $1.info.hostname }
     }
 
+    /// Stops browsing (Add PC closed): the app only searches the network while you're adding a PC.
+    func stop() {
+        browser?.cancel()
+        browser = nil
+    }
+
     func start() {
         guard browser == nil else { return }
         let browser = NWBrowser(for: .bonjour(type: "_nvstream._tcp", domain: nil), using: .tcp)
