@@ -17,6 +17,10 @@ struct AppLibraryView: View {
     @State private var focus = 0
     @State private var columns = 1
     @State private var stream: StreamTarget? // set after a successful Launch or Resume
+    @AppStorage(SettingsKey.resolution) private var resolution = ResolutionOption.fullScreen
+    @AppStorage(SettingsKey.fps) private var savedFPS = 60
+    @AppStorage(SettingsKey.codec) private var codec = CodecOption.automatic
+    @AppStorage(SettingsKey.bitrate) private var savedBitrate = 0
 
     private static let tileWidth: CGFloat = 170
     private static let spacing: CGFloat = 24
@@ -137,8 +141,11 @@ struct AppLibraryView: View {
         Task {
             do {
                 if let launch = try await action(), let app {
-                    stream = StreamTarget(title: app.title, launch: launch, width: mode.width, height: mode.height, fps: fps,
-                                          bitrate: StreamSettings.bitrate(width: mode.width, height: mode.height, fps: fps))
+                    stream = StreamTarget(
+                        title: app.title, launch: launch, width: mode.width, height: mode.height, fps: fps,
+                        bitrate: StreamSettings.effectiveBitrate(saved: savedBitrate, width: mode.width, height: mode.height, fps: fps),
+                        videoFormats: StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware),
+                        fitsSafeArea: resolution == .safeArea)
                 }
             } catch {
                 menu = .error(error.localizedDescription)
@@ -160,11 +167,10 @@ struct AppLibraryView: View {
         isLoaded = true
     }
 
-    // shortcut: always 60 fps at the screen's own size; a settings screen comes later.
-    private var fps: Int { 60 }
+    /// From the saved settings; a frame rate the screen can't show falls back to 60.
+    private var fps: Int { StreamSettings.frameRates(screenMaximum: ScreenInfo.maximumFramesPerSecond).contains(savedFPS) ? savedFPS : 60 }
     private var mode: (width: Int, height: Int) {
-        let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen
-        return StreamSettings.matchScreen(nativePixels: screen?.nativeBounds.size ?? CGSize(width: 1920, height: 1080))
+        StreamSettings.size(for: resolution, nativePixels: ScreenInfo.nativePixels, safeAreaPixels: ScreenInfo.safeAreaPixels)
     }
 
     private func refreshRunning() {

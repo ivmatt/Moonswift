@@ -204,7 +204,8 @@ struct StreamSetupTests {
     @Test func streamConfigurationCarriesTheLaunchKeys() {
         let key = Data((1...16).map { UInt8($0) })
         let launch = LaunchSession(rtspURL: "rtspenc://10.0.4.20:48010", riKey: key, riKeyID: 0x0102_0304)
-        var config = StreamSession.makeStreamConfiguration(launch: launch, width: 1920, height: 1080, fps: 60, bitrate: 20_000)
+        var config = StreamSession.makeStreamConfiguration(launch: launch, width: 1920, height: 1080, fps: 60, bitrate: 20_000,
+                                                            videoFormats: VIDEO_FORMAT_H264)
         #expect(config.width == 1920 && config.height == 1080 && config.fps == 60 && config.bitrate == 20_000)
         #expect(withUnsafeBytes(of: &config.remoteInputAesKey) { Data($0) } == key)
         // rikeyid big-endian in the first 4 bytes, the rest zero (moonlight-ios Connection.m).
@@ -333,6 +334,38 @@ struct InputTests {
         #expect(KeyMap.key(hidUsage: 0x50) == KeyMap.Key(virtualKey: 0x25, extended: true)) // Left arrow
         #expect(KeyMap.modifier(hidUsage: 0xE5) == Int8(MODIFIER_SHIFT))
         #expect(KeyMap.key(hidUsage: 0x00) == nil)
+    }
+}
+
+struct StreamSettingsTests {
+    @Test func resolutionOptionsGiveLandscapeSizes() {
+        let native = CGSize(width: 1206, height: 2622), safe = CGSize(width: 2445, height: 1143)
+        func size(_ option: ResolutionOption) -> (Int, Int) {
+            let s = StreamSettings.size(for: option, nativePixels: native, safeAreaPixels: safe)
+            return (s.width, s.height)
+        }
+        #expect(size(.fullScreen) == (2616, 1200)) // landscape, multiples of 8
+        #expect(size(.safeArea) == (2440, 1136))
+        #expect(size(.p720) == (1280, 720) && size(.p1080) == (1920, 1080) && size(.p4k) == (3840, 2160))
+    }
+
+    @Test func frameRatesFollowTheScreen() {
+        #expect(StreamSettings.frameRates(screenMaximum: 60) == [30, 60])
+        #expect(StreamSettings.frameRates(screenMaximum: 120) == [30, 60, 90, 120])
+        #expect(StreamSettings.frameRates(screenMaximum: 0) == [30, 60]) // unknown: 60 is always offered
+    }
+
+    @Test func codecChoiceSetsTheLibraryFlags() {
+        #expect(StreamSettings.videoFormats(for: .automatic, hevcInHardware: true) == VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265)
+        #expect(StreamSettings.videoFormats(for: .automatic, hevcInHardware: false) == VIDEO_FORMAT_H264)
+        #expect(StreamSettings.videoFormats(for: .h264, hevcInHardware: true) == VIDEO_FORMAT_H264)
+        #expect(StreamSettings.videoFormats(for: .hevc, hevcInHardware: true) == VIDEO_FORMAT_H265)
+    }
+
+    @Test func savedBitrateOverridesAutomaticWithinRange() {
+        #expect(StreamSettings.effectiveBitrate(saved: 0, width: 1920, height: 1080, fps: 60) == 20_000)
+        #expect(StreamSettings.effectiveBitrate(saved: 45_000, width: 1920, height: 1080, fps: 60) == 45_000)
+        #expect(StreamSettings.effectiveBitrate(saved: 999_000, width: 1920, height: 1080, fps: 60) == 150_000)
     }
 }
 

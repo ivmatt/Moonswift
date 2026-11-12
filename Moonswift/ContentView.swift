@@ -15,12 +15,14 @@ struct ContentView: View {
         case saved(SavedHost)
         case found(HostDiscovery.Found)
         case add
+        case settings
 
         var id: String {
             switch self {
             case .saved(let host): "saved-\(host.uniqueID)"
             case .found(let found): "found-\(found.id)"
             case .add: "add"
+            case .settings: "settings"
             }
         }
     }
@@ -31,6 +33,7 @@ struct ContentView: View {
     @State private var discovery = HostDiscovery()
     @State private var statuses: [String: HostStatus] = [:] // by uniqueID; missing = not checked yet
     @State private var isAdding = false
+    @State private var isShowingSettings = false
     @State private var pairing: PairTarget?
     @State private var path: [String] = [] // uniqueIDs of opened PCs
     @State private var focus = 0
@@ -41,7 +44,7 @@ struct ContentView: View {
     }
 
     /// Must match the on-screen order, or up/down feel inverted.
-    private var items: [Item] { hosts.map(Item.saved) + [.add] + newlyFound.map(Item.found) }
+    private var items: [Item] { hosts.map(Item.saved) + [.add] + newlyFound.map(Item.found) + [.settings] }
     private var focusIndex: Int { min(focus, items.count - 1) }
 
     var body: some View {
@@ -75,6 +78,9 @@ struct ContentView: View {
                             }
                         }
                     }
+                    Section {
+                        row(.settings) { Label("Settings", systemImage: "gearshape") }
+                    }
                 }
                 .onChange(of: focusIndex) { withAnimation { scroller.scrollTo(items[focusIndex].id) } }
             }
@@ -88,6 +94,10 @@ struct ContentView: View {
                 }
             }
             .sheet(isPresented: $isAdding) { AddHostView() }
+            .sheet(isPresented: $isShowingSettings) { SettingsView() }
+            .toolbar {
+                Button("Settings", systemImage: "gearshape") { isShowingSettings = true }
+            }
             .sheet(item: $pairing) { target in
                 NavigationStack {
                     PairingView(address: target.address, name: target.name) { pairing = nil }
@@ -138,6 +148,8 @@ struct ContentView: View {
             pairing = PairTarget(address: found.address, name: found.info.hostname)
         case .add:
             isAdding = true
+        case .settings:
+            isShowingSettings = true
         }
     }
 

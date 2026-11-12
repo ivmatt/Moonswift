@@ -8,6 +8,8 @@ struct StreamTarget: Hashable, Identifiable {
     let height: Int
     let fps: Int
     let bitrate: Int // kbps
+    let videoFormats: Int32 // the library's VIDEO_FORMAT_* flags allowed
+    let fitsSafeArea: Bool // place the picture clear of the camera cutout and home indicator
     var id: LaunchSession { launch }
 }
 
@@ -34,17 +36,20 @@ struct StreamView: View {
 
     var body: some View {
         ZStack {
-            Color.black
-            VideoLayerView(renderer: renderer)
-            TouchInputLayer(mode: touchMode, streamSize: CGSize(width: target.width, height: target.height),
-                            isPaused: menu != nil || !isSendingInput, onMenu: showMenu)
+            Color.black.ignoresSafeArea()
+            ZStack {
+                VideoLayerView(renderer: renderer)
+                TouchInputLayer(mode: touchMode, streamSize: CGSize(width: target.width, height: target.height),
+                                isPaused: menu != nil || !isSendingInput, onMenu: showMenu)
+            }
+            // Safe Area mode keeps the picture (and the touches mapped onto it) clear of the cutout and home indicator.
+            .ignoresSafeArea(edges: target.fitsSafeArea ? [] : .all)
             if stats.state == .connecting || isLeaving {
                 ProgressView(isLeaving ? "Disconnecting…" : "Connecting to \(target.title)…")
                     .tint(.white)
                     .foregroundStyle(.white)
             }
         }
-        .ignoresSafeArea()
         .statusBarHidden()
         .persistentSystemOverlays(.hidden) // the home indicator fades out until touched
         .onGamepad { command in

@@ -47,6 +47,7 @@ nonisolated private let audioRenderer = AudioRenderer()
         liveStats.withLock { $0 = StreamStats() }
         activeVideoRenderer = renderer
         let launch = target.launch, width = target.width, height = target.height, fps = target.fps, bitrate = target.bitrate
+        let videoFormats = target.videoFormats
         startTask = Task.detached {
             let info: ServerInfo
             do {
@@ -57,7 +58,8 @@ nonisolated private let audioRenderer = AudioRenderer()
             }
             let strings = CStrings(address: hostAddress(host.address), appVersion: info.appVersion,
                                    gfeVersion: info.gfeVersion, rtspURL: launch.rtspURL)
-            var config = Self.makeStreamConfiguration(launch: launch, width: width, height: height, fps: fps, bitrate: bitrate)
+            var config = Self.makeStreamConfiguration(launch: launch, width: width, height: height, fps: fps, bitrate: bitrate,
+                                                      videoFormats: videoFormats)
             let result = Self.connect(strings: strings, codecModeSupport: info.codecModeSupport, config: &config)
             return (result, strings)
         }
@@ -167,7 +169,7 @@ nonisolated private let audioRenderer = AudioRenderer()
 
     /// The stream settings, mirroring moonlight-ios's Connection.m.
     nonisolated static func makeStreamConfiguration(launch: LaunchSession, width: Int, height: Int, fps: Int,
-                                                    bitrate: Int) -> STREAM_CONFIGURATION {
+                                                    bitrate: Int, videoFormats: Int32) -> STREAM_CONFIGURATION {
         var config = STREAM_CONFIGURATION()
         LiInitializeStreamConfiguration(&config)
         config.width = Int32(width)
@@ -177,8 +179,7 @@ nonisolated private let audioRenderer = AudioRenderer()
         config.packetSize = 1392
         config.streamingRemotely = STREAM_CFG_AUTO // the library decides from the host's address
         config.audioConfiguration = stereoAudioConfiguration
-        // HEVC gives a better picture per bit; only offer it where the device decodes it in hardware.
-        config.supportedVideoFormats = VIDEO_FORMAT_H264 | (VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) ? VIDEO_FORMAT_H265 : 0)
+        config.supportedVideoFormats = videoFormats // from the codec setting (StreamSettings.videoFormats)
         config.encryptionFlags = Int32(bitPattern: 0xFFFF_FFFF) // ENCFLG_ALL: encrypt whatever the host supports
         // The input key is the launch's rikey; the IV is rikeyid, big-endian, in the first 4 bytes.
         withUnsafeMutableBytes(of: &config.remoteInputAesKey) { $0.copyBytes(from: launch.riKey.prefix(16)) }
@@ -191,27 +192,6 @@ nonisolated private let audioRenderer = AudioRenderer()
 
     /// AUDIO_CONFIGURATION_STEREO, a function-like macro Swift can't import: channel mask 0x3, 2 channels, 0xCA marker.
     nonisolated static let stereoAudioConfiguration: Int32 = (0x3 << 16) | (2 << 8) | 0xCA
-}
-
-/// The stream size and bitrate to ask for.
-nonisolated enum StreamSettings {
-    /// The screen's own pixel size in landscape, so the picture fills it: rounded down to a multiple of 8
-    /// (what video encoders work in) and capped at `maxLongSide`, keeping the aspect ratio.
-    static func matchScreen(nativePixels: CGSize, maxLongSide: Int = 3840) -> (width: Int, height: Int) {
-        var long = Double(max(nativePixels.width, nativePixels.height))
-        var short = Double(min(nativePixels.width, nativePixels.height))
-        if long > Double(maxLongSide) {
-            short *= Double(maxLongSide) / long
-            long = Double(maxLongSide)
-        }
-        return (Int(long) / 8 * 8, Int(short) / 8 * 8)
-    }
-
-    /// kbps: 20 Mbps for 1080p60, scaled by pixels per second, kept between 10 and 100 Mbps.
-    static func bitrate(width: Int, height: Int, fps: Int) -> Int {
-        let scale = Double(width * height * fps) / Double(1920 * 1080 * 60)
-        return min(max(Int(20_000 * scale), 10_000), 100_000)
-    }
 }
 
 nonisolated private func videoFormatName(_ format: Int32) -> String {
