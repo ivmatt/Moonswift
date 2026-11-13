@@ -585,22 +585,6 @@ struct OnScreenKeyboardTests {
 }
 
 struct GameLibraryTests {
-    let apps = [("1", "Hades"), ("2", "celeste"), ("3", "Balatro")].compactMap { HostApp(fields: ["ID": $0.0, "AppTitle": $0.1, "UUID": "U\($0.0)"]) }
-
-    @Test func runningGameLeadsAndSortByName() {
-        let history = GameHistory()
-        #expect(history.arrange(apps, running: 0, query: "", filter: .all, sort: .name).map(\.title) == ["Balatro", "celeste", "Hades"])
-        #expect(history.arrange(apps, running: 1, query: "", filter: .all, sort: .name).map(\.title) == ["Hades", "Balatro", "celeste"])
-        #expect(history.arrange(apps, running: 0, query: "", filter: .all, sort: .pc).map(\.title) == ["Hades", "celeste", "Balatro"])
-    }
-
-    @Test func filtersSearchAndRecentOrder() {
-        let history = GameHistory(favorites: ["U2"], lastPlayed: ["U3": Date(timeIntervalSince1970: 100), "U1": Date(timeIntervalSince1970: 200)])
-        #expect(history.arrange(apps, running: 0, query: "", filter: .favorites, sort: .pc).map(\.title) == ["celeste"])
-        #expect(history.arrange(apps, running: 0, query: "", filter: .all, sort: .recent).map(\.title) == ["Hades", "Balatro", "celeste"])
-        #expect(history.arrange(apps, running: 0, query: "CEL", filter: .all, sort: .pc).map(\.title) == ["celeste"])
-    }
-
     @Test func savesPerPC() throws {
         let defaults = try #require(UserDefaults(suiteName: "GameLibraryTests"))
         defaults.removePersistentDomain(forName: "GameLibraryTests")

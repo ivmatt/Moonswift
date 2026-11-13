@@ -1,9 +1,9 @@
 import SwiftData
 import SwiftUI
 
-/// The PCs tab: paired PCs with live status and the game each is running, "Pair a New PC" and Settings. Opening a
-/// PC shows its own game list. Touch or controller: up/down to move, A to open (or pair), Y/X (or a long press) for a
-/// PC's menu: Sleep, Edit (name, addresses) or Remove.
+/// The Hosts tab: saved hosts with live status and the game each is running, "Add a New Host" and Settings. Tapping a
+/// host opens its Edit page (name, addresses), or pairing for one that needs it. Touch or controller: up/down to
+/// move, A to open, Y/X (or a long press) for a host's menu: Sleep, Edit or Remove.
 struct PCsView: View {
     var openSettings: () -> Void = {}
     var switchTab: (Int) -> Void = { _ in }
@@ -35,7 +35,6 @@ struct PCsView: View {
     @State private var editing: SavedHost? // the PC whose Edit page is open
     @State private var isAdding = false
     @State private var pairing: PairTarget?
-    @State private var path: [String] = [] // uniqueIDs of opened PCs
     @State private var focus = 0
     @State private var menu: MenuSpec?
     @State private var topInset: CGFloat = 0
@@ -48,7 +47,7 @@ struct PCsView: View {
     private var focusIndex: Int { min(focus, items.count - 1) }
 
     var body: some View {
-        NavigationStack(path: $path) {
+        NavigationStack {
             ScrollViewReader { scroller in
                 List {
                     Section("My Hosts") {
@@ -88,13 +87,6 @@ struct PCsView: View {
                 TabTitle(text: "Hosts", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 4).background(Color(.systemGroupedBackground)) // the list's grey
             }
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
-            .navigationDestination(for: String.self) { id in
-                if let host = hosts.first(where: { $0.uniqueID == id }) {
-                    AppLibraryView(client: HostClient(hostID: host.uniqueID, address: activeAddresses[id] ?? host.address,
-                                                      httpsPort: host.httpsPort, serverCert: host.serverCert),
-                                   name: host.displayName, localAddress: host.address, remoteAddress: host.remoteAddress)
-                }
-            }
             .sheet(isPresented: $isAdding) { AddHostView() }
             .sheet(item: $pairing) { target in
                 NavigationStack {
@@ -138,10 +130,11 @@ struct PCsView: View {
     private func activate(_ item: Item) {
         switch item {
         case .saved(let host):
-            switch statuses[host.uniqueID] {
-            case .online(paired: true)?: path.append(host.uniqueID)
-            case .online(paired: false)?: pairing = PairTarget(address: host.address, name: host.displayName)
-            case .offline?, nil: break // shortcut: nothing to do for an offline PC until Wake-on-LAN exists.
+            // Pairing when it needs it; otherwise its Edit page, offline or not (fixing an address is how to reach it).
+            if statuses[host.uniqueID] == .online(paired: false) {
+                pairing = PairTarget(address: host.address, name: host.displayName)
+            } else {
+                editing = host
             }
         case .add:
             isAdding = true
@@ -151,9 +144,6 @@ struct PCsView: View {
     private func showMenu(_ item: Item) {
         guard case .saved(let host) = item else { return }
         var actions: [MenuSpec.Action] = []
-        if statuses[host.uniqueID] == .online(paired: true) {
-            actions.append(.init(title: "Open") { path.append(host.uniqueID) })
-        }
         if sleepable.contains(host.uniqueID) { actions.append(.init(title: "Sleep Host…") { confirmSleep(host) }) }
         actions.append(.init(title: "Edit…") { editing = host })
         actions.append(.init(title: "Remove Host…", isDestructive: true) { confirmRemove(host) })
@@ -241,7 +231,7 @@ private struct HostRow: View {
             // Paired: a link; not (or no longer) paired, so it needs pairing: a link to add, in orange.
             Image(systemName: isPaired ? "link" : "link.badge.plus")
                 .foregroundStyle(isPaired ? Color.secondary : .orange)
-            if status == .online(paired: true) { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
+            Image(systemName: "chevron.right").foregroundStyle(.tertiary) // opens its Edit page, or pairing
         }
         .accessibilityElement(children: .combine)
         .accessibilityValue([status == nil ? "Checking" : status == .offline ? "Offline" : "Online",

@@ -36,13 +36,15 @@ struct RootView: View {
         TabView(selection: $tab) {
             Tab("Home", systemImage: "house", value: .home) {
                 HomeView(switchTab: step, openSettings: { tab = .settings }, refresh: { Task { await refresh() } },
-                         isRefreshing: isRefreshing)
+                         isRefreshing: isRefreshing).tint(.accentColor)
             }
-            Tab("Library", systemImage: "app.grid.2x2", value: .library) { GamesView(switchTab: step) { tab = .settings } }
-            Tab("Hosts", systemImage: "link", value: .pcs) { PCsView(openSettings: { tab = .settings }, switchTab: step) }
-            Tab("Settings", systemImage: "switch.2", value: .settings) { SettingsView(switchTab: step) }
-            Tab(value: .search, role: .search) { GameSearchView(switchTab: step) { tab = .settings } }
+            Tab("Library", systemImage: "app.grid.2x2", value: .library) { GamesView(switchTab: step) { tab = .settings }.tint(.accentColor) }
+            Tab("Hosts", systemImage: "link", value: .pcs) { PCsView(openSettings: { tab = .settings }, switchTab: step).tint(.accentColor) }
+            Tab("Settings", systemImage: "switch.2", value: .settings) { SettingsView(switchTab: step).tint(.accentColor) }
+            Tab(value: .search, role: .search) { GameSearchView(switchTab: step) { tab = .settings }.tint(.accentColor) }
         }
+        // The selected tab in white (black in light mode) rather than blue; the tabs' own content keeps the accent.
+        .tint(.primary)
         // Behind everything, out to the screen's edges (on the Duo, the rail's column too): the grey of the grouped
         // lists on PCs, Settings and Search, the plain background elsewhere.
         .background {
