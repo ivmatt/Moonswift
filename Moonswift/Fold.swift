@@ -10,13 +10,22 @@ extension GeometryProxy {
         #endif
         let bounds = CGRect(origin: .zero, size: size)
         return reservedRegions(kind: .division).lazy.filter(\.isActive).map { $0.frame.intersection(bounds) }
-            .first { !$0.isNull && !$0.isEmpty }
+            .first { FoldAvoidance.isFold($0, in: self.size) }
     }
 }
 
 /// How a view moves its content off the fold: a fold across the screen (top and bottom halves) lifts the content
 /// above it; a fold down the screen (left and right halves) keeps the content to its left.
 nonisolated struct FoldAvoidance: Equatable {
+    /// A fold is a thin band all the way across or down: anything else the system might report as a division is
+    /// ignored rather than laid out around.
+    static func isFold(_ rect: CGRect, in size: CGSize) -> Bool {
+        guard !rect.isNull, !rect.isEmpty else { return false }
+        return rect.width >= rect.height
+            ? rect.width >= size.width * 0.9 && rect.height <= size.height * 0.25
+            : rect.height >= size.height * 0.9 && rect.width <= size.width * 0.25
+    }
+
     var lift: CGFloat = 0
     var maxWidth: CGFloat?
 

@@ -35,6 +35,8 @@ struct HomeView: View {
     @State private var coverRowHeight: CGFloat = 0
     /// Home's height above the guide's room, which sizes the covers and the hero's title.
     @State private var homeHeight: CGFloat = 0
+    @State private var rowWidth: CGFloat = 0
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
 
     private var games: [CatalogGame] { catalog.games(on: hosts.map(\.uniqueID)) }
@@ -65,6 +67,8 @@ struct HomeView: View {
                     } actions: {
                         ProgressView()
                     }
+                } else if isSideBySide {
+                    sideBySide
                 } else {
                     dashboard
                 }
@@ -78,8 +82,12 @@ struct HomeView: View {
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
+            .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { railInsets = $0 }
 
-            .background(Color(.systemBackground))
+            // Out to the screen's edges, under the rail too, like the hero art.
+            .background {
+                Color(.systemBackground).padding(.leading, -railInsets.leading).padding(.trailing, -railInsets.trailing).ignoresSafeArea()
+            }
             .sheet(isPresented: $isAdding) { AddHostView() }
             .sheet(item: $editing) { GameEditView(game: $0) }
             .onGamepad(handle)
@@ -92,7 +100,8 @@ struct HomeView: View {
         if gamepad.isControllerConnected, !games.isEmpty {
             ControllerHints(hints: [([.a], "Play"), ([.y], "Edit")]
                             + (selectedGame?.isRunning(directory) == true ? [([.x], "Quit")] : [])
-                            + [([.view], "Refresh"), ([.menu], "Settings")])
+                            // Side by side the guide shares the hero's column: just the game's own buttons.
+                            + (isSideBySide ? [] : [([.view], "Refresh"), ([.menu], "Settings")]))
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { guideHeight = $0 }
                 .padding(.leading, 36) // lined up with the title, hero and covers
                 // ControllerHints keeps 8 points below itself: its pill ends at the safe area's edge, or keeps those 8
@@ -150,7 +159,87 @@ struct HomeView: View {
         .padding(.bottom, gamepad.isControllerConnected ? guideHeight - (isTabBarBelow ? 0 : 8) + Self.guideGap
                                                         : (isTabBarBelow ? 8 : -12))
         .overlay(alignment: .bottomLeading) { buttonGuide }
-        .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { railInsets = $0 }
+    }
+
+    /// An iPhone in landscape: short, with the tab bar along the bottom. Stacked, the covers would shrink to a sliver
+    /// with half the screen empty, so the hero goes on the left and the covers, as tall as there's room for, on the
+    /// right. No "Home" title: the tab bar right below already says it (Apple: few controls on screen; keep the tab
+    /// bar visible, so it's the title that goes).
+    private var isSideBySide: Bool { verticalSizeClass == .compact && isTabBarBelow }
+
+    private var sideBySide: some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                Spacer(minLength: 0)
+                if let game = selectedGame {
+                    HeroCard(game: game, subtitle: heroSubtitle(game), isShort: true,
+                             isRunning: game.isRunning(directory), focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
+                             play: { start(game) }, quit: { quit(game) })
+                        .fixedSize(horizontal: false, vertical: true) // its own height, centred in the column
+                }
+                Spacer(minLength: 0)
+                buttonGuide.padding(.bottom, 8)
+            }
+            .containerRelativeFrame(.horizontal) { width, _ in width * 0.38 }
+            VStack(spacing: 0) {
+                remoteSessionBanners
+                if let row { coverRow(row.games) }
+            }
+            .frame(maxHeight: .infinity)
+        }
+        .background {
+            ZStack(alignment: .leading) {
+                heroArt
+                // Over the art, a fade to black behind the hero's text (and the camera housing beside it), so it reads
+                // on any picture. Its edge starts at the top-left corner and slopes out to the right as it comes down.
+                if let game = selectedGame, catalog.heroArt[game.id] != nil {
+                    GeometryReader { proxy in
+                        let (width, height) = (proxy.size.width, proxy.size.height)
+                        let reach = width * 0.55 // where the edge meets the bottom
+                        let length = (height * height + reach * reach).squareRoot()
+                        let depth = width * 0.5 // how far in from the edge it's at its darkest
+                        // Clear along the line from the top-left corner to (reach, bottom), darkening below and left of it.
+                        LinearGradient(stops: [.init(color: Color(.systemBackground).opacity(0.92), location: 0),
+                                               .init(color: Color(.systemBackground).opacity(0.55), location: 0.55),
+                                               .init(color: .clear, location: 1)],
+                                       startPoint: UnitPoint(x: -height * depth / length / width, y: reach * depth / length / height),
+                                       endPoint: .topLeading)
+                    }
+                        .padding(.leading, -railInsets.leading)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { homeHeight = $0 }
+    }
+
+    /// Side by side, the selected cover always sits in the same spot, one cover in from the row's start, and the row
+    /// slides under it: its leading edge's distance from the row's.
+    private var slotLeading: CGFloat { 36 + coverWidth + 14 }
+
+    /// Where scrolling puts the selected cover: centred, or side by side its slot. (An anchor lines up the same point
+    /// of the cover and of the row, so the cover's leading edge lands at `slotLeading` at this fraction.)
+    private var selectionAnchor: UnitPoint {
+        guard isSideBySide, rowWidth > coverWidth else { return .center }
+        return UnitPoint(x: slotLeading / (rowWidth - coverWidth), y: 0.5)
+    }
+
+    private func isBeforeSelection(_ game: CatalogGame, in games: [CatalogGame]) -> Bool {
+        guard let index = games.firstIndex(where: { $0.id == game.id }),
+              let selected = games.firstIndex(where: { $0.id == selectedGame?.id }) else { return false }
+        return index < selected
+    }
+
+    /// Side by side, a swipe along the row moves the selection, a cover per cover-width dragged (a flick goes further),
+    /// and the row follows so the selection stays in its slot; the row itself doesn't scroll freely.
+    private func swipeSelection(_ value: DragGesture.Value, in games: [CatalogGame]) {
+        guard let selected = games.firstIndex(where: { $0.id == selectedGame?.id }) else { return }
+        let steps = Int((-value.predictedEndTranslation.width / (coverWidth + 14)).rounded())
+        let step = steps != 0 ? steps : (abs(value.translation.width) > 30 ? (value.translation.width < 0 ? 1 : -1) : 0)
+        let target = min(max(selected + step, 0), games.count - 1)
+        withAnimation(.snappy) { selectedID = games[target].id }
+        focusRow = 1
     }
 
     /// The selected game's own hero picture, behind the title and hero and fading out just above the covers; plain
@@ -158,7 +247,8 @@ struct HomeView: View {
     @ViewBuilder private var heroArt: some View {
         if let game = selectedGame, let art = catalog.heroArt[game.id] {
             Color.clear
-                .overlay { Image(uiImage: art).resizable().scaledToFill() }
+                // Only the picture crossfades between games: the fades over it stay put, so they never thin out midway.
+                .overlay { Image(uiImage: art).resizable().scaledToFill().id(game.id).transition(.opacity) }
                 .overlay {
                     LinearGradient(stops: [.init(color: .clear, location: 0.55), .init(color: Color(.systemBackground), location: 1)],
                                    startPoint: .top, endPoint: .bottom)
@@ -169,8 +259,7 @@ struct HomeView: View {
                 .padding(.leading, -railInsets.leading)
                 .padding(.trailing, -railInsets.trailing)
                 .ignoresSafeArea(edges: .top)
-                .id(game.id)
-                .transition(.opacity)
+                .transition(.opacity) // in and out only from a game without a picture
                 .accessibilityHidden(true)
         }
     }
@@ -185,6 +274,8 @@ struct HomeView: View {
     /// Covers are bigger without a controller (easier to tap), smaller with one to make room for its guide; and on a
     /// short screen (the Duo's outer display) no taller than about a third of Home, so the hero keeps its room.
     private var coverWidth: CGFloat {
+        // Side by side, the covers have the height to themselves: about two thirds of it, leaving focus-ring room.
+        if isSideBySide, homeHeight > 0 { return (homeHeight * 0.66 * coverShape.ratio).rounded() }
         let preferred: CGFloat = gamepad.isControllerConnected ? 104 : 128
         return homeHeight > 0 ? min(preferred, (homeHeight * 0.34 * coverShape.ratio).rounded()) : preferred
     }
@@ -244,7 +335,9 @@ struct HomeView: View {
                     LazyHStack(spacing: 14) {
                         ForEach(games) { game in
                             CoverTile(game: game, client: client(for: game), isRunning: game.isRunning(directory),
-                                      offlinePC: offlinePC(game), isFocused: focusRow == 1 && game.id == selectedGame?.id)
+                                      offlinePC: offlinePC(game), isFocused: focusRow == 1 && game.id == selectedGame?.id,
+                                      isGlass: isSideBySide && game.id != selectedGame?.id,
+                                      fadesOut: isSideBySide && isBeforeSelection(game, in: games))
                                 .frame(width: coverWidth)
                                 .onTapGesture { // select, then play
                                     if game.id == selectedGame?.id { start(game) } else { withAnimation(.snappy) { selectedID = game.id } }
@@ -254,16 +347,20 @@ struct HomeView: View {
                                 .id(game.id)
                         }
                     }
-                    .padding(.leading, 36)
-                    .padding(.trailing, 36) // the last cover can scroll clear of the rail
+                    // Side by side, room for the first and last covers to reach the selection's slot too.
+                    .padding(.leading, isSideBySide ? slotLeading : 36)
+                    .padding(.trailing, isSideBySide ? max(36, rowWidth - slotLeading - coverWidth) : 36) // the last can scroll clear of the rail
                     .padding(.vertical, 12) // room for the focus ring
                 }
                 .scrollIndicators(.hidden)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
+                .scrollDisabled(isSideBySide)
+                .gesture(DragGesture(minimumDistance: 20).onEnded { swipeSelection($0, in: games) }, isEnabled: isSideBySide)
                 .scrollClipDisabled() // the focused cover's shadow fades out instead of ending in a hard edge
                 .fixedSize(horizontal: false, vertical: true) // as tall as the covers, not a share of the spare height
                 // Follows the selection, and the selected game when playing it moves it to the front.
                 .onChange(of: "\(selectedGame?.id ?? "")|\(games.firstIndex { $0.id == selectedGame?.id } ?? 0)") {
-                    withAnimation { scroller.scrollTo(selectedGame?.id, anchor: .center) }
+                    withAnimation { scroller.scrollTo(selectedGame?.id, anchor: selectionAnchor) }
                 }
         }
     }
@@ -350,7 +447,7 @@ private struct HeroCard: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(isRunning ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
             Text(game.title)
-                .font(.system(size: isShort ? 28 : 34, weight: .bold))
+                .font(isShort ? .title.bold() : .largeTitle.bold()) // 28 or 34 points by default, and Dynamic Type
                 .foregroundStyle(.primary)
                 .lineLimit(2)
                 .minimumScaleFactor(0.6)
@@ -390,6 +487,11 @@ struct CoverTile: View {
     /// The name of its PC while that's offline (nil: it can be played).
     let offlinePC: String?
     let isFocused: Bool
+    /// Clear glass with the art greyed and faint, so what's behind shows through (the side-by-side Home's covers
+    /// other than the selected one); `fadesOut` also fades it away to its left (those before the selection, beside the
+    /// hero's title).
+    var isGlass = false
+    var fadesOut = false
     @Environment(GameCatalog.self) private var catalog
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
 
@@ -399,6 +501,8 @@ struct CoverTile: View {
             .overlay {
                 CoverArt(app: game.sources[0].app, client: client, custom: catalog.cover(for: game.id, coverShape), title: game.title)
                     .blur(radius: offlinePC == nil ? 0 : 8, opaque: true) // no see-through fringe at the edges
+                    .saturation(isGlass ? 0 : 1)
+                    .opacity(isGlass ? 0.22 : 1)
                     .overlay {
                         if let offlinePC {
                             ZStack {
@@ -418,6 +522,15 @@ struct CoverTile: View {
                     .animation(.easeInOut(duration: 0.5), value: offlinePC != nil) // blur and label fade together
             }
             .clipShape(.rect(cornerRadius: 14))
+            .background { if isGlass { Color.clear.glassEffect(.clear, in: .rect(cornerRadius: 14)) } }
+            .mask {
+                LinearGradient(stops: [.init(color: .black.opacity(fadesOut ? 0 : 1), location: 0),
+                                       .init(color: .black.opacity(fadesOut ? 0.5 : 1), location: 0.5),
+                                       .init(color: .black, location: 1)], startPoint: .leading, endPoint: .trailing)
+                    .padding(-16) // the focus ring and shadow stay inside the mask
+            }
+            .animation(.snappy, value: isGlass) // turns solid as it becomes the selection
+            .animation(.snappy, value: fadesOut)
             .overlay {
                 if isRunning { RoundedRectangle(cornerRadius: 14).stroke(.green, lineWidth: 3) }
             }

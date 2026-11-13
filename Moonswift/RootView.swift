@@ -5,7 +5,7 @@ import SwiftUI
 /// The app's tabs, like Apple's Games app: Home (featured games and rows), Library (every game from every PC), PCs
 /// (devices) and Search. Keeps every PC's status and game list current for all of them, and opens links and Shortcuts.
 struct RootView: View {
-    enum TabID: Hashable, CaseIterable { case home, library, pcs, settings, search }
+    enum TabID: Hashable, CaseIterable { case home, library, pcs, settings }
 
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -41,12 +41,14 @@ struct RootView: View {
             Tab("Library", systemImage: "app.grid.2x2", value: .library) { GamesView(switchTab: step) { tab = .settings } }
             Tab("Hosts", systemImage: "link", value: .pcs) { PCsView(openSettings: { tab = .settings }, switchTab: step) }
             Tab("Settings", systemImage: "switch.2", value: .settings) { SettingsView(switchTab: step) }
-            Tab(value: .search, role: .search) { GameSearchView(switchTab: step) { tab = .settings } }
         }
+        // On iPhone, the tab bar shrinks to a button while you scroll down (Library, Search, Hosts, Settings) and gives the
+        // short landscape screen its height back; scrolling up or tapping brings it back. Apple's way, over moving it.
+        .tabBarMinimizeBehavior(.onScrollDown)
         // Behind everything, out to the screen's edges (on the Duo, the rail's column too): the grey of the grouped
         // lists on PCs, Settings and Search, the plain background elsewhere.
         .background {
-            ([.pcs, .settings, .search].contains(tab) ? Color(.systemGroupedBackground) : Color(.systemBackground)).ignoresSafeArea()
+            ([.pcs, .settings].contains(tab) ? Color(.systemGroupedBackground) : Color(.systemBackground)).ignoresSafeArea()
         }
         // iPad: the selected tab white rather than blue (see styleFloatingTabBar); again after a tab change or rotation,
         // which can rebuild the bar.
@@ -130,10 +132,8 @@ struct RootView: View {
             let name = String(describing: type(of: view))
             if name == "_UIFloatingTabBar" { view.tintColor = .label }
             if name == "_UIFloatingTabBarItemView" {
-                // The selected tab's title is drawn in the tint colour; Search, the one without a title, by the tab.
-                let titles = labels(in: view)
-                let isSelected = titles.isEmpty ? tab == .search
-                    : titles.contains { String(describing: type(of: $0.textColor as Any)).contains("TintColor") }
+                // The selected tab's title is drawn in the tint colour.
+                let isSelected = labels(in: view).contains { String(describing: type(of: $0.textColor as Any)).contains("TintColor") }
                 view.alpha = isSelected ? 1 : 0.6
                 return
             }

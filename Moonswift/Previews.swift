@@ -38,5 +38,4 @@ private extension View {
 #Preview("Library, controller", traits: .landscapeLeft) { RootView(startingTab: .library).previewModels(controller: true) }
 #Preview("Hosts", traits: .landscapeLeft) { RootView(startingTab: .pcs).previewModels(controller: false) }
 #Preview("Settings", traits: .landscapeLeft) { RootView(startingTab: .settings).previewModels(controller: false) }
-#Preview("Search", traits: .landscapeLeft) { RootView(startingTab: .search).previewModels(controller: false) }
 #endif

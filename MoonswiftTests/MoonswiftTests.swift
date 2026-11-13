@@ -829,6 +829,8 @@ struct LibraryColumnsTests {
         #expect(GamesView.columns(forWidth: 867) == 6) // Duo, open
         #expect(GamesView.columns(forWidth: 594) == 4) // Duo, closed
         #expect(GamesView.columns(forWidth: 200) == 2) // never fewer than two
+        #expect(GamesView.columns(forWidth: 788, height: 420) == 6) // iPhone Air in landscape: a row fits above the tab bar
+        #expect(GamesView.columns(forWidth: 867, height: 669) == 6) // Duo, open: the height changes nothing
         for width in stride(from: 200, through: 1400, by: 37) { #expect(GamesView.columns(forWidth: CGFloat(width)) % 2 == 0) }
     }
 }
@@ -849,5 +851,21 @@ struct FoldAvoidanceTests {
     @Test func noFoldChangesNothing() {
         let avoid = FoldAvoidance(fold: nil, in: screen)
         #expect(avoid.lift == 0 && avoid.maxWidth == nil)
+    }
+}
+
+struct FoldFilterTests {
+    let size = CGSize(width: 800, height: 600)
+
+    @Test func aThinBandAcrossOrDownIsAFold() {
+        #expect(FoldAvoidance.isFold(CGRect(x: 0, y: 288, width: 800, height: 24), in: size))
+        #expect(FoldAvoidance.isFold(CGRect(x: 388, y: 0, width: 24, height: 600), in: size))
+    }
+
+    @Test func otherRegionsAreNot() {
+        #expect(!FoldAvoidance.isFold(CGRect(x: 0, y: 0, width: 800, height: 600), in: size)) // the whole view
+        #expect(!FoldAvoidance.isFold(CGRect(x: 700, y: 0, width: 100, height: 80), in: size)) // a corner
+        #expect(!FoldAvoidance.isFold(CGRect(x: 0, y: 0, width: 300, height: 600), in: size)) // a wide strip
+        #expect(!FoldAvoidance.isFold(.null, in: size))
     }
 }

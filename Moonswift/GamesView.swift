@@ -11,14 +11,23 @@ struct GamesView: View {
     /// Covers per row: as many of at least `minCoverWidth` as fit, rounded down to an even number so a half-folded
     /// Duo's fold falls between two columns rather than across one (Apple's guidance for iPhone Duo). Six on the Duo's
     /// open screen, four on its outer one.
-    @State private var columns = 6
+    /// The wall's size, as measured; the columns follow from it, the fold offset and the cover shape whenever any
+    /// of them changes.
+    @State private var wallSize = CGSize.zero
+    private var columns: Int {
+        wallSize.width > 0
+            ? Self.columns(forWidth: wallSize.width - 2 * abs(foldShift), height: wallSize.height, ratio: coverShape.ratio) : 6
+    }
     /// How far a half-open Duo's fold sits right of the wall's middle (left, if negative): the wall moves over so the
     /// fold falls in the gap between its middle columns, which the rail beside the content would otherwise put it off.
     @State private var foldShift: CGFloat = 0
     private static let minCoverWidth: CGFloat = 110
 
-    nonisolated static func columns(forWidth width: CGFloat) -> Int {
-        let fit = Int((width - 72 + 18) / (minCoverWidth + 18)) // less the 36-point margins, plus one gap
+    /// On a short screen (an iPhone in landscape) covers are also kept to about a third of its `height`, so a whole
+    /// row shows above the tab bar: narrower covers, more columns.
+    nonisolated static func columns(forWidth width: CGFloat, height: CGFloat = .infinity, ratio: CGFloat = 2 / 3) -> Int {
+        let minWidth = min(minCoverWidth, height * 0.35 * ratio)
+        let fit = Int((width - 72 + 18) / (minWidth + 18)) // less the 36-point margins, plus one gap
         return max(2, fit - fit % 2)
     }
 
@@ -30,8 +39,11 @@ struct GamesView: View {
     @Environment(GamepadInput.self) private var gamepad
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
     @AppStorage("libraryOrder") private var order = Order.recent
+    @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
     @State private var favoritesOnly = false
     @State private var showsApps = true
+    /// What the search field filters the wall by (Library is where search lives; there's no Search tab).
+    @State private var query = ""
     @State private var focus = 0
     /// The controller is on Filter and Sort (up from the first row) rather than a cover.
     @State private var isFilterFocused = false
@@ -41,7 +53,9 @@ struct GamesView: View {
 
     private var all: [CatalogGame] { catalog.games(on: hosts.map(\.uniqueID)) }
     private var shown: [CatalogGame] {
-        let games = all.filter { (!favoritesOnly || $0.isFavorite) && (showsApps || !$0.isApp) }
+        let query = query.trimmingCharacters(in: .whitespaces)
+        let games = all.filter { (!favoritesOnly || $0.isFavorite) && (showsApps || !$0.isApp)
+                                 && (query.isEmpty || $0.title.localizedStandardContains(query)) }
         return order == .recent ? games : games.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
     private var running: CatalogGame? { all.first { $0.isRunning(directory) } }
@@ -61,19 +75,23 @@ struct GamesView: View {
                         .padding(.trailing, max(0, -2 * foldShift))
                     }
                     .padding(.horizontal, 36)
+                    .padding(.top, 10) // under the fixed title, room for the filter button's focus ring (the title's backdrop would cut it)
                     .padding(.bottom, 24)
                 }
                 .safeAreaInset(edge: .top, spacing: 0) { // fixed, like every tab's title
-                    TabTitle(text: "Library", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 12).background(Color(.systemBackground))
+                    TabTitle(text: "Library", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 2).background(Color(.systemBackground))
                 }
                 .onChange(of: focus) {
                     // By game, not position: identifying covers by position kept each spot's old art after a sort or filter.
                     if shown.indices.contains(focus) { withAnimation { scroller.scrollTo(shown[focus].id, anchor: .center) } }
                 }
+                .overlay { if !query.isEmpty, shown.isEmpty { ContentUnavailableView.search(text: query) } }
+                // One measurement for both: the columns used to be worked out in their own, from the fold offset as last
+                // stored, so closing a half-open Duo kept the half-open count (two huge columns) until something resized.
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { wallSize = $0 }
                 .onGeometryChange(for: CGFloat.self) { proxy in
                     proxy.fold.flatMap { $0.height > $0.width ? $0.midX - proxy.size.width / 2 : nil } ?? 0
                 } action: { foldShift = $0 }
-                .onGeometryChange(for: Int.self) { Self.columns(forWidth: $0.size.width - 2 * abs(foldShift)) } action: { columns = $0 }
             }
             .navigationTitle("Library")
             .toolbar(.hidden, for: .navigationBar) // the title is TabTitle, placed like Home's
@@ -92,7 +110,8 @@ struct GamesView: View {
                 Text(favoritesOnly ? "Favorites" : "All Games").font(.title2.bold())
                 Text("\(shown.count) Total").font(.subheadline).foregroundStyle(.secondary)
             }
-            Spacer()
+            Spacer(minLength: 16)
+            searchField
             Menu {
                 Picker("Sort", selection: $order) { ForEach(Order.allCases, id: \.self) { Text($0.rawValue) } }
                 Toggle("Favorites Only", isOn: $favoritesOnly)
@@ -103,6 +122,27 @@ struct GamesView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Filter and Sort")
         }
+    }
+
+    /// Beside the filter button rather than on its own line, so the wall keeps its height on short screens. Touch only:
+    /// a controller browses the wall instead.
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+            if !query.isEmpty {
+                Button("Clear", systemImage: "xmark.circle.fill") { query = "" }
+                    .labelStyle(.iconOnly).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 14).frame(height: FunctionButtonLabel.size)
+        .background(Color(.tertiarySystemFill), in: .capsule) // like a system search field, as tall as the button
+        .frame(maxWidth: 260)
+        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] } // centred on the button, like it
+        .onChange(of: query) { focus = 0 }
     }
 
     private func cover(_ game: CatalogGame, isFocused: Bool) -> some View {
@@ -155,77 +195,6 @@ struct GamesView: View {
         case .nextTab: switchTab(1)
         case .settings: openSettings()
         default: break
-        }
-    }
-}
-
-/// The Search tab: every game from every PC, filtered as you type. Its title and field sit where every tab's title does.
-struct GameSearchView: View {
-    var switchTab: (Int) -> Void = { _ in }
-    var openSettings: () -> Void = {}
-    @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
-
-    @Environment(PCDirectory.self) private var directory
-    @Environment(GameCatalog.self) private var catalog
-    @Environment(StreamLauncher.self) private var launcher
-    @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
-    @State private var query = ""
-    @State private var topInset: CGFloat = 0
-
-    private var results: [CatalogGame] {
-        let games = catalog.games(on: hosts.map(\.uniqueID))
-        return query.isEmpty ? games : games.filter { $0.title.localizedStandardContains(query) }
-    }
-
-    var body: some View {
-        NavigationStack {
-            List(results) { game in
-                Button {
-                    play(game, hosts: hosts, directory: directory, catalog: catalog, launcher: launcher)
-                } label: {
-                    HStack(spacing: 14) {
-                        CoverArt(app: game.sources[0].app, client: hosts.first { $0.uniqueID == game.sources[0].pcID }.map { directory.ref($0).client },
-                                 custom: catalog.cover(for: game.id, coverShape), title: game.title)
-                            .frame(width: 60 * coverShape.ratio, height: 60)
-                            .clipShape(.rect(cornerRadius: 8))
-                        VStack(alignment: .leading) {
-                            Text(game.title).font(.headline)
-                            Text(game.isRunning(directory) ? "Running now" : playedText(game.lastPlayed))
-                                .font(.subheadline).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .tint(.primary)
-            }
-            .overlay { if !query.isEmpty, results.isEmpty { ContentUnavailableView.search(text: query) } }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                VStack(alignment: .leading, spacing: 12) {
-                    TabTitle(text: "Search", topInset: topInset)
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField("Games on your hosts", text: $query)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                        if !query.isEmpty {
-                            Button("Clear", systemImage: "xmark.circle.fill") { query = "" }
-                                .labelStyle(.iconOnly).foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(Color(.tertiarySystemFill), in: .capsule) // like a system search field
-                }
-                .padding(.horizontal, 36).padding(.bottom, 12).background(Color(.systemGroupedBackground)) // the list's grey
-            }
-            .toolbar(.hidden, for: .navigationBar)
-            .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
-            .onGamepad { command in
-                switch command {
-                case .previousTab: switchTab(-1)
-                case .nextTab: switchTab(1)
-                case .settings: openSettings()
-                default: break
-                }
-            }
         }
     }
 }
