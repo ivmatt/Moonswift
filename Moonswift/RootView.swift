@@ -36,20 +36,22 @@ struct RootView: View {
         TabView(selection: $tab) {
             Tab("Home", systemImage: "house", value: .home) {
                 HomeView(switchTab: step, openSettings: { tab = .settings }, refresh: { Task { await refresh() } },
-                         isRefreshing: isRefreshing).tint(.accentColor)
+                         isRefreshing: isRefreshing)
             }
-            Tab("Library", systemImage: "app.grid.2x2", value: .library) { GamesView(switchTab: step) { tab = .settings }.tint(.accentColor) }
-            Tab("Hosts", systemImage: "link", value: .pcs) { PCsView(openSettings: { tab = .settings }, switchTab: step).tint(.accentColor) }
-            Tab("Settings", systemImage: "switch.2", value: .settings) { SettingsView(switchTab: step).tint(.accentColor) }
-            Tab(value: .search, role: .search) { GameSearchView(switchTab: step) { tab = .settings }.tint(.accentColor) }
+            Tab("Library", systemImage: "app.grid.2x2", value: .library) { GamesView(switchTab: step) { tab = .settings } }
+            Tab("Hosts", systemImage: "link", value: .pcs) { PCsView(openSettings: { tab = .settings }, switchTab: step) }
+            Tab("Settings", systemImage: "switch.2", value: .settings) { SettingsView(switchTab: step) }
+            Tab(value: .search, role: .search) { GameSearchView(switchTab: step) { tab = .settings } }
         }
-        // The selected tab in white (black in light mode) rather than blue; the tabs' own content keeps the accent.
-        .tint(.primary)
         // Behind everything, out to the screen's edges (on the Duo, the rail's column too): the grey of the grouped
         // lists on PCs, Settings and Search, the plain background elsewhere.
         .background {
             ([.pcs, .settings, .search].contains(tab) ? Color(.systemGroupedBackground) : Color(.systemBackground)).ignoresSafeArea()
         }
+        // iPad: the selected tab white rather than blue (see whitenFloatingTabBar); again after a tab change or rotation,
+        // which can rebuild the bar.
+        .task(id: tab) { await Task.yield(); Self.whitenFloatingTabBar() }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { _ in Task { Self.whitenFloatingTabBar() } }
         .streamLauncher(launcher)
         .actionMenu($menu)
         // Restarts at once when a PC is added, removed, (re)paired or gets a new address.
@@ -109,6 +111,18 @@ struct RootView: View {
         // Spins at least a second, so a quick answer still reads as the refresh having happened.
         try? await Task.sleep(until: started + .seconds(1))
         isRefreshing = false
+    }
+
+    /// The iPad's tab bar floats across the top as its own view, which takes its colour from the tab view (blue) and
+    /// ignores the UITabBar appearance that whitens the Duo's rail (MyApp). Tinting the whole tab view instead reaches
+    /// the sliders, switches and menus inside the tabs, so just this bar is tinted.
+    /// shortcut: found by its private class name; if iOS renames it, the iPad's selected tab is blue again (nothing
+    /// breaks). Revisit if SwiftUI gets a way to colour only the tab bar.
+    private static func whitenFloatingTabBar() {
+        func whiten(_ view: UIView) {
+            if String(describing: type(of: view)) == "_UIFloatingTabBar" { view.tintColor = .label } else { view.subviews.forEach(whiten) }
+        }
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) { scene.windows.forEach(whiten) }
     }
 
     /// L1/R1: the previous or next tab.
