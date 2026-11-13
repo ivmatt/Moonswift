@@ -257,7 +257,9 @@ struct CoverArt: View {
                 }
             }
             .clipped()
-            .task(id: app.artVersion) {
+            // Per game as well as art version, so a view reused for another game never keeps the old one's art.
+            .task(id: "\(app.uuid)|\(app.id)|\(app.artVersion)") {
+                image = nil
                 guard let client, let png = try? await client.boxArt(for: app) else { return }
                 image = UIImage(data: png)
             }

@@ -54,7 +54,7 @@ struct GamesView: View {
                         header
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: columns), spacing: 18) {
                             ForEach(Array(shown.enumerated()), id: \.element.id) { index, game in
-                                cover(game, isFocused: gamepad.isActive && !isFilterFocused && index == focus).id(index)
+                                cover(game, isFocused: gamepad.isActive && !isFilterFocused && index == focus)
                             }
                         }
                         .padding(.leading, max(0, 2 * foldShift)) // the title and header stay put
@@ -66,7 +66,10 @@ struct GamesView: View {
                 .safeAreaInset(edge: .top, spacing: 0) { // fixed, like every tab's title
                     TabTitle(text: "Library", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 12).background(Color(.systemBackground))
                 }
-                .onChange(of: focus) { withAnimation { scroller.scrollTo(focus, anchor: .center) } }
+                .onChange(of: focus) {
+                    // By game, not position: identifying covers by position kept each spot's old art after a sort or filter.
+                    if shown.indices.contains(focus) { withAnimation { scroller.scrollTo(shown[focus].id, anchor: .center) } }
+                }
                 .onGeometryChange(for: CGFloat.self) { proxy in
                     proxy.fold.flatMap { $0.height > $0.width ? $0.midX - proxy.size.width / 2 : nil } ?? 0
                 } action: { foldShift = $0 }
