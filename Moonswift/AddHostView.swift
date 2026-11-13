@@ -59,7 +59,7 @@ struct AddHostView: View {
                 result
             }
             .tint(.primary)
-            .navigationTitle("Add PC")
+            .navigationTitle("Add Host")
             .navigationDestination(item: $pairingWith) { id in
                 if let pc = discovery.found.first(where: { $0.id == id }) {
                     PairingView(address: pc.address, name: pc.info.hostname) { dismiss() }
@@ -87,7 +87,7 @@ struct AddHostView: View {
         case .idle:
             EmptyView()
         case .loading:
-            Section { ProgressView("Contacting PC…") }
+            Section { ProgressView("Contacting host…") }
         case .loaded(let info):
             Section {
                 LabeledContent("Hostname", value: info.hostname)

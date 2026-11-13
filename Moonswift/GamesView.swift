@@ -12,6 +12,9 @@ struct GamesView: View {
     /// Duo's fold falls between two columns rather than across one (Apple's guidance for iPhone Duo). Six on the Duo's
     /// open screen, four on its outer one.
     @State private var columns = 6
+    /// How far a half-open Duo's fold sits right of the wall's middle (left, if negative): the wall moves over so the
+    /// fold falls in the gap between its middle columns, which the rail beside the content would otherwise put it off.
+    @State private var foldShift: CGFloat = 0
     private static let minCoverWidth: CGFloat = 110
 
     nonisolated static func columns(forWidth width: CGFloat) -> Int {
@@ -54,6 +57,8 @@ struct GamesView: View {
                                 cover(game, isFocused: gamepad.isActive && !isFilterFocused && index == focus).id(index)
                             }
                         }
+                        .padding(.leading, max(0, 2 * foldShift)) // the title and header stay put
+                        .padding(.trailing, max(0, -2 * foldShift))
                     }
                     .padding(.horizontal, 36)
                     .padding(.bottom, 24)
@@ -62,7 +67,10 @@ struct GamesView: View {
                     TabTitle(text: "Library", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 12).background(Color(.systemBackground))
                 }
                 .onChange(of: focus) { withAnimation { scroller.scrollTo(focus, anchor: .center) } }
-                .onGeometryChange(for: Int.self) { Self.columns(forWidth: $0.size.width) } action: { columns = $0 }
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.fold.flatMap { $0.height > $0.width ? $0.midX - proxy.size.width / 2 : nil } ?? 0
+                } action: { foldShift = $0 }
+                .onGeometryChange(for: Int.self) { Self.columns(forWidth: $0.size.width - 2 * abs(foldShift)) } action: { columns = $0 }
             }
             .navigationTitle("Library")
             .toolbar(.hidden, for: .navigationBar) // the title is TabTitle, placed like Home's
@@ -97,7 +105,7 @@ struct GamesView: View {
     private func cover(_ game: CatalogGame, isFocused: Bool) -> some View {
         // Only once every PC with it is known to be down, not while the first check is still out.
         let offline = game.sources.allSatisfy { directory.statuses[$0.pcID] == .offline }
-        let pcName = game.sources.lazy.compactMap { s in hosts.first { $0.uniqueID == s.pcID }?.displayName }.first ?? "Its PC"
+        let pcName = game.sources.lazy.compactMap { s in hosts.first { $0.uniqueID == s.pcID }?.displayName }.first ?? "Its host"
         return CoverTile(game: game, client: client(for: game), isRunning: game.isRunning(directory),
                          offlinePC: offline ? pcName : nil, isFocused: isFocused)
             .onTapGesture { start(game) }
@@ -192,7 +200,7 @@ struct GameSearchView: View {
                     TabTitle(text: "Search", topInset: topInset)
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField("Games on your PCs", text: $query)
+                        TextField("Games on your hosts", text: $query)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                         if !query.isEmpty {

@@ -56,11 +56,11 @@ nonisolated struct LaunchRequest: Equatable, Sendable, Codable {
 /// Siri and Shortcuts: stream a game by name.
 struct StreamGameIntent: AppIntent {
     static let title: LocalizedStringResource = "Stream a Game"
-    static let description = IntentDescription("Opens Moonswift and streams a game from one of your PCs.")
+    static let description = IntentDescription("Opens Moonswift and streams a game from one of your hosts.")
     static let openAppWhenRun = true
 
     @Parameter(title: "Game") var game: String
-    @Parameter(title: "PC") var pc: String
+    @Parameter(title: "Host") var pc: String
 
     static var parameterSummary: some ParameterSummary { Summary("Stream \(\.$game) on \(\.$pc)") }
 

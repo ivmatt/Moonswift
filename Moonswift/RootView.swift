@@ -34,13 +34,13 @@ struct RootView: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            Tab("Home", systemImage: "house.fill", value: .home) {
+            Tab("Home", systemImage: "house", value: .home) {
                 HomeView(switchTab: step, openSettings: { tab = .settings }, refresh: { Task { await refresh() } },
                          isRefreshing: isRefreshing)
             }
-            Tab("Library", systemImage: "square.stack.fill", value: .library) { GamesView(switchTab: step) { tab = .settings } }
-            Tab("PCs", systemImage: "desktopcomputer", value: .pcs) { PCsView(openSettings: { tab = .settings }, switchTab: step) }
-            Tab("Settings", systemImage: "gearshape.fill", value: .settings) { SettingsView(switchTab: step) }
+            Tab("Library", systemImage: "app.grid.2x2", value: .library) { GamesView(switchTab: step) { tab = .settings } }
+            Tab("Hosts", systemImage: "link", value: .pcs) { PCsView(openSettings: { tab = .settings }, switchTab: step) }
+            Tab("Settings", systemImage: "switch.2", value: .settings) { SettingsView(switchTab: step) }
             Tab(value: .search, role: .search) { GameSearchView(switchTab: step) { tab = .settings } }
         }
         // Behind everything, out to the screen's edges (on the Duo, the rail's column too): the grey of the grouped
@@ -99,10 +99,13 @@ struct RootView: View {
     private func refresh() async {
         guard !isRefreshing else { return }
         isRefreshing = true
+        let started = ContinuousClock.now
         await directory.checkAll(hosts, context: context, isManual: true)
         for host in hosts where directory.isAvailable(host.uniqueID) {
             await catalog.refresh(directory.ref(host), force: true)
         }
+        // Spins at least a second, so a quick answer still reads as the refresh having happened.
+        try? await Task.sleep(until: started + .seconds(1))
         isRefreshing = false
     }
 
@@ -118,7 +121,7 @@ struct RootView: View {
         guard let host = hosts.first(where: { request.matches(pcID: $0.uniqueID, name: $0.displayName)
                                               || request.matches(pcID: $0.uniqueID, name: $0.name) }) else {
             LaunchRouter.shared.pending = nil
-            return menu = .error("There's no PC called \(request.pc) in Moonswift.")
+            return menu = .error("There's no host called \(request.pc) in Moonswift.")
         }
         guard let status = directory.statuses[host.uniqueID] else { return } // still checking
         LaunchRouter.shared.pending = nil

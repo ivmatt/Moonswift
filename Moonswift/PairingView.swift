@@ -29,7 +29,7 @@ struct PairingView: View {
                     .buttonStyle(.borderedProminent)
             } else {
                 ProgressView()
-                Text("On your PC, open \(webUI) and enter this PIN.")
+                Text("On your host, open \(webUI) and enter this PIN.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
             }

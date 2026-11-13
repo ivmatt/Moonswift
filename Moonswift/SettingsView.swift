@@ -111,8 +111,8 @@ struct SettingsView: View {
                 } footer: {
                     Text("\(size.width)×\(size.height) at \(fps) fps"
                          + (codec == .automatic ? ", \(ScreenInfo.hevcInHardware ? "HEVC" : "H.264") on this device."
-                            : codec == .av1 ? ". If the PC's graphics card can't encode AV1, it uses HEVC." : ".")
-                         + (showsHDR && hdr ? " HDR streams in 10-bit when HDR is on in the PC's display settings." : ""))
+                            : codec == .av1 ? ". If the host's graphics card can't encode AV1, it uses HEVC." : ".")
+                         + (showsHDR && hdr ? " HDR streams in 10-bit when HDR is on in the host's display settings." : ""))
                 }
                 Section {
                     row(.bitrateMode) {
@@ -138,11 +138,11 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         switch bitrateMode {
                         case .automatic: Text("\(automaticBitrate / 1000) Mbps for this resolution and frame rate.")
-                        case .custom: Text("Higher looks sharper but needs a faster network. The streaming software on your PC may also cap it.")
+                        case .custom: Text("Higher looks sharper but needs a faster network. The streaming software on your host may also cap it.")
                         }
                         if adaptive {
                             Text("Adaptive lowers the bitrate when the network struggles and raises it back, never above this setting "
-                                 + "(and at most 500 Mbps, the usual limit for changes during a stream). It needs a PC that supports bitrate changes while streaming.")
+                                 + "(and at most 500 Mbps, the usual limit for changes during a stream). It needs a host that supports bitrate changes while streaming.")
                         }
                     }
                 }
@@ -155,12 +155,12 @@ struct SettingsView: View {
                 }
                 Section {
                     row(.pcAudio) {
-                        Toggle("Play Sound on PC", isOn: $playAudioOnPC)
+                        Toggle("Play Sound on Host", isOn: $playAudioOnPC)
                     }
                 } header: {
                     Text("Audio")
                 } footer: {
-                    Text("Sound always plays on this device; this also plays it from the PC's speakers. Applies the next time a stream starts.")
+                    Text("Sound always plays on this device; this also plays it from the host's speakers. Applies the next time a stream starts.")
                 }
                 Section {
                     row(.buttonMapping) {
@@ -179,7 +179,7 @@ struct SettingsView: View {
                     } header: {
                         Text("Library")
                     } footer: {
-                        Text("The shape of game covers, to suit your art: 2:3 for Steam's, 3:4 for most PCs', or square.")
+                        Text("The shape of game covers, to suit your art: 2:3 for Steam's, 3:4 for most hosts', or square.")
                     }
                 }
                 Section {
@@ -193,12 +193,12 @@ struct SettingsView: View {
                             Text("Connected").tag("YES")
                             Text("Disconnected").tag("NO")
                         }
-                        Toggle("PCs Offline", isOn: $debugOffline)
+                        Toggle("Hosts Offline", isOn: $debugOffline)
                             .onChange(of: debugOffline) { if DemoMode.isOn { directory.setDemo(pcID: DemoMode.pcID, running: 1) } }
                     } header: {
                         Text("Developer")
                     } footer: {
-                        Text("Debug builds only. Acts as if a controller were connected or not, and as if every PC were offline, whatever is, to check layouts on the simulator.")
+                        Text("Debug builds only. Acts as if a controller were connected or not, and as if every host were offline, whatever is, to check layouts on the simulator.")
                     }
                 }
                 #endif

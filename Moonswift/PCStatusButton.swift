@@ -20,7 +20,7 @@ nonisolated struct PCStatusLine: Equatable {
         switch status {
         case nil: return .init(text: "Checking…", health: .checking)
         case .offline: return .init(text: hasSavedGames ? "Offline · showing saved games" : "Offline", health: .offline)
-        case .online(paired: false): return .init(text: "Not paired · pair it again in PCs", health: .problem)
+        case .online(paired: false): return .init(text: "Not paired · pair it again in Hosts", health: .problem)
         case .online(paired: true):
             if isNotResponding { return .init(text: "Not responding…", health: .fine, isWaiting: true) }
             if fetchFailed { return .init(text: "Couldn't get its games · showing saved ones", health: .problem) }
@@ -31,10 +31,10 @@ nonisolated struct PCStatusLine: Equatable {
     }
 }
 
-/// Home's status button, where Refresh was: the refresh arrow while every PC is fine, and otherwise what needs your
-/// attention (Wi-Fi crossed out for an offline PC, a warning for one that isn't paired or won't send its games). It
-/// spins at launch until the first answer and while you refresh, never for the checks in between. Tap for each PC's
-/// details and Refresh; hold to refresh straight away. Controller: View refreshes.
+/// Home's status button, a system toolbar item (on the Duo the system puts it in the side column): the PC with a
+/// traffic-light dot (green while every PC is fine, orange when one isn't paired or won't send its games, red when
+/// one is offline), and a spinning arc at launch until the first answer and while you refresh (never for the checks
+/// in between). Tap for a menu of each PC's status and Refresh. Controller: View refreshes.
 struct PCStatusButton: View {
     var refresh: () -> Void
     var isRefreshing: Bool
@@ -42,7 +42,6 @@ struct PCStatusButton: View {
     @Environment(PCDirectory.self) private var directory
     @Environment(GameCatalog.self) private var catalog
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
-    @State private var isShowingDetails = false
 
     private func line(_ host: SavedHost, now: Date) -> PCStatusLine {
         let id = host.uniqueID
@@ -54,58 +53,77 @@ struct PCStatusButton: View {
 
     private var worst: PCStatusLine.Health { hosts.map { line($0, now: .now).health }.max() ?? .fine }
 
-    private var icon: String {
+    private var isSpinning: Bool { isRefreshing || worst == .checking }
+    /// The icon and the spinner shrink and fade into each other rather than jump.
+    private static let swap = AnyTransition.opacity.combined(with: .scale(scale: 0.5))
+
+    private var dot: Color {
         switch worst {
-        case .offline: "wifi.slash"
-        case .problem: "exclamationmark.triangle"
-        case .fine, .checking: "arrow.clockwise"
+        case .fine, .checking: .green
+        case .problem: .orange
+        case .offline: .red
         }
     }
 
     var body: some View {
-        FunctionButtonLabel(systemImage: icon, isSpinning: isRefreshing || worst == .checking)
-            .foregroundStyle(worst == .problem ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
-            .onTapGesture { isShowingDetails = true }
-            .onLongPressGesture { if !isRefreshing { refresh() } }
-            .accessibilityElement()
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("PC Status")
-            .accessibilityValue(hosts.map { "\($0.displayName): \(line($0, now: .now).text)" }.joined(separator: ", "))
-            .accessibilityAction { isShowingDetails = true }
-            .accessibilityAction(named: "Refresh", refresh)
-            .popover(isPresented: $isShowingDetails, arrowEdge: .top) {
-                details.presentationCompactAdaptation(.popover) // a popover on the phone too, not a sheet
-            }
-    }
-
-    private var details: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in // "checked 3s ago" keeps counting
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(hosts) { host in
-                    let line = line(host, now: context.date)
-                    HStack(spacing: 10) {
-                        Circle().fill(color(line)).frame(width: 8, height: 8)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(host.displayName).font(.headline)
-                            Text(line.text).font(.subheadline).foregroundStyle(.secondary)
-                        }
+        // A menu rather than a popover: from a toolbar button a popover took two taps to close and then two to open.
+        Menu {
+            ForEach(hosts) { host in
+                let line = line(host, now: .now)
+                Section(host.displayName) {
+                    Label {
+                        Text(line.text)
+                    } icon: {
+                        Image(systemName: "circle.fill").symbolRenderingMode(.palette).foregroundStyle(color(line))
                     }
-                    .accessibilityElement(children: .combine)
                 }
-                Divider()
-                Button("Refresh", systemImage: "arrow.clockwise", action: refresh).disabled(isRefreshing)
             }
-            .padding(16)
-            .frame(minWidth: 280, alignment: .leading)
+            Divider()
+            Button("Refresh", systemImage: "arrow.clockwise", action: refresh).disabled(isRefreshing)
+        } label: {
+            // Views rather than a Label: a toolbar shows a label's title instead when its icon isn't just a symbol.
+            if isSpinning {
+                ArcSpinner().transition(Self.swap)
+            } else {
+                Image(systemName: "desktopcomputer")
+                    .overlay(alignment: .bottomTrailing) {
+                        Circle().fill(dot)
+                            .frame(width: 9, height: 9)
+                            .overlay { Circle().stroke(.black.opacity(0.35), lineWidth: 1) } // shows on light and dark glass
+                            .offset(x: 3, y: 1)
+                    }
+                    .transition(Self.swap)
+            }
         }
+        .animation(.default, value: worst)
+        .animation(.spring(duration: 0.35), value: isSpinning)
+        .accessibilityLabel("Host Status")
+        .accessibilityValue(hosts.map { "\($0.displayName): \(line($0, now: .now).text)" }.joined(separator: ", "))
     }
 
     private func color(_ line: PCStatusLine) -> Color {
         if line.isWaiting { return .yellow }
         return switch line.health {
         case .fine: .green
-        case .checking, .offline: .secondary
+        case .checking: .secondary
         case .problem: .orange
+        case .offline: .red // the button's traffic light
         }
+    }
+}
+
+/// An open ring turning, like a loading arc: the button's "checking" icon.
+private struct ArcSpinner: View {
+    @State private var isTurning = false
+
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: 0.72)
+            .stroke(style: StrokeStyle(lineWidth: 2.2, lineCap: .round))
+            .frame(width: 18, height: 18)
+            .rotationEffect(.degrees(isTurning ? 360 : 0))
+            .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: isTurning)
+            .onAppear { isTurning = true }
+            .accessibilityHidden(true)
     }
 }

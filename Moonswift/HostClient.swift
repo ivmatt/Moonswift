@@ -48,9 +48,9 @@ nonisolated enum PowerError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .notAllowed: "This device isn't allowed to put the PC to sleep. Turn on \"Allow this device to put the PC to sleep\" for it in the streaming software's web page on the PC."
-        case .busy: "The PC is busy. Quit the running game and end any stream, then try again."
-        case .failed(let code): "The PC didn't go to sleep (error \(code))."
+        case .notAllowed: "This device isn't allowed to put the host to sleep. Turn on \"Allow this device to put the host to sleep\" for it in the streaming software's web page on the host."
+        case .busy: "The host is busy. Quit the running game and end any stream, then try again."
+        case .failed(let code): "The host didn't go to sleep (error \(code))."
         }
     }
 }
@@ -60,9 +60,9 @@ nonisolated struct ClipboardError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch status {
-        case 401: "This device isn't allowed to use the PC's clipboard. Turn on the clipboard permissions for it in the streaming software's web page on the PC."
+        case 401: "This device isn't allowed to use the host's clipboard. Turn on the clipboard permissions for it in the streaming software's web page on the host."
         case 403: "The clipboard is only shared during a stream."
-        case 404, 405: "This PC doesn't share its clipboard."
+        case 404, 405: "This host doesn't share its clipboard."
         default: "The clipboard couldn't be shared (error \(status))."
         }
     }
@@ -74,8 +74,8 @@ nonisolated enum GameError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .launchFailed: "The PC didn't start the game."
-        case .quitFailed: "The PC didn't quit the game."
+        case .launchFailed: "The host didn't start the game."
+        case .quitFailed: "The host didn't quit the game."
         case .permissionDenied(let message): message
         }
     }
@@ -145,7 +145,7 @@ nonisolated struct HostClient: Sendable {
     /// Removes this device from the PC's paired devices; pairing again needs a PIN.
     func unpair() async throws {
         let fields = try parseHostResponse(await data("/unpair", timeout: 5))
-        guard fields["unpaired"] != "0" else { throw ServerInfoError.hostError(code: 200, message: "The PC didn't unpair this device.") }
+        guard fields["unpaired"] != "0" else { throw ServerInfoError.hostError(code: 200, message: "The host didn't unpair this device.") }
     }
 
     /// Puts the PC to sleep (Vibepollo's power actions). The PC only accepts while nothing is streaming or waiting to

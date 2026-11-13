@@ -117,7 +117,7 @@ nonisolated private let audioRenderer = AudioRenderer()
         }
         listener.stageFailed = { stage, code in
             let name = String(cString: LiGetStageName(stage))
-            reportFailure(StreamStats.State.failed, "Couldn't connect to the PC: \(name) didn't finish (error \(code)).",
+            reportFailure(StreamStats.State.failed, "Couldn't connect to the host: \(name) didn't finish (error \(code)).",
                           ports: LiGetPortFlagsFromStage(stage))
         }
         listener.connectionStarted = {
@@ -234,11 +234,11 @@ nonisolated private let audioRenderer = AudioRenderer()
 /// Why a stream ended, in plain words, from the library's ML_ERROR_* code.
 nonisolated func terminationReason(_ code: Int32) -> String {
     switch code {
-    case ML_ERROR_GRACEFUL_TERMINATION: "The PC ended the stream."
-    case ML_ERROR_NO_VIDEO_TRAFFIC: "The PC sent no video. A lower bitrate may help."
+    case ML_ERROR_GRACEFUL_TERMINATION: "The host ended the stream."
+    case ML_ERROR_NO_VIDEO_TRAFFIC: "The host sent no video. A lower bitrate may help."
     case ML_ERROR_NO_VIDEO_FRAME: "Video arrived but couldn't be shown. A lower bitrate may help."
-    case ML_ERROR_UNEXPECTED_EARLY_TERMINATION: "The PC ended the stream unexpectedly. The game may have closed."
-    case ML_ERROR_PROTECTED_CONTENT: "The PC can't stream protected content (DRM video)."
+    case ML_ERROR_UNEXPECTED_EARLY_TERMINATION: "The host ended the stream unexpectedly. The game may have closed."
+    case ML_ERROR_PROTECTED_CONTENT: "The host can't stream protected content (DRM video)."
     default: "Connection lost (error \(code))."
     }
 }
@@ -262,8 +262,8 @@ nonisolated func portAdvice(ports: UInt32, testResult: UInt32) -> String? {
     if testResult != 0 {
         return "The network this device is on blocks \(portNames(testResult)). Try another network, or turn off a VPN."
     }
-    return "This network lets those ports through, so the PC's side is blocking \(portNames(ports)). "
-        + "Check the PC's firewall and, away from home, the router's port forwarding."
+    return "This network lets those ports through, so the host's side is blocking \(portNames(ports)). "
+        + "Check the host's firewall and, away from home, the router's port forwarding."
 }
 
 /// e.g. "UDP 47998, UDP 47999".

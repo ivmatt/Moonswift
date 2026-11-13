@@ -387,7 +387,7 @@ struct StreamSettingsTests {
     }
 
     @Test func endedStreamsExplainThemselves() {
-        #expect(terminationReason(ML_ERROR_NO_VIDEO_TRAFFIC) == "The PC sent no video. A lower bitrate may help.")
+        #expect(terminationReason(ML_ERROR_NO_VIDEO_TRAFFIC) == "The host sent no video. A lower bitrate may help.")
         #expect(terminationReason(-999) == "Connection lost (error -999).")
     }
 
@@ -567,7 +567,7 @@ struct ErrorMessageTests {
         let udp = UInt32(ML_PORT_FLAG_UDP_47998 | ML_PORT_FLAG_UDP_47999)
         #expect(portNames(udp) == "UDP 47998, UDP 47999")
         #expect(portAdvice(ports: udp, testResult: UInt32(ML_PORT_FLAG_UDP_47998))?.hasPrefix("The network this device is on blocks UDP 47998.") == true)
-        #expect(portAdvice(ports: udp, testResult: 0)?.contains("PC's side is blocking UDP 47998, UDP 47999") == true)
+        #expect(portAdvice(ports: udp, testResult: 0)?.contains("host's side is blocking UDP 47998, UDP 47999") == true)
         #expect(portAdvice(ports: udp, testResult: ML_TEST_RESULT_INCONCLUSIVE) == nil)
         #expect(portAdvice(ports: 0, testResult: 0) == nil)
     }
@@ -846,5 +846,24 @@ struct LibraryColumnsTests {
         #expect(GamesView.columns(forWidth: 594) == 4) // Duo, closed
         #expect(GamesView.columns(forWidth: 200) == 2) // never fewer than two
         for width in stride(from: 200, through: 1400, by: 37) { #expect(GamesView.columns(forWidth: CGFloat(width)) % 2 == 0) }
+    }
+}
+
+struct FoldAvoidanceTests {
+    let screen = CGSize(width: 800, height: 600)
+
+    @Test func aFoldAcrossLiftsContentAboveIt() {
+        let avoid = FoldAvoidance(fold: CGRect(x: 0, y: 288, width: 800, height: 24), in: screen)
+        #expect(avoid.lift == 312 && avoid.maxWidth == nil)
+    }
+
+    @Test func aFoldDownKeepsContentToItsLeft() {
+        let avoid = FoldAvoidance(fold: CGRect(x: 388, y: 0, width: 24, height: 600), in: screen)
+        #expect(avoid.lift == 0 && avoid.maxWidth == 388)
+    }
+
+    @Test func noFoldChangesNothing() {
+        let avoid = FoldAvoidance(fold: nil, in: screen)
+        #expect(avoid.lift == 0 && avoid.maxWidth == nil)
     }
 }

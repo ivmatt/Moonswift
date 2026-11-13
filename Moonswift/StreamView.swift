@@ -44,6 +44,7 @@ struct StreamView: View {
     @State private var keyboardMouse = KeyboardMouseStreamer()
     @State private var isSendingInput = false
     @State private var renderer = VideoRenderer()
+    @State private var foldLift: CGFloat = 0
     @State private var pictureInPicture = StreamPictureInPicture()
     @State private var isStartingPictureInPicture = false
     @State private var menu: MenuSpec?
@@ -76,11 +77,14 @@ struct StreamView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+                // A half-open Duo with its fold across the screen: the picture sits above the fold, not bent over it.
+                .onGeometryChange(for: CGFloat.self) { FoldAvoidance(fold: $0.fold, in: $0.size).lift } action: { foldLift = $0 }
             ZStack {
                 VideoLayerView(renderer: renderer)
                 TouchInputLayer(mode: touchMode, streamSize: CGSize(width: target.width, height: target.height),
                                 isPaused: !isPlaying || !isSendingInput, onGesture: gesture, onPinchProgress: followPinch)
             }
+            .padding(.bottom, foldLift)
             // Safe Area mode keeps the picture (and the touches mapped onto it) clear of the cutout and home indicator.
             .ignoresSafeArea(edges: target.fitsSafeArea ? [] : .all)
             if showsPerformance, let performance, !launcher.isMinimized {
@@ -208,8 +212,8 @@ struct StreamView: View {
                                     touchMode = touchMode == .touchscreen ? .trackpad : .touchscreen
                                 },
                                 .init(title: "Stream Settings") { isShowingSettings = true },
-                                .init(title: "Copy from PC") { copyFromPC() },
-                                .init(title: "Send Clipboard to PC") { sendClipboardToPC() },
+                                .init(title: "Copy from Host") { copyFromPC() },
+                                .init(title: "Send Clipboard to Host") { sendClipboardToPC() },
                                 .init(title: showsPerformance ? "Hide Performance Overlay" : "Show Performance Overlay") {
                                     showsPerformance.toggle()
                                 },
@@ -267,7 +271,7 @@ struct StreamView: View {
         Task {
             do {
                 UIPasteboard.general.string = try await client.pcClipboard()
-                show("Copied from PC")
+                show("Copied from the host")
             } catch {
                 show(error.localizedDescription)
             }
@@ -280,7 +284,7 @@ struct StreamView: View {
         Task {
             do {
                 try await client.setPCClipboard(text)
-                show("Sent to the PC's clipboard. Paste with Ctrl+V.")
+                show("Sent to the host's clipboard. Paste with Ctrl+V.")
             } catch {
                 show(error.localizedDescription)
             }
@@ -361,10 +365,10 @@ struct StreamView: View {
         if adaptive, !adaptiveUnsupported { return "Adaptive bitrate will use this as its ceiling." } // the loop applies it
         do {
             let applied = try await client.setBitrate(kbps)
-            return applied < kbps ? "Now \(applied / 1000) Mbps, the most the PC allows during a stream."
+            return applied < kbps ? "Now \(applied / 1000) Mbps, the most the host allows during a stream."
                                   : "Now \(applied / 1000) Mbps."
         } catch {
-            return "This PC can't change bitrate during a stream; it applies next time."
+            return "This host can't change bitrate during a stream; it applies next time."
         }
     }
 
@@ -410,7 +414,7 @@ struct StreamView: View {
         guard !adaptiveUnsupported else { return }
         let setting = StreamSettings.effectiveBitrate(saved: savedBitrate, width: target.width, height: target.height, fps: target.fps)
         let ceiling = min(setting, StreamSettings.liveBitrateLimit)
-        let capNote = setting > ceiling ? " (PC's limit while streaming)" : ""
+        let capNote = setting > ceiling ? " (host's limit while streaming)" : ""
         guard adaptive else {
             if adaptiveController != nil { // switched off mid-stream: back to your setting
                 adaptiveController = nil
@@ -440,7 +444,7 @@ struct StreamView: View {
                 _ = try await client.setBitrate(kbps)
             } catch {
                 adaptiveUnsupported = true
-                adaptiveNote = "Adaptive bitrate is off: this PC can't change bitrate during a stream."
+                adaptiveNote = "Adaptive bitrate is off: this host can't change bitrate during a stream."
             }
         }
     }

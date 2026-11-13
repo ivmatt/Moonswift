@@ -36,7 +36,7 @@ private extension View {
 #Preview("Home, controller", traits: .landscapeLeft) { RootView(startingTab: .home).previewModels(controller: true) }
 #Preview("Library", traits: .landscapeLeft) { RootView(startingTab: .library).previewModels(controller: false) }
 #Preview("Library, controller", traits: .landscapeLeft) { RootView(startingTab: .library).previewModels(controller: true) }
-#Preview("PCs", traits: .landscapeLeft) { RootView(startingTab: .pcs).previewModels(controller: false) }
+#Preview("Hosts", traits: .landscapeLeft) { RootView(startingTab: .pcs).previewModels(controller: false) }
 #Preview("Settings", traits: .landscapeLeft) { RootView(startingTab: .settings).previewModels(controller: false) }
 #Preview("Search", traits: .landscapeLeft) { RootView(startingTab: .search).previewModels(controller: false) }
 #endif

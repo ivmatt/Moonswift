@@ -29,6 +29,13 @@ struct HomeView: View {
     @State private var guideHeight: CGFloat = 0
     /// The tab rail's width on either side: the hero art reaches under it, so it spans the whole screen.
     @State private var railInsets = EdgeInsets()
+    @State private var heroFold = FoldAvoidance(fold: nil, in: .zero)
+    /// The height left under a fold across the screen, down to where the covers end, and the cover row's height.
+    @State private var belowFold: CGFloat = 0
+    @State private var coverRowHeight: CGFloat = 0
+    /// Home's height above the guide's room, which sizes the covers and the hero's title.
+    @State private var homeHeight: CGFloat = 0
+    @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
 
     private var games: [CatalogGame] { catalog.games(on: hosts.map(\.uniqueID)) }
 
@@ -54,7 +61,7 @@ struct HomeView: View {
                     ContentUnavailableView {
                         Label("Loading Games", systemImage: "gamecontroller")
                     } description: {
-                        Text("Your PC's games appear here once it answers.")
+                        Text("Your host's games appear here once it answers.")
                     } actions: {
                         ProgressView()
                     }
@@ -62,7 +69,14 @@ struct HomeView: View {
                     dashboard
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .navigationTitle("") // drawn by TabTitle instead, lined up with the content 36 points in
+            .toolbar {
+                if !hosts.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        PCStatusButton(refresh: refresh, isRefreshing: isRefreshing)
+                    }
+                }
+            }
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
 
             .background(Color(.systemBackground))
@@ -81,7 +95,9 @@ struct HomeView: View {
                             + [([.view], "Refresh"), ([.menu], "Settings")])
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { guideHeight = $0 }
                 .padding(.leading, 36) // lined up with the title, hero and covers
-                .offset(y: 8) // ControllerHints keeps 8 points below itself: its pill ends at the safe area's edge
+                // ControllerHints keeps 8 points below itself: its pill ends at the safe area's edge, or keeps those 8
+                // points clear of a tab bar along the bottom.
+                .offset(y: isTabBarBelow ? 0 : 8)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
@@ -90,33 +106,49 @@ struct HomeView: View {
         ContentUnavailableView {
             Label("Welcome to Moonswift", systemImage: "play.tv")
         } description: {
-            Text("Stream games from your PC. Start by pairing it; it needs to be on and on the same network.")
+            Text("Stream games from your host. Start by adding it; it needs to be on and on the same network.")
         } actions: {
-            Button("Pair a PC") { isAdding = true }.buttonStyle(.glassProminent).controlSize(.large)
+            Button("Add a Host") { isAdding = true }.buttonStyle(.glassProminent).controlSize(.large)
         }
     }
 
     private var dashboard: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                TabTitle(text: "Home", topInset: topInset) {
-                    PCStatusButton(refresh: refresh, isRefreshing: isRefreshing)
-                }
-                .padding(.horizontal, 36)
+                // In place of the system's title (its status button is in the toolbar), but 36 points in; and up into
+                // the top space the toolbar adds, so it's level with every other tab's title.
+                TabTitle(text: "Home", topInset: topInset).padding(.horizontal, 36)
+                    .padding(.top, -max(0, topInset - Self.windowTopInset))
                 if let game = selectedGame {
-                    HeroCard(game: game, subtitle: heroSubtitle(game),
+                    HeroCard(game: game, subtitle: heroSubtitle(game), isShort: isShort,
                              isRunning: game.isRunning(directory), focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
                              play: { start(game) }, quit: { quit(game) })
+                        .frame(maxWidth: heroFold.maxWidth ?? .infinity, alignment: .leading)
                 }
             }
+            .padding(.bottom, heroFold.lift)
             .frame(maxHeight: .infinity)
-            .background { heroArt } // ends above the covers, so a wide picture shows whole
+            // On a half-open Duo, the hero's title and buttons stay off the fold: above it, or to its left.
+            .onGeometryChange(for: FoldAvoidance.self) { FoldAvoidance(fold: $0.fold, in: $0.size) } action: { heroFold = $0 }
+            // Ends above the covers, so a wide picture shows whole; on a half-open Duo, above the fold.
+            .background { heroArt.padding(.bottom, heroFold.lift) }
             remoteSessionBanners
-            if let row { coverRow(row.games) }
+            if let row {
+                coverRow(row.games)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { coverRowHeight = $0 }
+                    // On a half-open Duo with its fold across, in the middle of the half below the fold.
+                    .padding(.bottom, max(0, (belowFold - coverRowHeight) / 2))
+            }
         }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.fold.map { $0.width >= $0.height ? proxy.size.height - $0.maxY : 0 } ?? 0
+        } action: { belowFold = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { homeHeight = $0 }
         // With a controller, room for the button guide (its pill, then a gap); without, the covers end where the guide
-        // would, at the safe area's edge (the row's 12 points of focus-ring room hang below it).
-        .padding(.bottom, gamepad.isControllerConnected ? guideHeight - 8 + Self.guideGap : -12)
+        // would, at the safe area's edge (the row's 12 points of focus-ring room hang below it, into the home
+        // indicator's margin, though not under a tab bar along the bottom).
+        .padding(.bottom, gamepad.isControllerConnected ? guideHeight - (isTabBarBelow ? 0 : 8) + Self.guideGap
+                                                        : (isTabBarBelow ? 8 : -12))
         .overlay(alignment: .bottomLeading) { buttonGuide }
         .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { railInsets = $0 }
     }
@@ -143,11 +175,26 @@ struct HomeView: View {
         }
     }
 
+    /// The tab bar runs along the bottom (the Duo's inner display in portrait), so nothing may hang below the safe area.
+    /// shortcut: iOS doesn't say where its tab bar is; a bottom inset this tall is one. Revisit if the system says.
+    private var isTabBarBelow: Bool { railInsets.bottom > 40 }
+
     /// Above the guide: with the cover row's 12 points of focus-ring room, the same 28 points as between Play and the
     /// covers (the hero's 16 below Play, plus those 12).
     static let guideGap: CGFloat = 16
-    /// Covers are bigger without a controller (easier to tap), smaller with one to make room for its guide.
-    private var coverWidth: CGFloat { gamepad.isControllerConnected ? 104 : 128 }
+    /// Covers are bigger without a controller (easier to tap), smaller with one to make room for its guide; and on a
+    /// short screen (the Duo's outer display) no taller than about a third of Home, so the hero keeps its room.
+    private var coverWidth: CGFloat {
+        let preferred: CGFloat = gamepad.isControllerConnected ? 104 : 128
+        return homeHeight > 0 ? min(preferred, (homeHeight * 0.34 * coverShape.ratio).rounded()) : preferred
+    }
+    /// Home is short (the Duo's outer display): the hero's title is set smaller.
+    private var isShort: Bool { homeHeight > 0 && homeHeight < 520 }
+
+    /// The window's top safe area: a tab without a toolbar has just this.
+    static var windowTopInset: CGFloat {
+        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.top }.first ?? 0
+    }
 
     /// Where tab titles start: a fixed space below the top of the safe area (the status bar, where there is one), as in
     /// Apple's Games app.
@@ -230,7 +277,7 @@ struct HomeView: View {
     /// Only once every PC with it is known to be down (not while the first check is still out): the first one's name.
     private func offlinePC(_ game: CatalogGame) -> String? {
         guard game.sources.allSatisfy({ directory.statuses[$0.pcID] == .offline }) else { return nil }
-        return game.sources.lazy.compactMap { s in hosts.first { $0.uniqueID == s.pcID }?.displayName }.first ?? "Its PC"
+        return game.sources.lazy.compactMap { s in hosts.first { $0.uniqueID == s.pcID }?.displayName }.first ?? "Its host"
     }
 
     private func start(_ game: CatalogGame) {
@@ -289,6 +336,8 @@ struct HomeView: View {
 private struct HeroCard: View {
     let game: CatalogGame
     let subtitle: String
+    /// On a short screen: a smaller title.
+    var isShort = false
     let isRunning: Bool
     /// The controller's focus on a button: 0 Play/Resume, 1 Quit.
     let focusedButton: Int?
@@ -301,7 +350,7 @@ private struct HeroCard: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(isRunning ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
             Text(game.title)
-                .font(.system(size: 34, weight: .bold))
+                .font(.system(size: isShort ? 28 : 34, weight: .bold))
                 .foregroundStyle(.primary)
                 .lineLimit(2)
                 .minimumScaleFactor(0.6)
@@ -396,6 +445,8 @@ struct CoverTile: View {
 struct TabTitle<Accessory: View>: View {
     let text: String
     let topInset: CGFloat
+    /// The size the system gives a tab's title on the Duo, where its toolbar sits on the side.
+    var font: Font = .title.bold()
     @ViewBuilder var accessory: Accessory
 
     var body: some View {
@@ -406,7 +457,7 @@ struct TabTitle<Accessory: View>: View {
             HStack {
                 if !isTabBarOnTop {
                     Text(text)
-                        .font(.largeTitle.bold())
+                        .font(font)
                         .foregroundStyle(.primary)
                         .accessibilityAddTraits(.isHeader)
                 }
@@ -420,8 +471,8 @@ struct TabTitle<Accessory: View>: View {
 }
 
 extension TabTitle where Accessory == EmptyView {
-    init(text: String, topInset: CGFloat) {
-        self.init(text: text, topInset: topInset) { EmptyView() }
+    init(text: String, topInset: CGFloat, font: Font = .title.bold()) {
+        self.init(text: text, topInset: topInset, font: font) { EmptyView() }
     }
 }
 

@@ -51,29 +51,29 @@ struct PCsView: View {
         NavigationStack(path: $path) {
             ScrollViewReader { scroller in
                 List {
-                    Section("My PCs") {
+                    Section("My Hosts") {
                         if hosts.isEmpty {
-                            Text("No paired PCs yet.").foregroundStyle(.secondary)
+                            Text("No hosts yet.").foregroundStyle(.secondary)
                         }
                         ForEach(hosts) { host in
                             let active = activeAddresses[host.uniqueID] ?? host.address
                             row(.saved(host)) {
                                 HostRow(name: host.displayName, address: active, status: statuses[host.uniqueID],
-                                        isRemote: active != host.address, playing: playingTitle(host))
+                                        wasPaired: !host.serverCert.isEmpty, playing: playingTitle(host))
                             }
                             .contextMenu { // touch's way to the PC menu (a controller uses Y)
                                 if sleepable.contains(host.uniqueID) {
-                                    Button("Sleep PC…", systemImage: "moon.zzz") { confirmSleep(host) }
+                                    Button("Sleep Host…", systemImage: "moon.zzz") { confirmSleep(host) }
                                 }
                                 Button("Edit…", systemImage: "pencil") { editing = host }
-                                Button("Remove PC…", systemImage: "trash", role: .destructive) { confirmRemove(host) }
+                                Button("Remove Host…", systemImage: "trash", role: .destructive) { confirmRemove(host) }
                             }
                         }
                         .onDelete { offsets in
                             if let index = offsets.first { confirmRemove(hosts[index]) }
                         }
                         row(.add) {
-                            Label("Pair a New PC", systemImage: "plus.circle")
+                            Label("Add a New Host", systemImage: "plus.circle")
                         }
                     }
                 }
@@ -81,11 +81,11 @@ struct PCsView: View {
                 .onChange(of: focusIndex) { withAnimation { scroller.scrollTo(items[focusIndex].id) } }
             }
             .tint(.primary) // rows are buttons, but shouldn't look like links
-            .safeAreaInset(edge: .bottom) { ControllerHints(hints: [([.y], "PC Menu"), ([.menu], "Settings")]) }
-            .navigationTitle("PCs")
+            .safeAreaInset(edge: .bottom) { ControllerHints(hints: [([.y], "Host Menu"), ([.menu], "Settings")]) }
+            .navigationTitle("Hosts")
             .toolbar(.hidden, for: .navigationBar) // the title is TabTitle, placed like Home's
             .safeAreaInset(edge: .top, spacing: 0) { // the tab's title, fixed and placed like every tab's
-                TabTitle(text: "PCs", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 4).background(Color(.systemGroupedBackground)) // the list's grey
+                TabTitle(text: "Hosts", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 4).background(Color(.systemGroupedBackground)) // the list's grey
             }
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
             .navigationDestination(for: String.self) { id in
@@ -154,9 +154,9 @@ struct PCsView: View {
         if statuses[host.uniqueID] == .online(paired: true) {
             actions.append(.init(title: "Open") { path.append(host.uniqueID) })
         }
-        if sleepable.contains(host.uniqueID) { actions.append(.init(title: "Sleep PC…") { confirmSleep(host) }) }
+        if sleepable.contains(host.uniqueID) { actions.append(.init(title: "Sleep Host…") { confirmSleep(host) }) }
         actions.append(.init(title: "Edit…") { editing = host })
-        actions.append(.init(title: "Remove PC…", isDestructive: true) { confirmRemove(host) })
+        actions.append(.init(title: "Remove Host…", isDestructive: true) { confirmRemove(host) })
         let message = host.address + (host.remoteAddress.map { " · remote \($0)" } ?? "")
         menu = MenuSpec(title: host.displayName, message: message, actions: actions)
     }
@@ -181,8 +181,8 @@ struct PCsView: View {
     private func confirmRemove(_ host: SavedHost) {
         let isPaired = !host.serverCert.isEmpty
         menu = MenuSpec(title: "Remove \(host.displayName)?",
-                        message: isPaired ? "This device is also unpaired on the PC. Adding it again needs a new PIN." : nil,
-                        actions: [.init(title: "Remove PC", isDestructive: true) { Task { await remove(host) } }])
+                        message: isPaired ? "This device is also unpaired on the host. Adding it again needs a new PIN." : nil,
+                        actions: [.init(title: "Remove Host", isDestructive: true) { Task { await remove(host) } }])
     }
 
     /// Unpairs on the PC when it answers, then forgets it here.
@@ -199,7 +199,7 @@ struct PCsView: View {
         try? context.save()
         if !unpairedOnPC {
             menu = .error("\(name) was removed here, but it couldn't be reached to unpair. It still lists this device; "
-                          + "remove it in the PC's streaming software to stop it from connecting.")
+                          + "remove it in the host's streaming software to stop it from connecting.")
         }
     }
 
@@ -217,11 +217,19 @@ private struct HostRow: View {
     let name: String
     let address: String
     let status: HostStatus?
-    let isRemote: Bool
+    /// Paired the last time it was, for while it's offline and can't say.
+    let wasPaired: Bool
     let playing: String?
 
+    /// Online answers say; offline, it's as it was.
+    private var isPaired: Bool { status == .online(paired: false) ? false : wasPaired }
+
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
+            // Status at a glance: green online, red offline, grey while the first check is out.
+            Circle()
+                .fill(status == nil ? Color.secondary : status == .offline ? .red : .green)
+                .frame(width: 10, height: 10)
             VStack(alignment: .leading) {
                 Text(name)
                 if let playing {
@@ -230,19 +238,14 @@ private struct HostRow: View {
                 Text(address).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            switch status {
-            case nil:
-                ProgressView().controlSize(.small)
-                Text("Checking…").foregroundStyle(.secondary)
-            case .offline?:
-                Text("\(Image(systemName: "circle.fill")) Offline").foregroundStyle(.red)
-            case .online(let paired)?:
-                Text(paired ? "\(Image(systemName: "lock.fill")) Paired" : "\(Image(systemName: "lock.open")) Not paired")
-                    .foregroundStyle(paired ? Color.primary : .orange)
-                Text("\(Image(systemName: isRemote ? "globe" : "circle.fill")) \(isRemote ? "Remote" : "Online")").foregroundStyle(.green)
-                if paired { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
-            }
+            // Paired: a link; not (or no longer) paired, so it needs pairing: a link to add, in orange.
+            Image(systemName: isPaired ? "link" : "link.badge.plus")
+                .foregroundStyle(isPaired ? Color.secondary : .orange)
+            if status == .online(paired: true) { Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityValue([status == nil ? "Checking" : status == .offline ? "Offline" : "Online",
+                             isPaired ? "Paired" : "Needs pairing"].joined(separator: ", "))
     }
 }
 

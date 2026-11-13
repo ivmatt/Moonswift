@@ -138,7 +138,7 @@ import SwiftUI
                 }
             } catch where isResume {
                 forgetSession(on: pc.id)
-                menu = .error("Couldn't resume \(app?.title ?? "the game") on \(pc.name). It may have closed, or the PC restarted. "
+                menu = .error("Couldn't resume \(app?.title ?? "the game") on \(pc.name). It may have closed, or the host restarted. "
                               + error.localizedDescription)
             } catch {
                 menu = .error(error.localizedDescription)

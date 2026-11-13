@@ -12,11 +12,11 @@ nonisolated enum PairingError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .declined: "The PC declined pairing."
-        case .alreadyInProgress: "Another pairing attempt is already in progress on the PC."
+        case .declined: "The host declined pairing."
+        case .alreadyInProgress: "Another pairing attempt is already in progress on the host."
         case .wrongPIN: "Incorrect PIN. Try again with the new PIN."
-        case .badServerCertificate: "The PC's certificate couldn't be verified."
-        case .malformedReply: "The PC sent an unexpected pairing reply."
+        case .badServerCertificate: "The host's certificate couldn't be verified."
+        case .malformedReply: "The host sent an unexpected pairing reply."
         }
     }
 }

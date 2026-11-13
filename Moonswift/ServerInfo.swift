@@ -58,18 +58,18 @@ nonisolated enum ServerInfoError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidAddress: "Enter an IP address or hostname, optionally with :port."
-        case .insecureBlocked: "Moonswift only uses unencrypted connections on your home network. Pair at home; afterwards the PC also works remotely over a secure connection."
+        case .insecureBlocked: "Moonswift only uses unencrypted connections on your home network. Pair at home; afterwards the host also works remotely over a secure connection."
         case .unreachable(.notConnectedToInternet): "This device isn't connected to a network."
         case .unreachable(.timedOut), .unreachable(.cannotConnectToHost), .unreachable(.networkConnectionLost):
-            "The PC isn't responding. It may be asleep or off, or its streaming software isn't running."
-        case .unreachable(.cannotFindHost), .unreachable(.dnsLookupFailed): "This PC's name couldn't be found on the network."
-        case .unreachable(let code): "Can't reach the PC (network error \(code.rawValue))."
+            "The host isn't responding. It may be asleep or off, or its streaming software isn't running."
+        case .unreachable(.cannotFindHost), .unreachable(.dnsLookupFailed): "This host's name couldn't be found on the network."
+        case .unreachable(let code): "Can't reach the host (network error \(code.rawValue))."
         case .certificateChanged:
-            "This PC's identity has changed, for example after its streaming software was reinstalled. Remove it and pair again."
-        case .httpStatus(let code): "The PC answered with HTTP \(code)."
-        case .hostError(code: 401, _): "This PC no longer recognizes this device. Remove it and pair again."
-        case .hostError(let code, let message): "The PC reported an error (\(code)): \(message)"
-        case .malformedResponse: "The PC's reply wasn't understood."
+            "This host's identity has changed, for example after its streaming software was reinstalled. Remove it and pair again."
+        case .httpStatus(let code): "The host answered with HTTP \(code)."
+        case .hostError(code: 401, _): "This host no longer recognizes this device. Remove it and pair again."
+        case .hostError(let code, let message): "The host reported an error (\(code)): \(message)"
+        case .malformedResponse: "The host's reply wasn't understood."
         }
     }
 }

@@ -30,21 +30,21 @@ struct EditPCView: View {
                 } header: {
                     Text("Name")
                 } footer: {
-                    Text("Leave empty to use the PC's own name, \(host.name).")
+                    Text("Leave empty to use the host's own name, \(host.name).")
                 }
                 Section {
                     row(.address) { addressField("IP address or name", text: $address) }
                 } header: {
                     Text("Home Network")
                 } footer: {
-                    Text("The PC's address on your home network.")
+                    Text("The host's address on your home network.")
                 }
                 Section {
                     row(.remote) { addressField("Public IP address", text: $remote) }
                 } header: {
                     Text("Remote")
                 } footer: {
-                    Text("Used over a secure connection when the PC doesn't answer on your home network. Found automatically while you're home; leave empty to remove.")
+                    Text("Used over a secure connection when the host doesn't answer on your home network. Found automatically while you're home; leave empty to remove.")
                 }
                 Section {
                     row(.save) {
@@ -93,7 +93,7 @@ struct EditPCView: View {
         let name = name.trimmingCharacters(in: .whitespaces)
         let address = address.trimmingCharacters(in: .whitespaces)
         let remote = remote.trimmingCharacters(in: .whitespaces)
-        guard !address.isEmpty else { return menu = .error("Enter the PC's address on your home network.") }
+        guard !address.isEmpty else { return menu = .error("Enter the host's address on your home network.") }
         isSaving = true
         defer { isSaving = false }
 
@@ -127,7 +127,7 @@ struct EditPCView: View {
             let info = host.serverCert.isEmpty && !isRemote
                 ? try await fetchServerInfo(address: address)
                 : try await fetchPairedServerInfo(address: address, httpsPort: host.httpsPort, serverCert: host.serverCert)
-            return info.uniqueID == host.uniqueID ? nil : .differentPC("\(address) is a different PC (\(info.hostname)).")
+            return info.uniqueID == host.uniqueID ? nil : .differentPC("\(address) is a different host (\(info.hostname)).")
         } catch {
             return .unreachable("\(address): \(error.localizedDescription)")
         }

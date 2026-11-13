@@ -10,7 +10,7 @@ import SwiftUI
     private var container: ModelContainer
 
     private static func makeContainer() -> ModelContainer {
-        do { return try ModelContainer(for: SavedHost.self) } catch { fatalError("Can't open the saved PCs: \(error)") }
+        do { return try ModelContainer(for: SavedHost.self) } catch { fatalError("Can't open the saved hosts: \(error)") }
     }
 
     init() {

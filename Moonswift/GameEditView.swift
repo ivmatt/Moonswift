@@ -29,7 +29,7 @@ struct GameEditView: View {
                 } header: {
                     Text("Name")
                 } footer: {
-                    Text("Your PC calls it \(game.originalTitle). The new name only shows in Moonswift.")
+                    Text("Your host calls it \(game.originalTitle). The new name only shows in Moonswift.")
                 }
                 Section("Artwork") {
                     artworkRow("Hero Image", catalog.heroArt[game.id], aspect: 16 / 9, item: $heroItem, kind: .hero)
@@ -45,7 +45,7 @@ struct GameEditView: View {
                     Text("Covers")
                 } footer: {
                     Text("One for each cover shape. The shape chosen in Settings (\(coverShape.rawValue)) shows yours if you've "
-                         + "added one, otherwise the art from your PC.")
+                         + "added one, otherwise the art from your host.")
                 }
                 Section {
                     Toggle("Favorite", isOn: Binding(get: { current.isFavorite }, set: { _ in catalog.toggleFavorite(current) }))

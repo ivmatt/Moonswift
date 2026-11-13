@@ -7,7 +7,7 @@ nonisolated enum LibraryFilter: String, CaseIterable, Sendable {
 
 /// The library's order. The running game always comes first.
 nonisolated enum LibrarySort: String, CaseIterable, Sendable {
-    case pc = "PC's Order", name = "Name", recent = "Recently Played"
+    case pc = "Host's Order", name = "Name", recent = "Recently Played"
 }
 
 /// Favorites and when each game was last streamed, per PC. Kept on this device (UserDefaults), by game UUID
