@@ -25,6 +25,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.resolution) private var resolution = ResolutionOption.fullScreen
     @AppStorage(SettingsKey.fps) private var fps = 60
     @AppStorage(SettingsKey.codec) private var codec = CodecOption.automatic
+    @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
     @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic
     @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = false
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
@@ -36,13 +37,13 @@ struct SettingsView: View {
     @State private var isShowingAbout = false
     @State private var isShowingButtonMapping = false
 
-    private enum Row { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, buttonMapping, about }
+    private enum Row { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, buttonMapping, coverShape, about }
     private enum BitrateMode: String, CaseIterable { case automatic = "Automatic", custom = "Custom" }
     private var bitrateMode: BitrateMode {
         bitrate == 0 ? .automatic : .custom
     }
     private var rows: [Row] {
-        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : []) + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay, .pcAudio, .buttonMapping, .about]
+        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : []) + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay, .pcAudio, .buttonMapping, .coverShape, .about]
     }
     private var videoFormats: Int32 {
         StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware, av1InHardware: ScreenInfo.av1InHardware,
@@ -64,6 +65,12 @@ struct SettingsView: View {
         StreamSettings.size(for: resolution, nativePixels: ScreenInfo.nativePixels, safeAreaPixels: ScreenInfo.safeAreaPixels)
     }
     private var automaticBitrate: Int { StreamSettings.bitrate(width: size.width, height: size.height, fps: fps) }
+
+    #if DEBUG
+    @AppStorage(GamepadInput.debugControllerKey) private var debugController = ""
+    @AppStorage(PCDirectory.debugOfflineKey) private var debugOffline = false
+    @Environment(PCDirectory.self) private var directory
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -162,9 +169,39 @@ struct SettingsView: View {
                 } header: {
                     Text("Controller")
                 }
+                if live == nil { // not while streaming
+                    Section {
+                        row(.coverShape) {
+                            Picker("Cover Shape", selection: $coverShape) {
+                                ForEach(CoverShape.allCases, id: \.self) { Text($0.rawValue) }
+                            }
+                        }
+                    } header: {
+                        Text("Library")
+                    } footer: {
+                        Text("The shape of game covers, to suit your art: 2:3 for Steam's, 3:4 for most PCs', or square.")
+                    }
+                }
                 Section {
                     row(.about) { Button("About Moonswift") { isShowingAbout = true }.foregroundStyle(.primary) }
                 }
+                #if DEBUG
+                if live == nil {
+                    Section {
+                        Picker("Controller", selection: $debugController) {
+                            Text("Automatic").tag("")
+                            Text("Connected").tag("YES")
+                            Text("Disconnected").tag("NO")
+                        }
+                        Toggle("PCs Offline", isOn: $debugOffline)
+                            .onChange(of: debugOffline) { if DemoMode.isOn { directory.setDemo(pcID: DemoMode.pcID, running: 1) } }
+                    } header: {
+                        Text("Developer")
+                    } footer: {
+                        Text("Debug builds only. Acts as if a controller were connected or not, and as if every PC were offline, whatever is, to check layouts on the simulator.")
+                    }
+                }
+                #endif
                 Section {
                     if live != nil {
                         Text(liveBitrateNote ?? "Bitrate changes apply to this stream right away.").foregroundStyle(.secondary)
@@ -178,7 +215,7 @@ struct SettingsView: View {
             .toolbar(isTab ? .hidden : .automatic, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) { // as a tab: the title, fixed and placed like every tab's
                 if isTab {
-                    TabTitle(text: "Settings", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 4).background(Color.black)
+                    TabTitle(text: "Settings", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 4).background(Color(.systemGroupedBackground)) // the list's grey
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
@@ -248,6 +285,7 @@ struct SettingsView: View {
         case .overlay: showsPerformance.toggle()
         case .pcAudio: playAudioOnPC.toggle()
         case .hdr: hdr.toggle()
+        case .coverShape: coverShape = stepped(coverShape, in: CoverShape.allCases)
         case .reconnect, .about, .buttonMapping: break
         }
     }

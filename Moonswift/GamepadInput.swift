@@ -19,6 +19,8 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
 @Observable final class GamepadInput {
     /// True once a controller or keyboard has been used; the focus highlight only shows then.
     private(set) var isActive = false
+    /// A game controller is connected now: screens show the button guide and make room for it.
+    private(set) var isControllerConnected = false
 
     @ObservationIgnored private var handlers: [(id: UUID, handle: (GamepadCommand) -> Void)] = []
     /// While streaming, the keyboard goes to the game instead of the menus (there can only be one handler).
@@ -37,8 +39,55 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
                 MainActor.assumeIsolated { self?.attachAll() }
             })
         }
+        observers.append(NotificationCenter.default.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateConnected() }
+        })
+        #if DEBUG
+        // The Developer setting changes it live.
+        observers.append(NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateConnected() }
+        })
+        #endif
         attachAll()
     }
+
+    /// The last controller gone: back to touch, so the guide and focus highlights go too.
+    private func updateConnected() {
+        #if DEBUG
+        if let fake = Self.fakeController {
+            guard fake != isControllerConnected else { return }
+            return withAnimation(.spring(duration: 0.4, bounce: 0.15)) {
+                isControllerConnected = fake
+                isActive = fake
+            }
+        }
+        #endif
+        let isConnected = GCController.controllers().contains { $0.extendedGamepad != nil }
+        withAnimation(.spring(duration: 0.4, bounce: 0.15)) {
+            isControllerConnected = isConnected
+            if !isConnected { isActive = false }
+        }
+    }
+
+    #if DEBUG
+    /// For previews: as if a controller were connected (and in use) or not.
+    func preview(controller: Bool) {
+        isControllerConnected = controller
+        isActive = controller
+    }
+
+    /// Settings → Developer → Controller (or launching with `-MoonswiftController YES` or `NO`): acts as if a
+    /// controller were or weren't connected, whatever is, to check screens' layout both ways on the simulator.
+    static let debugControllerKey = "MoonswiftController"
+
+    static var fakeController: Bool? {
+        switch UserDefaults.standard.string(forKey: debugControllerKey) {
+        case "YES": true
+        case "NO": false
+        default: nil
+        }
+    }
+    #endif
 
     // MARK: Screens
 
@@ -60,6 +109,7 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
     // MARK: Input
 
     private func attachAll() {
+        updateConnected()
         // Handlers run on each controller's handlerQueue, which is the main queue by default.
         for controller in GCController.controllers() {
             guard let pad = controller.extendedGamepad else { continue }
@@ -213,7 +263,7 @@ extension View {
         modifier(GamepadHandler(handle: handle))
     }
 
-    /// The controller focus highlight: slightly bigger, a thin white ring an even gap outside the shape, and a shadow.
+    /// The controller focus highlight: slightly bigger, a thin ring (white in dark mode, black in light) an even gap outside the shape, and a shadow.
     /// `cornerRadius` is the shape's own; `.infinity` for a capsule.
     func focusRing(_ isOn: Bool, cornerRadius: CGFloat = 12) -> some View {
         let gap: CGFloat = 3, line: CGFloat = 2
@@ -221,7 +271,7 @@ extension View {
             .overlay {
                 // Concentric: the ring's radius grows by exactly how far out it sits, so it follows the shape.
                 RoundedRectangle(cornerRadius: cornerRadius + gap + line)
-                    .strokeBorder(.white, lineWidth: line)
+                    .strokeBorder(.primary, lineWidth: line) // white in dark mode, black in light
                     .padding(-(gap + line))
                     .opacity(isOn ? 1 : 0)
             }
@@ -253,7 +303,7 @@ struct ControllerHints: View {
     @Environment(GamepadInput.self) private var gamepad
 
     var body: some View {
-        if gamepad.isActive {
+        if gamepad.isControllerConnected {
             let pad = GCController.current?.extendedGamepad
             HStack(spacing: 16) {
                 ForEach(hints, id: \.label) { hint in

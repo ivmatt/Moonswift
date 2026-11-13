@@ -85,7 +85,9 @@ struct AppLibraryView: View {
                 }
             }
             .onChange(of: geometry.size.width, initial: true) { _, width in
-                columns = max(1, Int((width - 32 + Self.spacing) / (Self.tileWidth + Self.spacing)))
+                // As many as fit, rounded down to an even number so a half-folded Duo's fold falls between two columns.
+                let fit = Int((width - 32 + Self.spacing) / (Self.tileWidth + Self.spacing))
+                columns = fit > 1 ? fit - fit % 2 : 1
             }
         }
         .overlay {
@@ -253,11 +255,12 @@ private struct AppTile: View {
     let isFavorite: Bool
     let isFocused: Bool
     @State private var art: UIImage?
+    @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Color.secondary.opacity(0.15)
-                .aspectRatio(3 / 4, contentMode: .fit) // GameStream box art is portrait
+                .aspectRatio(coverShape.ratio, contentMode: .fit)
                 .overlay {
                     if let art {
                         Image(uiImage: art).resizable().scaledToFill()

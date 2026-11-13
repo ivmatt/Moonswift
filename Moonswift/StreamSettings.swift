@@ -40,6 +40,7 @@ enum CodecOption: String, CaseIterable {
 
 /// Where each setting is saved (UserDefaults, through @AppStorage).
 nonisolated enum SettingsKey {
+    static let coverShape = "coverShape"
     static let resolution = "resolution"
     static let fps = "fps"
     static let codec = "codec"

@@ -2,10 +2,11 @@
 import SwiftData
 import SwiftUI
 
-/// Debug builds started with the `-MoonswiftDemo` launch argument show a pretend PC with sample games, so the layout
-/// can be seen in the simulator without pairing a real PC. Nothing here ships in release builds.
+/// Debug builds started with the `-MoonswiftDemo` launch argument (and Xcode's previews, always) show a pretend PC
+/// with sample games, so the layout can be seen without pairing a real PC. Nothing here ships in release builds.
 enum DemoMode {
     static let isOn = ProcessInfo.processInfo.arguments.contains("-MoonswiftDemo")
+        || ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
     static let pcID = "demo-pc"
 
     static let titles = ["Hades II", "Elden Ring", "Cyberpunk 2077", "Hollow Knight: Silksong", "Forza Horizon 5",

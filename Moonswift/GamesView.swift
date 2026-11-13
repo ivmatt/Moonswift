@@ -2,14 +2,22 @@ import SwiftData
 import SwiftUI
 
 /// The Library tab, after Apple's Games app: a wall of every game's cover from every PC (tap to play), filtered and
-/// sorted from the small button by "Your Games". Controller: arrows move, A plays, Y favourites,
-/// View opens the filter and sort menu, L1/R1 switch tabs, Menu opens Settings.
+/// sorted from the round button by "All Games". Controller: arrows move, A plays, Y edits the game, up from the first
+/// row (or View) reaches the filter and sort menu, L1/R1 switch tabs, Menu opens Settings.
 struct GamesView: View {
     var switchTab: (Int) -> Void
     var openSettings: () -> Void = {}
 
-    /// Covers per row: five fill the Duo's open screen; six on iPad, where five come out oversized.
-    static let columns = UIDevice.current.userInterfaceIdiom == .pad ? 6 : 5
+    /// Covers per row: as many of at least `minCoverWidth` as fit, rounded down to an even number so a half-folded
+    /// Duo's fold falls between two columns rather than across one (Apple's guidance for iPhone Duo). Six on the Duo's
+    /// open screen, four on its outer one.
+    @State private var columns = 6
+    private static let minCoverWidth: CGFloat = 110
+
+    nonisolated static func columns(forWidth width: CGFloat) -> Int {
+        let fit = Int((width - 72 + 18) / (minCoverWidth + 18)) // less the 36-point margins, plus one gap
+        return max(2, fit - fit % 2)
+    }
 
     private enum Order: String, CaseIterable { case recent = "Recently Played", name = "Name" }
 
@@ -22,8 +30,11 @@ struct GamesView: View {
     @State private var favoritesOnly = false
     @State private var showsApps = true
     @State private var focus = 0
+    /// The controller is on Filter and Sort (up from the first row) rather than a cover.
+    @State private var isFilterFocused = false
     @State private var topInset: CGFloat = 0
     @State private var menu: MenuSpec?
+    @State private var editing: CatalogGame?
 
     private var all: [CatalogGame] { catalog.games(on: hosts.map(\.uniqueID)) }
     private var shown: [CatalogGame] {
@@ -38,9 +49,9 @@ struct GamesView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         header
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: Self.columns), spacing: 18) {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: columns), spacing: 18) {
                             ForEach(Array(shown.enumerated()), id: \.element.id) { index, game in
-                                cover(game, isFocused: gamepad.isActive && index == focus).id(index)
+                                cover(game, isFocused: gamepad.isActive && !isFilterFocused && index == focus).id(index)
                             }
                         }
                     }
@@ -48,15 +59,17 @@ struct GamesView: View {
                     .padding(.bottom, 24)
                 }
                 .safeAreaInset(edge: .top, spacing: 0) { // fixed, like every tab's title
-                    TabTitle(text: "Library", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 12).background(Color.black)
+                    TabTitle(text: "Library", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 12).background(Color(.systemBackground))
                 }
                 .onChange(of: focus) { withAnimation { scroller.scrollTo(focus, anchor: .center) } }
+                .onGeometryChange(for: Int.self) { Self.columns(forWidth: $0.size.width) } action: { columns = $0 }
             }
             .navigationTitle("Library")
             .toolbar(.hidden, for: .navigationBar) // the title is TabTitle, placed like Home's
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
             .onGamepad(handle)
             .actionMenu($menu)
+            .sheet(item: $editing) { GameEditView(game: $0) }
         }
     }
 
@@ -65,7 +78,7 @@ struct GamesView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(favoritesOnly ? "Favorites" : "Your Games").font(.title2.bold())
+                Text(favoritesOnly ? "Favorites" : "All Games").font(.title2.bold())
                 Text("\(shown.count) Total").font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer()
@@ -74,20 +87,22 @@ struct GamesView: View {
                 Toggle("Favorites Only", isOn: $favoritesOnly)
                 Toggle("Show Apps", isOn: $showsApps)
             } label: {
-                Image(systemName: "line.3.horizontal.decrease").font(.subheadline.weight(.semibold)).frame(width: 22, height: 22)
+                FunctionButtonLabel(systemImage: "line.3.horizontal.decrease", isFocused: gamepad.isActive && isFilterFocused)
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
+            .buttonStyle(.plain)
             .accessibilityLabel("Filter and Sort")
         }
     }
 
     private func cover(_ game: CatalogGame, isFocused: Bool) -> some View {
-        let available = game.sources.contains { directory.statuses[$0.pcID] != .offline } // not dimmed while still checking
+        // Only once every PC with it is known to be down, not while the first check is still out.
+        let offline = game.sources.allSatisfy { directory.statuses[$0.pcID] == .offline }
+        let pcName = game.sources.lazy.compactMap { s in hosts.first { $0.uniqueID == s.pcID }?.displayName }.first ?? "Its PC"
         return CoverTile(game: game, client: client(for: game), isRunning: game.isRunning(directory),
-                         isAvailable: available, isFocused: isFocused)
+                         offlinePC: offline ? pcName : nil, isFocused: isFocused)
             .onTapGesture { start(game) }
             .contextMenu {
+                Button("Edit Game", systemImage: "pencil") { editing = game }
                 Button(game.isFavorite ? "Remove from Favorites" : "Add to Favorites", systemImage: game.isFavorite ? "star.slash" : "star") {
                     catalog.toggleFavorite(game)
                 }
@@ -118,9 +133,12 @@ struct GamesView: View {
         guard launcher.busy == nil else { return }
         let games = shown
         switch command {
-        case .up, .down, .left, .right: focus = FocusMove.next(focus, count: games.count, columns: Self.columns, command)
+        case .up where !isFilterFocused && focus < columns: isFilterFocused = true // up from the first row
+        case .down where isFilterFocused: isFilterFocused = false
+        case .up, .down, .left, .right: if !isFilterFocused { focus = FocusMove.next(focus, count: games.count, columns: columns, command) }
+        case .select where isFilterFocused: menu = filterMenu()
         case .select: if games.indices.contains(focus) { start(games[focus]) }
-        case .menu: if games.indices.contains(focus) { catalog.toggleFavorite(games[focus]) }
+        case .menu: if games.indices.contains(focus) { editing = games[focus] }
         case .options: menu = filterMenu()
         case .previousTab: switchTab(-1)
         case .nextTab: switchTab(1)
@@ -134,6 +152,7 @@ struct GamesView: View {
 struct GameSearchView: View {
     var switchTab: (Int) -> Void = { _ in }
     var openSettings: () -> Void = {}
+    @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
 
     @Environment(PCDirectory.self) private var directory
     @Environment(GameCatalog.self) private var catalog
@@ -154,8 +173,9 @@ struct GameSearchView: View {
                     play(game, hosts: hosts, directory: directory, catalog: catalog, launcher: launcher)
                 } label: {
                     HStack(spacing: 14) {
-                        CoverArt(app: game.sources[0].app, client: hosts.first { $0.uniqueID == game.sources[0].pcID }.map { directory.ref($0).client })
-                            .frame(width: 45, height: 60)
+                        CoverArt(app: game.sources[0].app, client: hosts.first { $0.uniqueID == game.sources[0].pcID }.map { directory.ref($0).client },
+                                 custom: catalog.cover(for: game.id, coverShape), title: game.title)
+                            .frame(width: 60 * coverShape.ratio, height: 60)
                             .clipShape(.rect(cornerRadius: 8))
                         VStack(alignment: .leading) {
                             Text(game.title).font(.headline)
@@ -181,9 +201,9 @@ struct GameSearchView: View {
                         }
                     }
                     .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(.white.opacity(0.1), in: .capsule)
+                    .background(Color(.tertiarySystemFill), in: .capsule) // like a system search field
                 }
-                .padding(.horizontal, 36).padding(.bottom, 4).background(Color.black)
+                .padding(.horizontal, 36).padding(.bottom, 12).background(Color(.systemGroupedBackground)) // the list's grey
             }
             .toolbar(.hidden, for: .navigationBar)
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }

@@ -102,8 +102,23 @@ nonisolated struct TrackpadGestures {
 nonisolated enum StreamGesture: Equatable {
     case swipeUp, swipeDown, swipeLeft, swipeRight, pinch
 
-    /// A pinch closes four or more fingers to about half their spread (three-finger pinches happen by accident); a
-    /// swipe moves the fingers together at least 60 points.
+    /// Four or more fingers only ever pinch, closing to `pinchClosed` of their spread (three-finger pinches happen by
+    /// accident); a swipe is exactly three fingers moving together at least 60 points.
+    /// How far a pinch closes (spread now ÷ at the start) to count, like a trackpad's: a natural pinch, not every
+    /// finger together. A quick flick counts sooner (see `TouchInputView`).
+    static let pinchClosed: CGFloat = 0.7
+
+    /// A four-finger pinch's spread now ÷ at the start, as it happens: the stream shrinks with it.
+    static func pinchProgress(start: [CGPoint], now: [CGPoint]) -> CGFloat? {
+        guard start.count >= 4, start.count == now.count else { return nil }
+        func spread(_ points: [CGPoint]) -> CGFloat {
+            let c = CGPoint(x: points.map(\.x).reduce(0, +) / CGFloat(points.count), y: points.map(\.y).reduce(0, +) / CGFloat(points.count))
+            return points.map { hypot($0.x - c.x, $0.y - c.y) }.reduce(0, +) / CGFloat(points.count)
+        }
+        let before = spread(start)
+        return before > 0 ? spread(now) / before : nil
+    }
+
     static func classify(start: [CGPoint], end: [CGPoint]) -> StreamGesture? {
         guard start.count >= 3, start.count == end.count else { return nil }
         func centre(_ points: [CGPoint]) -> CGPoint {
@@ -114,7 +129,8 @@ nonisolated enum StreamGesture: Equatable {
         }
         let (from, to) = (centre(start), centre(end))
         let (before, after) = (spread(start, from), spread(end, to))
-        if before > 0, after < before * 0.55 { return start.count >= 4 ? .pinch : nil }
+        if start.count >= 4 { return before > 0 && after < before * pinchClosed ? .pinch : nil }
+        if before > 0, after < before * pinchClosed { return nil }
         if after > before * 1.6 { return nil } // a spread: not used
         let (dx, dy) = (to.x - from.x, to.y - from.y)
         guard max(abs(dx), abs(dy)) >= 60 else { return nil }
@@ -136,6 +152,8 @@ final class TouchInputView: UIView, UIKeyInput {
         }
     }
     var onGesture: (StreamGesture) -> Void = { _ in }
+    /// A four-finger pinch's progress while the fingers are down (1 = as they started); nil once they lift.
+    var onPinchProgress: (CGFloat?) -> Void = { _ in }
 
     private var ids: [ObjectIdentifier: UInt32] = [:]
     private var nextID: UInt32 = 0
@@ -148,6 +166,8 @@ final class TouchInputView: UIView, UIKeyInput {
     private var shortcutStart: [ObjectIdentifier: CGPoint] = [:]
     private var shortcutLast: [ObjectIdentifier: CGPoint] = [:]
     private var activeTouches = 0
+    /// The pinch's last moments (time, spread ratio), for how fast it was closing when the fingers lifted.
+    private var pinchSamples: [(time: TimeInterval, progress: CGFloat)] = []
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -214,6 +234,14 @@ final class TouchInputView: UIView, UIKeyInput {
         for touch in touches where shortcutStart[ObjectIdentifier(touch)] != nil {
             shortcutLast[ObjectIdentifier(touch)] = touch.location(in: self)
         }
+        guard !isPaused else { return }
+        let keys = Array(shortcutStart.keys)
+        if let progress = StreamGesture.pinchProgress(start: keys.compactMap { shortcutStart[$0] }, now: keys.compactMap { shortcutLast[$0] }) {
+            let now = CACurrentMediaTime()
+            pinchSamples.append((now, progress))
+            pinchSamples.removeAll { now - $0.time > 0.12 }
+            onPinchProgress(progress)
+        }
     }
 
     private func finish(_ touches: Set<UITouch>, event: UIEvent?, cancelled: Bool) {
@@ -231,10 +259,21 @@ final class TouchInputView: UIView, UIKeyInput {
             }
         }
         for touch in touches { ids[ObjectIdentifier(touch)] = nil }
-        guard activeTouches == 0, isShortcutGesture, !cancelled, !isPaused else { return }
+        guard activeTouches == 0, isShortcutGesture else { return }
+        defer { // whatever it was, the fingers are up: after the gesture, so a pinch can hand over first
+            onPinchProgress(nil)
+            pinchSamples = []
+        }
+        guard !cancelled, !isPaused else { return }
         let keys = Array(shortcutStart.keys)
-        guard let gesture = StreamGesture.classify(start: keys.compactMap { shortcutStart[$0] },
-                                                   end: keys.compactMap { shortcutLast[$0] }) else { return }
+        let start = keys.compactMap { shortcutStart[$0] }, end = keys.compactMap { shortcutLast[$0] }
+        // A pinch still closing fast when the fingers lift counts before it gets as far, like a flick on a trackpad.
+        let isFlick = pinchSamples.count >= 2 && {
+            let (first, last) = (pinchSamples.first!, pinchSamples.last!)
+            let speed = (last.progress - first.progress) / max(last.time - first.time, 0.001) // per second
+            return speed < -1 && last.progress < 0.92
+        }()
+        guard let gesture = isFlick ? .pinch : StreamGesture.classify(start: start, end: end) else { return }
         switch gesture {
         case .swipeUp: _ = becomeFirstResponder() // keyboards come up from the bottom
         case .swipeDown where isFirstResponder: _ = resignFirstResponder() // and go back down
@@ -362,6 +401,7 @@ struct TouchInputLayer: UIViewRepresentable {
     let streamSize: CGSize
     let isPaused: Bool
     let onGesture: (StreamGesture) -> Void
+    var onPinchProgress: (CGFloat?) -> Void = { _ in }
 
     func makeUIView(context: Context) -> TouchInputView { TouchInputView(frame: .zero) }
 
@@ -370,6 +410,7 @@ struct TouchInputLayer: UIViewRepresentable {
         view.streamSize = streamSize
         view.isPaused = isPaused
         view.onGesture = onGesture
+        view.onPinchProgress = onPinchProgress
     }
 }
 

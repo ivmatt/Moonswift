@@ -16,7 +16,8 @@ struct StreamTarget: Hashable, Identifiable {
 }
 
 /// The game, full screen with sound, played with controllers, touch, keyboard and mouse. Three-finger gestures:
-/// swipe up for the keyboard, down for the performance overlay, sideways for the menu; a four-finger pinch disconnects. Start +
+/// swipe up for the keyboard, down for the performance overlay, sideways for the menu; a four-finger pinch (or leaving
+/// the app) moves it into the system's Picture in Picture window, still streaming, while the app takes the input. Start +
 /// Select on a controller, or
 /// holding Menu + View on the controller opens a menu: switch touch mode, disconnect (the game keeps running) or
 /// quit the game. The screen stays awake while streaming. Leaving the app, switching networks and Apply & Reconnect
@@ -34,7 +35,7 @@ struct StreamView: View {
         self.resume = resume
     }
 
-    @Environment(\.dismiss) private var dismiss
+    @Environment(StreamLauncher.self) private var launcher
     @Environment(\.scenePhase) private var scenePhase
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage("touchMode") private var touchMode = TouchMode.touchscreen
@@ -43,6 +44,8 @@ struct StreamView: View {
     @State private var keyboardMouse = KeyboardMouseStreamer()
     @State private var isSendingInput = false
     @State private var renderer = VideoRenderer()
+    @State private var pictureInPicture = StreamPictureInPicture()
+    @State private var isStartingPictureInPicture = false
     @State private var menu: MenuSpec?
     @State private var rates = ""
     @State private var isLeaving = false
@@ -64,8 +67,8 @@ struct StreamView: View {
     @State private var performance: PerformanceOverlay.Readout?
     @State private var fpsHistory: [Double] = [] // the last minute, for the HUD's graph
 
-    /// The game gets no input while a menu, Settings or Control Center is over it.
-    private var isPlaying: Bool { menu == nil && !isShowingSettings && scenePhase == .active }
+    /// The game gets no input while a menu, Settings or Control Center is over it, or while it's the small window.
+    private var isPlaying: Bool { menu == nil && !isShowingSettings && scenePhase == .active && !launcher.isMinimized }
 
     private var stats: StreamStats { session.stats }
     private var shownStatus: String? { status ?? (stats.state == .connecting ? "Connecting to \(target.title)…" : nil) }
@@ -76,11 +79,11 @@ struct StreamView: View {
             ZStack {
                 VideoLayerView(renderer: renderer)
                 TouchInputLayer(mode: touchMode, streamSize: CGSize(width: target.width, height: target.height),
-                                isPaused: !isPlaying || !isSendingInput, onGesture: gesture)
+                                isPaused: !isPlaying || !isSendingInput, onGesture: gesture, onPinchProgress: followPinch)
             }
             // Safe Area mode keeps the picture (and the touches mapped onto it) clear of the cutout and home indicator.
             .ignoresSafeArea(edges: target.fitsSafeArea ? [] : .all)
-            if showsPerformance, let performance {
+            if showsPerformance, let performance, !launcher.isMinimized {
                 PerformanceOverlay(readout: performance, adaptiveNote: adaptiveNote, history: fpsHistory)
             }
             if let toast {
@@ -114,11 +117,21 @@ struct StreamView: View {
         }
         .animation(.easeInOut(duration: 0.45), value: shownStatus == nil)
         .ignoresSafeArea(.keyboard) // the on-screen keyboard covers the picture rather than squeezing it
-        .defersSystemGestures(on: .all) // an edge swipe needs a second swipe, so play doesn't drop out by accident
-        .statusBarHidden()
-        .persistentSystemOverlays(.hidden) // the home indicator fades out until touched
-        .onGamepad { command in
-            if command == .streamMenu { showMenu() } // other buttons will go to the game once input is sent
+        // An edge swipe needs a second swipe, so play doesn't drop out by accident; not while it's the small window.
+        .defersSystemGestures(on: launcher.isMinimized ? [] : .all)
+        .statusBarHidden(!launcher.isMinimized)
+        .persistentSystemOverlays(launcher.isMinimized ? .automatic : .hidden) // the home indicator fades out until touched
+        .background {
+            // Only full screen: as the small window, the app's screens take the controller (the newest handler wins).
+            if !launcher.isMinimized {
+                Color.clear.onGamepad { command in
+                    if command == .streamMenu { showMenu() } // other buttons go to the game once input is sent
+                }
+            }
+        }
+        .onChange(of: launcher.disconnectRequest) { leave() }
+        .onChange(of: launcher.isMinimized) { _, isMinimized in
+            if !isMinimized { pictureInPicture.stopQuietly() } // Resume from the app: back full screen
         }
         .actionMenu($menu)
         .sheet(isPresented: $isShowingSettings) {
@@ -133,19 +146,23 @@ struct StreamView: View {
         .task { await reconnectOnNetworkSwitch() }
         .onChange(of: scenePhase) { _, phase in
             // iOS freezes a backgrounded app within seconds, which would drop the stream. Disconnect cleanly instead
-            // (the game keeps running) and resume once back; the extra background time covers the disconnect.
-            if phase == .background, stats.state == .connected || stats.state == .connecting { reconnect("Paused") }
+            // (the game keeps running) and resume once back; the extra background time covers the disconnect. In
+            // Picture in Picture it keeps streaming: the playing audio keeps the app awake.
+            if phase == .background, !launcher.isMinimized, !pictureInPicture.isActive,
+               stats.state == .connected || stats.state == .connecting { reconnect("Paused") }
         }
         .onChange(of: stats.state) { _, state in
             switch state {
             case .connected:
                 status = nil
                 startInput()
+                setUpPictureInPicture()
             case .failed, .ended:
                 // Ending it ourselves (Disconnect, Quit, reconnecting) isn't news: the screen just closes or reconnects.
                 guard !isRestarting, !isLeaving else { return }
                 status = nil
                 stopInput()
+                withAnimation(.spring(duration: 0.45, bounce: 0.15)) { launcher.isMinimized = false } // the menu needs the room
                 showMenu()
             case .connecting: break
             }
@@ -209,8 +226,40 @@ struct StreamView: View {
         case .swipeDown:
             showsPerformance.toggle()
             show(showsPerformance ? "Performance overlay on" : "Performance overlay off")
-        case .pinch: leave() // the game keeps running
+        case .pinch:
+            if pictureInPicture.isPossible {
+                isStartingPictureInPicture = true
+                pictureInPicture.start() // flies from where the pinch left it
+            } else {
+                show("Picture in Picture isn't available right now")
+            }
         case .swipeUp: break
+        }
+    }
+
+    private func setUpPictureInPicture() {
+        pictureInPicture.attach(renderer.layer)
+        pictureInPicture.onActiveChange = { isActive in
+            isStartingPictureInPicture = false
+            if isActive {
+                launcher.isMinimized = true
+                launcher.pinchProgress = nil // hidden by now; full size for coming back
+            } else {
+                withAnimation(.spring(duration: 0.35, bounce: 0.2)) { launcher.pinchProgress = nil }
+            }
+        }
+        pictureInPicture.onRestore = { launcher.isMinimized = false }
+        pictureInPicture.onClose = { launcher.disconnect() } // its close button: the game keeps running
+    }
+
+    /// The stream shrinks with the fingers. Once they lift it springs back, unless Picture in Picture is taking it
+    /// from there (it resets the size itself once the window is up, or if it can't start).
+    private func followPinch(_ progress: CGFloat?) {
+        if progress == nil {
+            guard !isStartingPictureInPicture else { return }
+            withAnimation(.spring(duration: 0.35, bounce: 0.2)) { launcher.pinchProgress = nil }
+        } else {
+            launcher.pinchProgress = progress
         }
     }
 
@@ -250,12 +299,13 @@ struct StreamView: View {
     private func leave(quitting: Bool = false, then next: @escaping () -> Void = {}) {
         guard !isLeaving else { return }
         isLeaving = true
+        pictureInPicture.stopQuietly()
         stopInput() // lift held buttons and keys before the connection closes
         status = "Disconnecting…"
         Task {
             await session.stop()
-            if quitting { try? await client.quit() }
-            dismiss()
+            if quitting, (try? await client.quit()) != nil { launcher.forgetSession(on: client.hostID) }
+            launcher.streamEnded()
             next()
         }
     }

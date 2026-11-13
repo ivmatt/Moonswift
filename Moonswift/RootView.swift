@@ -1,3 +1,4 @@
+import Network
 import SwiftData
 import SwiftUI
 
@@ -7,44 +8,102 @@ struct RootView: View {
     enum TabID: Hashable, CaseIterable { case home, library, pcs, settings, search }
 
     @Environment(\.modelContext) private var context
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(PCDirectory.self) private var directory
     @Environment(GameCatalog.self) private var catalog
     @Environment(StreamLauncher.self) private var launcher
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
-    @State private var tab = TabID.home
+    @State private var tab: TabID
+
+    /// `startingTab` is for previews; the app starts on Home (or a debug launch argument's tab).
+    init(startingTab: TabID? = nil) {
+        _tab = State(initialValue: startingTab ?? Self.firstTab)
+    }
+
+    /// Home, or in debug builds the tab named by `-MoonswiftTab library|pcs|settings|search` (for screenshots).
+    private static var firstTab: TabID {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "-MoonswiftTab"), index + 1 < arguments.count,
+           let tab = TabID.allCases.first(where: { "\($0)" == arguments[index + 1] }) { return tab }
+        #endif
+        return .home
+    }
     @State private var menu: MenuSpec?
+    @State private var isRefreshing = false
 
     var body: some View {
         TabView(selection: $tab) {
-            Tab("Home", systemImage: "house.fill", value: .home) { HomeView(switchTab: step) { tab = .settings } }
+            Tab("Home", systemImage: "house.fill", value: .home) {
+                HomeView(switchTab: step, openSettings: { tab = .settings }, refresh: { Task { await refresh() } },
+                         isRefreshing: isRefreshing)
+            }
             Tab("Library", systemImage: "square.stack.fill", value: .library) { GamesView(switchTab: step) { tab = .settings } }
             Tab("PCs", systemImage: "desktopcomputer", value: .pcs) { PCsView(openSettings: { tab = .settings }, switchTab: step) }
             Tab("Settings", systemImage: "gearshape.fill", value: .settings) { SettingsView(switchTab: step) }
             Tab(value: .search, role: .search) { GameSearchView(switchTab: step) { tab = .settings } }
         }
+        // Behind everything, out to the screen's edges (on the Duo, the rail's column too): the grey of the grouped
+        // lists on PCs, Settings and Search, the plain background elsewhere.
+        .background {
+            ([.pcs, .settings, .search].contains(tab) ? Color(.systemGroupedBackground) : Color(.systemBackground)).ignoresSafeArea()
+        }
         .streamLauncher(launcher)
         .actionMenu($menu)
-        .preferredColorScheme(.dark) // a game launcher: dark everywhere, so tabs don't flash between Home's dark and light
         // Restarts at once when a PC is added, removed, (re)paired or gets a new address.
         .task(id: hosts.map { "\($0.uniqueID)|\($0.serverCert.count)|\($0.address)|\($0.remoteAddress ?? "")" }) {
             await directory.poll(hosts, context: context)
         }
-        // Each PC's game list, fetched while it's up (at most every 30 s) and kept for when it isn't.
-        .onChange(of: directory.statuses) {
+        // Each PC's game list, fetched while it's up (at most every 30 s, so a game installed meanwhile turns up) and
+        // kept for when it isn't.
+        .onChange(of: directory.lastChecked) {
             for host in hosts where directory.isAvailable(host.uniqueID) {
                 let pc = directory.ref(host)
                 Task { await catalog.refresh(pc) }
             }
-            routePending()
         }
-        .onChange(of: launcher.revision) {
+        .onChange(of: directory.statuses) { routePending() }
+        // Checks every 2 s while Home shows the status, every 10 s on other tabs, none in the background or while a
+        // stream is open; and at once on coming back to Home or the app, or when this device's network changes.
+        .onChange(of: tab, initial: true) { updatePolling(checkNow: tab == .home) }
+        .onChange(of: scenePhase) { updatePolling(checkNow: scenePhase == .active) }
+        .onChange(of: launcher.stream == nil) { updatePolling(checkNow: launcher.stream == nil) }
+        .task {
+            for await _ in NWPathMonitor() { checkNow() } // Wi-Fi dropped, joined, or switched to cellular
+        }
+        .onChange(of: launcher.revision) { // launched, quit or a stream ended: what's running changed
+            Task { await directory.checkAll(hosts, context: context, isManual: true) }
             for host in hosts where directory.isAvailable(host.uniqueID) {
                 let pc = directory.ref(host)
                 Task { await catalog.refresh(pc, force: true) }
             }
         }
+        .onChange(of: launcher.session, initial: true) { directory.session = launcher.session }
         .onOpenURL { url in if let request = LaunchRequest(url: url) { LaunchRouter.shared.pending = request } }
         .onChange(of: LaunchRouter.shared.pending) { routePending() }
+    }
+
+    private func updatePolling(checkNow shouldCheck: Bool) {
+        directory.interval = tab == .home ? .seconds(2) : .seconds(10)
+        directory.isPaused = scenePhase != .active || launcher.stream != nil
+        if shouldCheck { checkNow() }
+    }
+
+    /// A check now, rather than at the next one; like the regular checks it forgives a single miss.
+    private func checkNow() {
+        guard !directory.isPaused else { return }
+        Task { await directory.checkAll(hosts, context: context) }
+    }
+
+    /// Checks every PC's status and game list now, rather than waiting for the next check.
+    private func refresh() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        await directory.checkAll(hosts, context: context, isManual: true)
+        for host in hosts where directory.isAvailable(host.uniqueID) {
+            await catalog.refresh(directory.ref(host), force: true)
+        }
+        isRefreshing = false
     }
 
     /// L1/R1: the previous or next tab.

@@ -85,7 +85,7 @@ struct PCsView: View {
             .navigationTitle("PCs")
             .toolbar(.hidden, for: .navigationBar) // the title is TabTitle, placed like Home's
             .safeAreaInset(edge: .top, spacing: 0) { // the tab's title, fixed and placed like every tab's
-                TabTitle(text: "PCs", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 4).background(Color.black)
+                TabTitle(text: "PCs", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 4).background(Color(.systemGroupedBackground)) // the list's grey
             }
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
             .navigationDestination(for: String.self) { id in

@@ -7,13 +7,16 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
         let app: HostApp
     }
 
+    /// The PC's title, lowercased: the same however the game is renamed here.
+    let id: String
+    /// What Moonswift shows: your nickname for it, else the PC's title.
     let title: String
+    let originalTitle: String
     let sources: [Source]
     /// Desktop, Steam Big Picture and the like: launchers and tools, not games.
     let isApp: Bool
     let isFavorite: Bool
     let lastPlayed: Date?
-    var id: String { title.lowercased() }
 
     static let appTitles: Set<String> = ["desktop", "steam big picture", "steam", "remote monitor", "remote input",
                                          "playnite", "playnite fullscreen", "virtual desktop"]
@@ -24,7 +27,31 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
 @Observable final class GameCatalog {
     private(set) var apps: [String: [HostApp]] = [:] // by PC, as last seen
     private(set) var histories: [String: GameHistory] = [:] // by PC
+    /// Your own name and pictures for a game, by game ID. Only how Moonswift shows it; the PC's list is untouched.
+    private(set) var nicknames: [String: String] = [:]
+    /// Your pictures by kind, then game ID: a hero, and a cover for each cover shape.
+    private(set) var artwork: [Artwork: [String: UIImage]] = [:]
+    /// The file-name part of each kind; "cover" is the 2:3 cover (the only cover there was at first).
+    enum Artwork: String, CaseIterable {
+        case hero, cover, cover34, coverSquare
+
+        static func cover(_ shape: CoverShape) -> Artwork {
+            switch shape {
+            case .tall: .cover
+            case .classic: .cover34
+            case .square: .coverSquare
+            }
+        }
+    }
+
+    var heroArt: [String: UIImage] { artwork[.hero] ?? [:] }
+
+    /// Your cover for this shape; nil falls back to the PC's art.
+    func cover(for gameID: String, _ shape: CoverShape) -> UIImage? { artwork[.cover(shape)]?[gameID] }
     @ObservationIgnored private var lastRefresh: [String: Date] = [:]
+    /// PCs whose game list is being fetched now, and those whose last fetch failed (their saved list shows).
+    private(set) var fetching: Set<String> = []
+    private(set) var fetchFailed: Set<String> = []
 
     init() {
         let folder = Self.folder
@@ -34,6 +61,61 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
             apps[id] = list
             histories[id] = GameHistory.load(hostID: id)
         }
+        let custom = Self.customFolder
+        if let data = try? Data(contentsOf: custom.appending(path: "nicknames.json")) {
+            nicknames = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+        }
+        for file in (try? FileManager.default.contentsOfDirectory(at: custom, includingPropertiesForKeys: nil)) ?? [] {
+            // "<base64 game ID>.<kind>.jpg"
+            let parts = file.deletingPathExtension().lastPathComponent.split(separator: ".")
+            guard parts.count == 2, let kind = Artwork(rawValue: String(parts[1])),
+                  let id = Self.gameID(fromFileKey: String(parts[0])), let image = UIImage(contentsOfFile: file.path) else { continue }
+            artwork[kind, default: [:]][id] = image
+        }
+    }
+
+    private static var customFolder: URL {
+        let url = URL.applicationSupportDirectory.appending(path: "Customizations", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// Game IDs are titles, which can hold "/" and the like: file names use them in URL-safe base64.
+    nonisolated static func fileKey(gameID: String) -> String {
+        Data(gameID.utf8).base64EncodedString().replacing("/", with: "_").replacing("+", with: "-")
+    }
+
+    nonisolated static func gameID(fromFileKey key: String) -> String? {
+        Data(base64Encoded: key.replacing("_", with: "/").replacing("-", with: "+")).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    /// An empty or unchanged name removes the nickname.
+    func setNickname(_ name: String, for game: CatalogGame) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        nicknames[game.id] = name.isEmpty || name == game.originalTitle ? nil : name
+        try? JSONEncoder().encode(nicknames).write(to: Self.customFolder.appending(path: "nicknames.json"))
+    }
+
+    /// Saves a picture you picked (scaled down to what the screen needs), or removes it with nil.
+    func setArtwork(_ image: UIImage?, _ kind: Artwork, for game: CatalogGame) {
+        let file = Self.customFolder.appending(path: "\(Self.fileKey(gameID: game.id)).\(kind.rawValue).jpg")
+        let longest: CGFloat = kind == .hero ? 2400 : 900
+        let scaled = image.map { image in
+            let scale = min(1, longest / max(image.size.width, image.size.height))
+            return image.preparingThumbnail(of: CGSize(width: image.size.width * scale, height: image.size.height * scale)) ?? image
+        }
+        if let scaled, let data = scaled.jpegData(compressionQuality: 0.85) {
+            try? data.write(to: file)
+        } else {
+            try? FileManager.default.removeItem(at: file)
+        }
+        artwork[kind, default: [:]][game.id] = scaled
+    }
+
+    /// Back to the PC's name and art.
+    func resetCustomizations(for game: CatalogGame) {
+        setNickname("", for: game)
+        for kind in Artwork.allCases { setArtwork(nil, kind, for: game) }
     }
 
     private static var folder: URL {
@@ -49,6 +131,8 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
         #endif
         if !force, let last = lastRefresh[pc.id], Date.now.timeIntervalSince(last) < 30 { return }
         lastRefresh[pc.id] = .now
+        fetching.insert(pc.id)
+        defer { fetching.remove(pc.id) }
         for attempt in 1...2 {
             if let list = try? await pc.client.apps() {
                 if apps[pc.id] != list {
@@ -56,10 +140,12 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
                     try? JSONEncoder().encode(list).write(to: Self.folder.appending(path: "\(pc.id).json"))
                 }
                 histories[pc.id] = GameHistory.load(hostID: pc.id)
+                fetchFailed.remove(pc.id)
                 return
             }
             if attempt == 1 { try? await Task.sleep(for: .milliseconds(500)) }
         }
+        fetchFailed.insert(pc.id)
     }
 
     func forget(_ pcID: String) {
@@ -78,7 +164,8 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
         }
         return byTitle.values.map { sources in
             let history = sources.map { (histories[$0.pcID] ?? GameHistory(), GameHistory.key($0.app)) }
-            return CatalogGame(title: sources[0].app.title, sources: sources,
+            let original = sources[0].app.title, id = original.lowercased()
+            return CatalogGame(id: id, title: nicknames[id] ?? original, originalTitle: original, sources: sources,
                                isApp: sources[0].app.sessionControl != nil
                                    || CatalogGame.appTitles.contains(sources[0].app.title.lowercased()),
                                isFavorite: history.contains { $0.0.favorites.contains($0.1) },
@@ -127,25 +214,44 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
     }
 }
 
-/// A game's box art from its PC (kept on this device after the first download), or a placeholder.
+/// The shape of every game's cover, to suit the art: 2:3 like Steam's 600×900 box art, 3:4 like GameStream's, or
+/// square. Settings → Library.
+nonisolated enum CoverShape: String, CaseIterable {
+    case tall = "2:3", classic = "3:4", square = "Square"
+
+    var ratio: CGFloat {
+        switch self {
+        case .tall: 2 / 3
+        case .classic: 3 / 4
+        case .square: 1
+        }
+    }
+}
+
+/// A game's box art: your own picture, else its PC's (kept on this device after the first download), else a
+/// placeholder.
 struct CoverArt: View {
     let app: HostApp
     let client: HostClient?
+    var custom: UIImage? = nil
+    /// The name to put on the placeholder: a nickname, if you gave one.
+    var title: String? = nil
     @State private var image: UIImage?
 
     var body: some View {
         Rectangle().fill(.quaternary)
             .overlay {
-                if let image {
+                if let image = custom ?? image {
                     Image(uiImage: image).resizable().scaledToFill()
                 } else {
                     // No art (yet): a colour from the title, with the title on it.
-                    let hue = Double(abs(app.title.hashValue % 360)) / 360
+                    // From the title's characters: hashValue changes every launch, and the colour shouldn't.
+                    let hue = Double(app.title.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) % 360 }) / 360
                     LinearGradient(colors: [Color(hue: hue, saturation: 0.55, brightness: 0.55),
                                             Color(hue: (hue + 0.08).truncatingRemainder(dividingBy: 1), saturation: 0.6, brightness: 0.3)],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                         .overlay {
-                            Text(app.title).font(.headline).multilineTextAlignment(.center).foregroundStyle(.white.opacity(0.9))
+                            Text(title ?? app.title).font(.headline).multilineTextAlignment(.center).foregroundStyle(.white.opacity(0.9))
                                 .minimumScaleFactor(0.5).padding(8)
                         }
                 }

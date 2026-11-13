@@ -769,3 +769,82 @@ struct SessionControlTests {
         #expect(game?.sessionControl == nil)
     }
 }
+
+struct GameCustomizationTests {
+    @Test func artFileNamesSurviveAnyTitle() {
+        for id in ["hades ii", "half-life 2: episode one", "a/b+c?", "ポケモン", "????>>>"] { // "?>" encodes to "/" and "+"
+            let key = GameCatalog.fileKey(gameID: id)
+            #expect(!key.contains("/") && !key.contains("."))
+            #expect(GameCatalog.gameID(fromFileKey: key) == id)
+        }
+    }
+}
+
+struct PinchProgressTests {
+    @Test func fourFingersClosingReportTheirSpread() {
+        let start = [CGPoint(x: 0, y: 0), CGPoint(x: 200, y: 0), CGPoint(x: 0, y: 200), CGPoint(x: 200, y: 200)]
+        let half = start.map { CGPoint(x: 50 + $0.x / 2, y: 50 + $0.y / 2) }
+        #expect(abs((StreamGesture.pinchProgress(start: start, now: half) ?? 0) - 0.5) < 0.001)
+        #expect(StreamGesture.pinchProgress(start: Array(start.prefix(3)), now: Array(half.prefix(3))) == nil) // three: a swipe
+        #expect(StreamGesture.classify(start: start, end: half) == .pinch)
+    }
+
+    @Test func fourFingersNeverSwipe() {
+        let start = [CGPoint(x: 0, y: 0), CGPoint(x: 200, y: 0), CGPoint(x: 0, y: 200), CGPoint(x: 200, y: 200)]
+        let down = start.map { CGPoint(x: $0.x, y: $0.y + 150) } // a pinch that drifted down, not closed enough
+        #expect(StreamGesture.classify(start: start, end: down) == nil)
+        let three = Array(start.prefix(3))
+        #expect(StreamGesture.classify(start: three, end: three.map { CGPoint(x: $0.x, y: $0.y + 150) }) == .swipeDown)
+        let natural = start.map { CGPoint(x: 30 + $0.x * 0.65, y: 30 + $0.y * 0.65) } // closed to 0.65: a trackpad pinch
+        #expect(StreamGesture.classify(start: start, end: natural) == .pinch)
+    }
+}
+
+struct CoverSlotTests {
+    @MainActor @Test func eachShapeHasItsOwnSlotAndTheFirstCoverStaysTwoByThree() {
+        let slots = CoverShape.allCases.map { GameCatalog.Artwork.cover($0) }
+        #expect(Set(slots).count == CoverShape.allCases.count)
+        #expect(!slots.contains(.hero))
+        #expect(GameCatalog.Artwork.cover(.tall).rawValue == "cover") // covers saved before shapes existed
+    }
+}
+
+struct PCStatusLineTests {
+    private func line(_ status: HostStatus?, notResponding: Bool = false, fetching: Bool = false, failed: Bool = false,
+                      saved: Bool = true, ago: Int? = 5) -> PCStatusLine {
+        .make(status: status, isNotResponding: notResponding, isFetching: fetching, fetchFailed: failed,
+              hasSavedGames: saved, checkedAgo: ago)
+    }
+
+    @Test func eachStateReadsAndRanksAsItShould() {
+        #expect(line(nil).health == .checking)
+        #expect(line(.offline) == .init(text: "Offline · showing saved games", health: .offline))
+        #expect(line(.offline, saved: false).text == "Offline")
+        #expect(line(.online(paired: false)).health == .problem)
+        #expect(line(.online(paired: true)) == .init(text: "Up to date · checked 5s ago", health: .fine))
+        #expect(line(.online(paired: true), ago: 1).text == "Up to date · checked just now")
+        #expect(line(.online(paired: true), ago: 125).text == "Up to date · checked 2m ago")
+        #expect(line(.online(paired: true), ago: nil).text == "Up to date")
+        #expect(line(.online(paired: true), fetching: true).text == "Getting games…")
+        #expect(line(.online(paired: true), failed: true).health == .problem)
+    }
+
+    @Test func oneMissedAnswerDoesntChangeTheButton() {
+        let missed = line(.online(paired: true), notResponding: true)
+        #expect(missed.health == .fine && missed.isWaiting && missed.text == "Not responding…")
+    }
+
+    @Test func theButtonShowsTheWorstPC() {
+        #expect([PCStatusLine.Health.fine, .offline, .problem, .checking].max() == .offline)
+        #expect([PCStatusLine.Health.fine, .checking].max() == .checking)
+    }
+}
+
+struct LibraryColumnsTests {
+    @Test func columnsAreEvenSoTheFoldFallsBetweenThem() {
+        #expect(GamesView.columns(forWidth: 867) == 6) // Duo, open
+        #expect(GamesView.columns(forWidth: 594) == 4) // Duo, closed
+        #expect(GamesView.columns(forWidth: 200) == 2) // never fewer than two
+        for width in stride(from: 200, through: 1400, by: 37) { #expect(GamesView.columns(forWidth: CGFloat(width)) % 2 == 0) }
+    }
+}

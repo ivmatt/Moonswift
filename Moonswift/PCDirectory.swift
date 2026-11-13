@@ -15,15 +15,42 @@ nonisolated struct PCRef: Sendable {
 @Observable final class PCDirectory {
     private(set) var statuses: [String: HostStatus] = [:] // by uniqueID; missing = not checked yet
     private(set) var activeAddresses: [String: String] = [:] // by uniqueID: the address that last answered
-    private(set) var playing: [String: Int] = [:] // by uniqueID: the running game's ID (0 or missing: none)
+    /// What each PC last said it's running, by uniqueID (0 or missing: nothing).
+    private(set) var reportedPlaying: [String: Int] = [:]
+    /// The game this device streamed and hasn't quit (`StreamLauncher.session`): running, even when a check comes
+    /// back empty. Only the PC naming a different game overrules it.
+    var session: StreamingGame?
+    /// The running game's ID by PC (0 or missing: none).
+    var playing: [String: Int] {
+        var playing = reportedPlaying
+        if let session, (reportedPlaying[session.pcID] ?? 0) == 0 { playing[session.pcID] = session.appID }
+        return playing
+    }
     private(set) var sleepable: Set<String> = [] // PCs that let this device put them to sleep
+    /// When each PC last answered, or was last found offline: Home's status says "checked 5s ago".
+    private(set) var lastChecked: [String: Date] = [:]
+    /// PCs that missed one check: they keep their status (one miss isn't enough), and Home's status says "Not
+    /// responding…".
+    private(set) var notResponding: Set<String> = []
+    /// The wait between checks: short while Home shows the status, longer on other tabs (RootView sets it).
+    @ObservationIgnored var interval: Duration = .seconds(2)
+    /// No checks while the app's in the background or a stream is open: its own link knows whether the PC is there.
+    @ObservationIgnored var isPaused = false
+    @ObservationIgnored private var isChecking = false
     @ObservationIgnored private var misses: [String: Int] = [:] // checks in a row that found it offline
+    @ObservationIgnored private var idleReadings: [String: Int] = [:] // checks in a row that found no game running
     @ObservationIgnored private var checkedPublicIP: Set<String> = [] // public IP looked up this launch
 
     #if DEBUG
+    /// Settings → Developer → PCs Offline (or launching with `-MoonswiftOffline YES`): every PC counts as offline,
+    /// whatever answers, to see how games look then.
+    static let debugOfflineKey = "MoonswiftOffline"
+    static var fakeOffline: Bool { UserDefaults.standard.bool(forKey: debugOfflineKey) }
+
     func setDemo(pcID: String, running: Int) {
-        statuses[pcID] = .online(paired: true)
-        playing[pcID] = running
+        statuses[pcID] = Self.fakeOffline ? .offline : .online(paired: true)
+        lastChecked[pcID] = .now
+        reportedPlaying[pcID] = Self.fakeOffline ? 0 : running
     }
     #endif
 
@@ -42,14 +69,18 @@ nonisolated struct PCRef: Sendable {
         if DemoMode.isOn { return }
         #endif
         while !Task.isCancelled {
-            await checkAll(hosts, context: context)
-            try? await Task.sleep(for: .seconds(3))
+            if !isPaused { await checkAll(hosts, context: context) }
+            try? await Task.sleep(for: isPaused ? .seconds(1) : interval)
         }
     }
 
     /// Asks every saved PC for its status once. `isManual` (pull to refresh) reports exactly what it finds; the
     /// background loop forgives a single missed check.
     func checkAll(_ hosts: [SavedHost], context: ModelContext, isManual: Bool = false) async {
+        // A check on top of one still out would count the same missed answer twice.
+        if !isManual, isChecking { return }
+        isChecking = true
+        defer { isChecking = false }
         let targets = hosts.map { (id: $0.uniqueID, address: $0.address, remote: $0.remoteAddress,
                                    httpsPort: $0.httpsPort, serverCert: $0.serverCert) }
         await withTaskGroup(of: (String, HostStatus, ServerInfo?, String?).self) { group in
@@ -61,15 +92,31 @@ nonisolated struct PCRef: Sendable {
                 }
             }
             for await (id, status, info, address) in group {
-                // One missed check (a slow cellular wake-up, a dropped packet) isn't enough to call a PC offline.
-                if !isManual, status == .offline, let previous = statuses[id], previous != .offline, misses[id, default: 0] < 1 {
+                #if DEBUG
+                if Self.fakeOffline { statuses[id] = .offline; reportedPlaying[id] = 0; lastChecked[id] = .now; continue }
+                #endif
+                // One missed check (a slow cellular wake-up, a dropped packet) isn't enough to call a PC offline. Nor is
+                // a paired PC answering only the plain request: its secure one timed out (busy right after a stream),
+                // and the plain answer never names the running game, so trusting it flips Resume back to Play.
+                let isMiss = status == .offline || status == .online(paired: false) && statuses[id] == .online(paired: true)
+                if !isManual, isMiss, let previous = statuses[id], previous != .offline, misses[id, default: 0] < 1 {
                     misses[id, default: 0] += 1
+                    notResponding.insert(id)
                     continue
                 }
                 misses[id] = 0
+                notResponding.remove(id)
+                lastChecked[id] = .now
                 statuses[id] = status
                 activeAddresses[id] = address
-                playing[id] = info?.currentGame
+                // Likewise one "nothing running" while a game was isn't trusted until the next check agrees.
+                let game = info?.currentGame ?? 0
+                if !isManual, game == 0, (reportedPlaying[id] ?? 0) != 0, idleReadings[id, default: 0] < 1 {
+                    idleReadings[id, default: 0] += 1
+                } else {
+                    idleReadings[id] = 0
+                    reportedPlaying[id] = game
+                }
                 if info?.canSleep == true { sleepable.insert(id) } else if info != nil { sleepable.remove(id) }
                 guard let host = hosts.first(where: { $0.uniqueID == id }) else { continue }
                 if let info, host.name != info.hostname { host.name = info.hostname } // PC was renamed
@@ -90,4 +137,10 @@ nonisolated struct PCRef: Sendable {
             try? context.save()
         }
     }
+}
+
+/// A game being streamed to this device, and the PC it's on.
+nonisolated struct StreamingGame: Equatable, Sendable {
+    let pcID: String
+    let appID: Int
 }
