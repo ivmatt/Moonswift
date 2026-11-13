@@ -54,8 +54,6 @@ struct PCStatusButton: View {
     private var worst: PCStatusLine.Health { hosts.map { line($0, now: .now).health }.max() ?? .fine }
 
     private var isSpinning: Bool { isRefreshing || worst == .checking }
-    /// The icon and the spinner shrink and fade into each other rather than jump.
-    private static let swap = AnyTransition.opacity.combined(with: .scale(scale: 0.5))
 
     private var dot: Color {
         switch worst {
@@ -81,19 +79,21 @@ struct PCStatusButton: View {
             Divider()
             Button("Refresh", systemImage: "arrow.clockwise", action: refresh).disabled(isRefreshing)
         } label: {
-            // Views rather than a Label: a toolbar shows a label's title instead when its icon isn't just a symbol.
-            if isSpinning {
-                ArcSpinner().transition(Self.swap)
-            } else {
-                Image(systemName: "desktopcomputer")
-                    .overlay(alignment: .bottomTrailing) {
-                        Circle().fill(dot)
-                            .frame(width: 9, height: 9)
-                            .overlay { Circle().stroke(.black.opacity(0.35), lineWidth: 1) } // shows on light and dark glass
-                            .offset(x: 3, y: 1)
-                    }
-                    .transition(Self.swap)
-            }
+            // Always the symbol, the arc drawn over it while it spins: on the Duo the system keeps only symbols in
+            // the side column, and moved the button to a bar along the bottom while the arc stood in for it.
+            Image(systemName: "desktopcomputer")
+                .overlay(alignment: .bottomTrailing) {
+                    Circle().fill(dot)
+                        .frame(width: 9, height: 9)
+                        .overlay { Circle().stroke(.black.opacity(0.35), lineWidth: 1) } // shows on light and dark glass
+                        .offset(x: 3, y: 1)
+                }
+                // Shrinks and fades into the arc, and back.
+                .opacity(isSpinning ? 0 : 1)
+                .scaleEffect(isSpinning ? 0.5 : 1)
+                .overlay {
+                    if isSpinning { ArcSpinner().transition(.opacity.combined(with: .scale(scale: 0.5))) }
+                }
         }
         .animation(.default, value: worst)
         .animation(.spring(duration: 0.35), value: isSpinning)
