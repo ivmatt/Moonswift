@@ -48,10 +48,15 @@ struct RootView: View {
         .background {
             ([.pcs, .settings, .search].contains(tab) ? Color(.systemGroupedBackground) : Color(.systemBackground)).ignoresSafeArea()
         }
-        // iPad: the selected tab white rather than blue (see whitenFloatingTabBar); again after a tab change or rotation,
+        // iPad: the selected tab white rather than blue (see styleFloatingTabBar); again after a tab change or rotation,
         // which can rebuild the bar.
-        .task(id: tab) { await Task.yield(); Self.whitenFloatingTabBar() }
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { _ in Task { Self.whitenFloatingTabBar() } }
+        .task(id: tab) {
+            await Task.yield()
+            styleFloatingTabBar()
+            try? await Task.sleep(for: .milliseconds(350)) // again once the selection has moved
+            styleFloatingTabBar()
+        }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { _ in Task { styleFloatingTabBar() } }
         .streamLauncher(launcher)
         .actionMenu($menu)
         // Restarts at once when a PC is added, removed, (re)paired or gets a new address.
@@ -114,15 +119,27 @@ struct RootView: View {
     }
 
     /// The iPad's tab bar floats across the top as its own view, which takes its colour from the tab view (blue) and
-    /// ignores the UITabBar appearance that whitens the Duo's rail (MyApp). Tinting the whole tab view instead reaches
-    /// the sliders, switches and menus inside the tabs, so just this bar is tinted.
-    /// shortcut: found by its private class name; if iOS renames it, the iPad's selected tab is blue again (nothing
-    /// breaks). Revisit if SwiftUI gets a way to colour only the tab bar.
-    private static func whitenFloatingTabBar() {
-        func whiten(_ view: UIView) {
-            if String(describing: type(of: view)) == "_UIFloatingTabBar" { view.tintColor = .label } else { view.subviews.forEach(whiten) }
+    /// ignores the UITabBar appearance that colours the Duo's rail (MyApp). Tinting the whole tab view instead reaches
+    /// the sliders, switches and menus inside the tabs, so just this bar is tinted: the selected tab white (black in
+    /// light mode) and the others dimmed, like Apple's Games app.
+    /// shortcut: found by private class names; if iOS renames them, the iPad's tabs go back to the system look
+    /// (nothing breaks). Revisit if SwiftUI gets a way to colour only the tab bar.
+    private func styleFloatingTabBar() {
+        func labels(in view: UIView) -> [UILabel] { (view as? UILabel).map { [$0] } ?? view.subviews.flatMap(labels) }
+        func style(_ view: UIView) {
+            let name = String(describing: type(of: view))
+            if name == "_UIFloatingTabBar" { view.tintColor = .label }
+            if name == "_UIFloatingTabBarItemView" {
+                // The selected tab's title is drawn in the tint colour; Search, the one without a title, by the tab.
+                let titles = labels(in: view)
+                let isSelected = titles.isEmpty ? tab == .search
+                    : titles.contains { String(describing: type(of: $0.textColor as Any)).contains("TintColor") }
+                view.alpha = isSelected ? 1 : 0.6
+                return
+            }
+            view.subviews.forEach(style)
         }
-        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) { scene.windows.forEach(whiten) }
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) { scene.windows.forEach(style) }
     }
 
     /// L1/R1: the previous or next tab.

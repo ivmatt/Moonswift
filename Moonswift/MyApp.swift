@@ -31,6 +31,8 @@ import SwiftUI
         for item in [tabs.stackedLayoutAppearance, tabs.inlineLayoutAppearance, tabs.compactInlineLayoutAppearance] {
             item.selected.iconColor = .label
             item.selected.titleTextAttributes = [.foregroundColor: UIColor.label]
+            item.normal.iconColor = .label.withAlphaComponent(0.6) // the others dimmed, like Apple's Games app
+            item.normal.titleTextAttributes = [.foregroundColor: UIColor.label.withAlphaComponent(0.6)]
         }
         UITabBar.appearance().standardAppearance = tabs
         UITabBar.appearance().scrollEdgeAppearance = tabs
