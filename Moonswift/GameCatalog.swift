@@ -177,11 +177,23 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
         }
     }
 
-    /// Join and End for a session another device is streaming on this PC, when the PC offers them.
-    func remoteSession(on pcID: String) -> (join: HostApp?, end: HostApp?)? {
+    /// The controls for a session on this host, when it offers them: Join (or Resume) and End for a session another
+    /// device is streaming; Resume and Disconnect for this device's own Remote Monitor or Remote Input session, while
+    /// which the host lists no games at all (Home showed "Loading Games" for good).
+    func remoteSession(on pcID: String) -> RemoteSession? {
         let list = apps[pcID] ?? []
-        let join = list.first { $0.sessionControl == .join }, end = list.first { $0.sessionControl == .end }
-        return join == nil && end == nil ? nil : (join, end)
+        let session = RemoteSession(join: list.first { $0.sessionControl == .join },
+                                    end: list.first { $0.sessionControl == .end },
+                                    disconnect: list.first { $0.sessionControl == .disconnectMonitor || $0.sessionControl == .disconnectInput })
+        return session.join == nil && session.end == nil && session.disconnect == nil ? nil : session
+    }
+
+    struct RemoteSession {
+        let join: HostApp?, end: HostApp?
+        /// This device's own remote session: Disconnect Remote Monitor or Remote Input.
+        let disconnect: HostApp?
+        var isOwn: Bool { disconnect != nil }
+        var kind: String { disconnect?.sessionControl == .disconnectInput ? "Remote Input" : "Remote Monitor" }
     }
 
     func title(of gameID: Int, on pcID: String) -> String? { apps[pcID]?.first { $0.id == gameID }?.title }

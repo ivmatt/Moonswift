@@ -102,6 +102,18 @@ import SwiftUI
         ])
     }
 
+    /// Leaves this device's own Remote Monitor or Remote Input session (the host's Disconnect control). Nothing quits,
+    /// so it doesn't ask.
+    func disconnectRemote(_ control: HostApp, on pc: PCRef) {
+        guard busy == nil, stream == nil else { return }
+        perform("Disconnecting…", on: pc) { [settings = Self.settings] in
+            // Like End: the host answers without a session to stream, which isn't an error.
+            _ = try? await pc.client.launch(control, width: settings.width, height: settings.height, fps: settings.fps,
+                                            videoFormats: settings.formats)
+            return nil
+        }
+    }
+
     /// Quitting can lose unsaved progress, so it asks once.
     func confirmQuit(_ title: String?, on pc: PCRef) {
         let title = title ?? "the running game"

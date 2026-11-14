@@ -28,6 +28,8 @@ struct HomeView: View {
     @State private var isPressingPlay = false
     @State private var topInset: CGFloat = 0
     @AppStorage(SettingsKey.buttonGuide) private var guideMode = ButtonGuideMode.automatic
+    /// The title shows in full on arriving at Home, then fades back so it doesn't compete with the hero, still readable.
+    @State private var isTitleFaded = false
     /// The tab rail's width on either side: the hero art reaches under it, so it spans the whole screen.
     @State private var railInsets = EdgeInsets()
     @State private var heroFold = FoldAvoidance(fold: nil, in: .zero)
@@ -50,6 +52,10 @@ struct HomeView: View {
         return onlyGames.isEmpty ? (all.isEmpty ? nil : ("Apps", all)) : ("Games", onlyGames)
     }
 
+    private var hasRemoteSession: Bool {
+        hosts.contains { directory.isAvailable($0.uniqueID) && catalog.remoteSession(on: $0.uniqueID) != nil }
+    }
+
     private var selectedGame: CatalogGame? {
         let games = row?.games ?? []
         return games.first { $0.id == selectedID } ?? games.first
@@ -60,6 +66,15 @@ struct HomeView: View {
             Group {
                 if hosts.isEmpty {
                     welcome
+                } else if games.isEmpty, hasRemoteSession {
+                    // A host in a remote session lists only its controls, no games: those, not "Loading Games".
+                    VStack(spacing: 0) {
+                        TabTitle(text: "Home", topInset: topInset).padding(.horizontal, 36).opacity(isTitleFaded ? 0.35 : 1)
+                            .padding(.top, -max(0, topInset - Self.windowTopInset))
+                        Spacer()
+                        remoteSessionBanners
+                        Spacer()
+                    }
                 } else if games.isEmpty {
                     ContentUnavailableView {
                         Label("Loading Games", systemImage: "gamecontroller")
@@ -77,8 +92,11 @@ struct HomeView: View {
             .buttonGuide(guideHints) // inside the insets measured below, which say where the tab bar is
             .navigationTitle("") // drawn by TabTitle instead, lined up with the content 36 points in
             .toolbar {
-                if !hosts.isEmpty {
-                    ToolbarItem(placement: .topBarTrailing) {
+                let hasTopBar = TabToolbar<EmptyView>.hasTopBar(insets: railInsets)
+                if hosts.isEmpty {
+                    TabToolbar(hasTopBar: hasTopBar, openSettings: openSettings) { EmptyView() }
+                } else {
+                    TabToolbar(hasTopBar: hasTopBar, openSettings: openSettings) {
                         PCStatusButton(refresh: refresh, isRefreshing: isRefreshing)
                     }
                 }
@@ -89,6 +107,11 @@ struct HomeView: View {
             // Out to the screen's edges, under the rail too, like the hero art.
             .background {
                 Color(.systemBackground).padding(.leading, -railInsets.leading).padding(.trailing, -railInsets.trailing).ignoresSafeArea()
+            }
+            .task { // each time Home comes on screen
+                isTitleFaded = false
+                try? await Task.sleep(for: .seconds(3))
+                withAnimation(.easeInOut(duration: 1.2)) { isTitleFaded = true }
             }
             .sheet(isPresented: $isAdding) { AddHostView() }
             .sheet(item: $editing) { GameEditView(game: $0) }
@@ -118,7 +141,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 0) {
                 // In place of the system's title (its status button is in the toolbar), but 36 points in; and up into
                 // the top space the toolbar adds, so it's level with every other tab's title.
-                TabTitle(text: "Home", topInset: topInset).padding(.horizontal, 36)
+                TabTitle(text: "Home", topInset: topInset).padding(.horizontal, 36).opacity(isTitleFaded ? 0.35 : 1)
                     .padding(.top, -max(0, topInset - Self.windowTopInset))
                 if let game = selectedGame {
                     HeroCard(game: game, subtitle: heroSubtitle(game), isShort: isShort,
@@ -305,12 +328,16 @@ struct HomeView: View {
                 HStack(spacing: 16) {
                     Image(systemName: "dot.radiowaves.left.and.right").font(.title2).foregroundStyle(.orange)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Being streamed on another device").font(.headline)
-                        Text(host.displayName).font(.subheadline).foregroundStyle(.secondary)
+                        Text(session.isOwn ? "\(session.kind) is on" : "Being streamed on another device").font(.headline)
+                        Text(session.isOwn ? "\(host.displayName) lists its games again once you disconnect." : host.displayName)
+                            .font(.subheadline).foregroundStyle(.secondary)
                     }
                     Spacer()
                     if let join = session.join {
-                        Button("Join") { launcher.join(join, on: directory.ref(host)) }.buttonStyle(.glassProminent)
+                        Button(session.isOwn ? "Resume" : "Join") { launcher.join(join, on: directory.ref(host)) }.buttonStyle(.glassProminent)
+                    }
+                    if let disconnect = session.disconnect {
+                        Button("Disconnect") { launcher.disconnectRemote(disconnect, on: directory.ref(host)) }.buttonStyle(.glass)
                     }
                     if let end = session.end {
                         Button("End Session", role: .destructive) { launcher.confirmEndSession(end, on: directory.ref(host)) }

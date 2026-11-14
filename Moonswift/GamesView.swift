@@ -65,6 +65,7 @@ struct GamesView: View {
     @State private var focus = 0
     private static let searchFocus = -1, closeFocus = -2 // the search bar, and its close button while searching
     @State private var topInset: CGFloat = 0
+    @State private var insets = EdgeInsets()
     @State private var menu: MenuSpec?
     @State private var editing: CatalogGame?
 
@@ -113,13 +114,16 @@ struct GamesView: View {
             .navigationTitle("") // the title is TabTitle, 36 points in; the bar only holds the filter button
             .toolbar {
                 // Not while searching on iPhone: the bar goes up beside it.
-                if !(isSearching && isTabBarBelow) { ToolbarItem(placement: .topBarTrailing) { filterButton } }
+                if !(isSearching && isTabBarBelow) {
+                    TabToolbar(hasTopBar: TabToolbar<EmptyView>.hasTopBar(insets: insets), openSettings: openSettings) { filterButton }
+                }
             }
             .onChange(of: query) { if focus != Self.searchFocus { focus = 0 } }
             .onChange(of: isSearchFocused) { if isSearchFocused { withAnimation(.snappy) { isSearching = true } } }
             .onChange(of: dictation.text) { query = dictation.text }
             .onDisappear { dictation.stop() }
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
+            .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets = $0 }
             .onGamepad(handle)
             .actionMenu($menu)
             .sheet(item: $editing) { GameEditView(game: $0) }

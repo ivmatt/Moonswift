@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Settings → Button Mapping: a layout preset (Standard or Nintendo) or a custom choice per button. Applies to every
-/// controller at once, in games and in the app's menus, including mid-stream. A controller moves with up/down,
-/// changes the focused row with left/right (A presses Reset) and goes back with B.
+/// controller at once, in games and in the app's menus, including mid-stream. A controller moves with up/down, A shows
+/// a row's choices to pick from (or presses Reset), and B goes back.
 struct ButtonMappingView: View {
     private enum Layout: String, CaseIterable { case standard = "Standard", nintendo = "Nintendo", custom = "Custom" }
 
@@ -10,17 +10,24 @@ struct ButtonMappingView: View {
     @Environment(GamepadInput.self) private var gamepad
     @State private var remap = ButtonRemap.current
     @State private var focus = 0
+    /// A row's choices, for the controller, beside it.
+    @State private var choice: ChoiceMenuSpec?
+    @State private var rowFrames = RowFrames()
 
     private var layout: Layout { remap == .standard ? .standard : remap == .nintendo ? .nintendo : .custom }
     /// Rows in screen order: the layout, each button, Reset.
     private var rowCount: Int { GameButton.allCases.count + 2 }
 
     var body: some View {
+        ScrollViewReader { scroller in
         List {
             Section {
                 row(0) {
-                    Picker("Layout", selection: Binding(get: { layout }, set: { setLayout($0) })) {
-                        ForEach(Layout.allCases, id: \.self) { Text($0.rawValue) }
+                    ChoiceRow(title: "Layout", value: layout.rawValue, isValueHidden: choice?.source == AnyHashable(0)) {
+                        Picker("Layout", selection: Binding(get: { layout }, set: { setLayout($0) })) {
+                            ForEach(Layout.allCases, id: \.self) { Text($0.rawValue) }
+                        }
+                        .pickerStyle(.inline)
                     }
                 }
             } footer: {
@@ -29,8 +36,12 @@ struct ButtonMappingView: View {
             Section("Each Button Acts As") {
                 ForEach(Array(GameButton.allCases.enumerated()), id: \.element) { index, button in
                     row(index + 1) {
-                        Picker(button.title, selection: target(of: button)) {
-                            ForEach(GameButton.allCases, id: \.self) { Text($0.title) }
+                        ChoiceRow(title: button.title, value: remap.target(button).title,
+                                  isValueHidden: choice?.source == AnyHashable(index + 1)) {
+                            Picker(button.title, selection: target(of: button)) {
+                                ForEach(GameButton.allCases, id: \.self) { Text($0.title) }
+                            }
+                            .pickerStyle(.inline)
                         }
                     }
                 }
@@ -41,13 +52,17 @@ struct ButtonMappingView: View {
                 }
             }
         }
+        // The focused row in the middle, so its section's title and notes show too.
+        .onChange(of: focus) { withAnimation { scroller.scrollTo(focus, anchor: .center) } }
+        }
         .navigationTitle("Button Mapping")
         .onChange(of: remap) { ButtonRemap.current = remap }
+        .buttonGuide([([.a], "Select"), ([.b], "Back")], reportsLayout: false)
+        .choiceMenu($choice)
         .onGamepad { command in
             switch command {
             case .up, .down: focus = FocusMove.next(focus, count: rowCount, columns: 1, command)
-            case .left, .right: step(by: command == .left ? -1 : 1)
-            case .select: if focus == rowCount - 1 { remap = .standard } else { step(by: 1) }
+            case .select: select()
             case .back: dismiss()
             default: break
             }
@@ -55,8 +70,8 @@ struct ButtonMappingView: View {
     }
 
     private func row(_ index: Int, @ViewBuilder content: () -> some View) -> some View {
-        content().listRowBackground(gamepad.isActive && focus == index ? Color.accentColor.opacity(0.25)
-                                                                       : Color(.secondarySystemGroupedBackground))
+        // The id outermost: under the row background a list doesn't find it, and the list didn't scroll to the focus.
+        content().recordsFrame(index, in: rowFrames).focusedRowBackground(gamepad.isActive && focus == index).id(index)
     }
 
     private func target(of button: GameButton) -> Binding<GameButton> {
@@ -72,17 +87,21 @@ struct ButtonMappingView: View {
         }
     }
 
-    /// Left/right on the focused row: the previous or next layout, or the previous or next target button.
-    private func step(by offset: Int) {
-        func next<T: Equatable>(_ value: T, in options: [T]) -> T {
-            let index = options.firstIndex(of: value) ?? 0
-            return options[min(max(index + offset, 0), options.count - 1)]
-        }
+    /// The controller's A on a row: its choices to pick from (the layouts, or what a button acts as), or Reset.
+    private func select() {
         if focus == 0 {
-            setLayout(next(layout, in: [.standard, .nintendo]))
+            let layouts: [Layout] = [.standard, .nintendo]
+            let spec = ChoiceMenuSpec(source: focus, options: layouts.map(\.rawValue), selected: layout == .nintendo ? 1 : 0,
+                                      anchor: rowFrames.frames[focus] ?? .zero) { setLayout(layouts[$0]) }
+            withAnimation(.easeOut(duration: 0.12)) { choice = spec }
         } else if focus < rowCount - 1 {
             let button = GameButton.allCases[focus - 1]
-            target(of: button).wrappedValue = next(remap.target(button), in: GameButton.allCases)
+            let spec = ChoiceMenuSpec(source: focus, options: GameButton.allCases.map(\.title),
+                                      selected: GameButton.allCases.firstIndex(of: remap.target(button)) ?? 0,
+                                      anchor: rowFrames.frames[focus] ?? .zero) { target(of: button).wrappedValue = GameButton.allCases[$0] }
+            withAnimation(.easeOut(duration: 0.12)) { choice = spec }
+        } else if remap != .standard {
+            remap = .standard
         }
     }
 }

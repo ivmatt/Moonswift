@@ -38,6 +38,7 @@ struct PCsView: View {
     @State private var focus = 0
     @State private var menu: MenuSpec?
     @State private var topInset: CGFloat = 0
+    @State private var insets = EdgeInsets()
     private var statuses: [String: HostStatus] { directory.statuses }
     private var activeAddresses: [String: String] { directory.activeAddresses }
     private var sleepable: Set<String> { directory.sleepable }
@@ -82,10 +83,11 @@ struct PCsView: View {
             }
             .tint(.primary) // rows are buttons, but shouldn't look like links
             .tracksTabBarMinimize().hidesTabBarOnPhone(gamepad.isActive && focusIndex > 0).buttonGuide([([.y], "Host Menu"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")])
-            .navigationTitle("Hosts")
-            .toolbar(.hidden, for: .navigationBar) // the title is TabTitle, placed like Home's
+            .navigationTitle("") // the title is TabTitle, placed like Home's; the bar holds only the gear
+            .toolbar { TabToolbar(hasTopBar: TabToolbar<EmptyView>.hasTopBar(insets: insets), openSettings: openSettings) { EmptyView() } }
             .scrollEdgeEffectStyle(.soft, for: .top)
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
+            .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets = $0 }
             .sheet(isPresented: $isAdding) { AddHostView() }
             .sheet(item: $pairing) { target in
                 NavigationStack {
@@ -121,9 +123,9 @@ struct PCsView: View {
         } label: {
             label()
         }
-        .id(item.id)
         .listRowBackground(isFocused ? Color.accentColor.opacity(0.25) : Color(.secondarySystemGroupedBackground))
         .animation(.snappy(duration: 0.15), value: isFocused)
+        .id(item.id) // outermost: under the row background a list doesn't find it to scroll to
     }
 
     private func activate(_ item: Item) {

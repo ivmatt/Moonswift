@@ -9,18 +9,15 @@ struct LiveStream {
     let reconnect: () -> Void
 }
 
-/// Stream settings, used from the next Launch or Resume. Opened from a stream (`live`), bitrate applies right away
-/// and other changes offer Apply & Reconnect. Touch uses the native controls; a controller moves between rows with
-/// up/down, changes the focused row with left/right (A also steps it forward, or presses a button) and closes with B.
+/// Settings, a sheet over any tab (its toolbar gear, or the controller's Menu button) or over a stream. Stream
+/// settings apply from the next Launch or Resume; opened from a stream (`live`), bitrate applies right away and other
+/// changes offer Apply & Reconnect. Touch uses the native controls. A controller moves between rows with up/down; A
+/// shows a setting's choices to pick from (or flips a switch, or opens a page), left/right move the bitrate slider,
+/// and B or Menu closes.
 struct SettingsView: View {
     var live: LiveStream?
-    /// As a tab: L1/R1 move to the neighbouring tab.
-    var switchTab: ((Int) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.isPresented) private var isPresented
-    @State private var topInset: CGFloat = 0
-    private var isTab: Bool { !isPresented && live == nil }
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage(SettingsKey.resolution) private var resolution = ResolutionOption.fullScreen
     @AppStorage(SettingsKey.fps) private var fps = 60
@@ -37,14 +34,20 @@ struct SettingsView: View {
     @State private var bitrateChange: Task<Void, Never>?
     @State private var isShowingAbout = false
     @State private var isShowingButtonMapping = false
+    /// A setting's choices, for the controller, beside its row.
+    @State private var choice: ChoiceMenuSpec?
+    @State private var rowFrames = RowFrames()
 
-    private enum Row { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, buttonMapping, buttonGuide, coverShape, about }
+    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, buttonMapping, buttonGuide, coverShape, about }
     private enum BitrateMode: String, CaseIterable { case automatic = "Automatic", custom = "Custom" }
     private var bitrateMode: BitrateMode {
         bitrate == 0 ? .automatic : .custom
     }
+    /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : []) + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay, .pcAudio, .buttonMapping, .buttonGuide, .coverShape, .about]
+        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
+            + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .overlay, .buttonGuide, .buttonMapping]
+            + (live == nil ? [.coverShape] : []) + [.about]
     }
     private var videoFormats: Int32 {
         StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware, av1InHardware: ScreenInfo.av1InHardware,
@@ -74,8 +77,8 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { scroller in
             List {
-                if isTab { Section { } header: { TabTitle(text: "Settings", topInset: topInset).asListHeader() } }
                 if needsReconnect, let live {
                     Section {
                         row(.reconnect) {
@@ -90,25 +93,19 @@ struct SettingsView: View {
                 }
                 Section {
                     row(.resolution) {
-                        Picker("Resolution", selection: $resolution) {
-                            ForEach(ResolutionOption.allCases, id: \.self) { Text($0.title) }
-                        }
+                        choiceRow(.resolution, "Resolution", $resolution, ResolutionOption.allCases, name: \.title)
                     }
                     row(.fps) {
-                        Picker("Frame Rate", selection: $fps) {
-                            ForEach(frameRates, id: \.self) { Text("\($0) fps") }
-                        }
+                        choiceRow(.fps, "Frame Rate", $fps, frameRates) { "\($0) fps" }
                     }
                     row(.codec) {
-                        Picker("Codec", selection: $codec) {
-                            ForEach(codecs, id: \.self) { Text($0.title) }
-                        }
+                        choiceRow(.codec, "Codec", $codec, codecs, name: \.title)
                     }
                     if showsHDR {
                         row(.hdr) { Toggle("HDR", isOn: $hdr) }
                     }
                 } header: {
-                    Text("Video")
+                    Text("Picture")
                 } footer: {
                     Text("\(size.width)×\(size.height) at \(fps) fps"
                          + (codec == .automatic ? ", \(ScreenInfo.hevcInHardware ? "HEVC" : "H.264") on this device."
@@ -117,9 +114,7 @@ struct SettingsView: View {
                 }
                 Section {
                     row(.bitrateMode) {
-                        Picker("Bitrate", selection: Binding(get: { bitrateMode }, set: { setMode($0) })) {
-                            ForEach(BitrateMode.allCases, id: \.self) { Text($0.rawValue) }
-                        }
+                        choiceRow(.bitrateMode, "Bitrate", Binding(get: { bitrateMode }, set: { setMode($0) }), BitrateMode.allCases, name: \.rawValue)
                     }
                     if bitrateMode == .custom {
                         row(.bitrate) {
@@ -134,7 +129,7 @@ struct SettingsView: View {
                         Toggle("Adaptive Bitrate", isOn: $adaptive)
                     }
                 } header: {
-                    Text("Bitrate")
+                    Text("Quality")
                 } footer: {
                     VStack(alignment: .leading, spacing: 6) {
                         switch bitrateMode {
@@ -148,29 +143,24 @@ struct SettingsView: View {
                     }
                 }
                 Section {
-                    row(.overlay) {
-                        Toggle("Performance Overlay", isOn: $showsPerformance)
-                    }
-                } footer: {
-                    Text("Live frame rate, bitrate, delay and packet loss in a corner of the stream.")
-                }
-                Section {
                     row(.pcAudio) {
                         Toggle("Play Sound on Host", isOn: $playAudioOnPC)
                     }
+                    row(.overlay) {
+                        Toggle("Performance Overlay", isOn: $showsPerformance)
+                    }
                 } header: {
-                    Text("Audio")
+                    Text("While Streaming")
                 } footer: {
-                    Text("Sound always plays on this device; this also plays it from the host's speakers. Applies the next time a stream starts.")
+                    Text("Sound always plays on this device; Play Sound on Host also plays it from the host's speakers, from the next "
+                         + "stream. The overlay shows live frame rate, bitrate, delay and packet loss in a corner of the stream.")
                 }
                 Section {
+                    row(.buttonGuide) {
+                        choiceRow(.buttonGuide, "Button Guide", $buttonGuide, ButtonGuideMode.allCases, name: \.rawValue)
+                    }
                     row(.buttonMapping) {
                         Button("Button Mapping") { isShowingButtonMapping = true }.foregroundStyle(.primary)
-                    }
-                    row(.buttonGuide) {
-                        Picker("Button Guide", selection: $buttonGuide) {
-                            ForEach(ButtonGuideMode.allCases, id: \.self) { Text($0.rawValue) }
-                        }
                     }
                 } header: {
                     Text("Controller")
@@ -180,9 +170,7 @@ struct SettingsView: View {
                 if live == nil { // not while streaming
                     Section {
                         row(.coverShape) {
-                            Picker("Cover Shape", selection: $coverShape) {
-                                ForEach(CoverShape.allCases, id: \.self) { Text($0.rawValue) }
-                            }
+                            choiceRow(.coverShape, "Cover Shape", $coverShape, CoverShape.allCases, name: \.rawValue)
                         }
                     } header: {
                         Text("Library")
@@ -213,22 +201,19 @@ struct SettingsView: View {
                     }
                 }
             }
+            // The focused row stays in view as the controller moves down the list.
+            // The focused row in the middle, so its whole section shows, title and notes too (a list won't scroll to a
+            // section's notes by themselves); at the top and bottom the list just stops.
+            .onChange(of: focus) { if rows.indices.contains(focus) { withAnimation { scroller.scrollTo(rows[focus], anchor: .center) } } }
+            }
             .navigationTitle(live == nil ? "Settings" : "Stream Settings")
-            // As a tab, the title is TabTitle, placed like Home's; as a sheet (from a stream) it keeps its bar and Done.
-            .toolbar(isTab ? .hidden : .automatic, for: .navigationBar)
-            .scrollEdgeEffectStyle(.soft, for: .top)
-            .tracksTabBarMinimize()
-            .hidesTabBarOnPhone(isTab && gamepad.isActive && focus > 0)
-            .buttonGuide(isTab ? [([.l1, .r1], "Tabs")] : [])
-            .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
+            .navigationBarTitleDisplayMode(.inline)
+            .buttonGuide([([.a], "Select"), ([.b], "Close")], reportsLayout: false)
+            .choiceMenu($choice)
             .navigationDestination(isPresented: $isShowingAbout) { AboutView() }
             .navigationDestination(isPresented: $isShowingButtonMapping) { ButtonMappingView() }
             .onChange(of: effectiveBitrate) { _, kbps in applyLive(kbps) }
-            .toolbar {
-                if isPresented { // a sheet (from a stream); as a tab there's nothing to close
-                    ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-                }
-            }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .onAppear {
                 // A saved choice the device can't do (for example 120 fps restored on a 60 Hz screen) falls back.
                 if !frameRates.contains(fps) { fps = 60 }
@@ -240,27 +225,29 @@ struct SettingsView: View {
                 let current = rows[min(focus, rows.count - 1)]
                 switch command {
                 case .up, .down: focus = FocusMove.next(focus, count: rows.count, columns: 1, command)
-                case .select where current == .about: isShowingAbout = true
-                case .select where current == .buttonMapping: isShowingButtonMapping = true
-                case .select where current == .reconnect:
-                    dismiss()
-                    live?.reconnect()
-                case .left: change(current, by: -1)
-                case .right, .select: change(current, by: 1)
-                case .back: dismiss()
-                case .previousTab: switchTab?(-1)
-                case .nextTab: switchTab?(1)
-                case .menu, .alternate, .streamMenu, .settings, .options: break
+                case .select: select(current)
+                case .left where current == .bitrate: bitrate = StreamSettings.steppedBitrate(bitrate, by: -1)
+                case .right where current == .bitrate: bitrate = StreamSettings.steppedBitrate(bitrate, by: 1)
+                case .back, .settings: dismiss() // B, or Menu again: Menu opened it
+                case .left, .right, .menu, .alternate, .streamMenu, .options, .previousTab, .nextTab: break
                 }
             }
+        }
+    }
+
+    private func choiceRow<T: Hashable>(_ row: Row, _ title: String, _ selection: Binding<T>, _ options: [T],
+                                        name: @escaping (T) -> String) -> some View {
+        ChoiceRow(title: title, value: name(selection.wrappedValue), isValueHidden: choice?.source == AnyHashable(row)) {
+            Picker(title, selection: selection) { ForEach(options, id: \.self) { Text(name($0)) } }.pickerStyle(.inline)
         }
     }
 
     private func row(_ row: Row, @ViewBuilder content: () -> some View) -> some View {
         let isFocused = gamepad.isActive && rows.firstIndex(of: row) == min(focus, rows.count - 1)
         return content()
-            .listRowBackground(isFocused ? Color.accentColor.opacity(0.25) : Color(.secondarySystemGroupedBackground))
-            .animation(.snappy(duration: 0.15), value: isFocused)
+            .recordsFrame(row, in: rowFrames)
+            .focusedRowBackground(isFocused)
+            .id(row) // outermost: under the row background a list doesn't find it, and the list didn't scroll to the focus
     }
 
     /// Custom starts from the automatic value, so switching to it doesn't jump somewhere unexpected.
@@ -271,25 +258,30 @@ struct SettingsView: View {
         }
     }
 
-    /// Steps a setting to its previous (-1) or next (+1) value, stopping at the ends.
-    private func change(_ row: Row, by step: Int) {
-        func stepped<T: Equatable>(_ value: T, in options: [T]) -> T {
-            let index = options.firstIndex(of: value) ?? 0
-            return options[min(max(index + step, 0), options.count - 1)]
+    /// The controller's A on a row: a setting's choices to pick from, a switch flipped, or a page or button pressed.
+    private func select(_ row: Row) {
+        func choices<T: Equatable>(_ title: String, _ options: [T], current: T, name: (T) -> String, set: @escaping (T) -> Void) {
+            let spec = ChoiceMenuSpec(source: row, options: options.map(name), selected: options.firstIndex(of: current) ?? 0,
+                                      anchor: rowFrames.frames[row] ?? .zero) { set(options[$0]) }
+            withAnimation(.easeOut(duration: 0.12)) { choice = spec } // the value fades as the menu grows
         }
         switch row {
-        case .resolution: resolution = stepped(resolution, in: ResolutionOption.allCases)
-        case .fps: fps = stepped(fps, in: frameRates)
-        case .codec: codec = stepped(codec, in: codecs)
-        case .bitrateMode: setMode(stepped(bitrateMode, in: BitrateMode.allCases))
-        case .bitrate: bitrate = StreamSettings.steppedBitrate(bitrate, by: step)
+        case .resolution: choices("Resolution", ResolutionOption.allCases, current: resolution, name: \.title) { resolution = $0 }
+        case .fps: choices("Frame Rate", frameRates, current: fps, name: { "\($0) fps" }) { fps = $0 }
+        case .codec: choices("Codec", codecs, current: codec, name: \.title) { codec = $0 }
+        case .bitrateMode: choices("Bitrate", BitrateMode.allCases, current: bitrateMode, name: \.rawValue) { setMode($0) }
+        case .buttonGuide: choices("Button Guide", ButtonGuideMode.allCases, current: buttonGuide, name: \.rawValue) { buttonGuide = $0 }
+        case .coverShape: choices("Cover Shape", CoverShape.allCases, current: coverShape, name: \.rawValue) { coverShape = $0 }
+        case .hdr: hdr.toggle()
         case .adaptive: adaptive.toggle()
         case .overlay: showsPerformance.toggle()
         case .pcAudio: playAudioOnPC.toggle()
-        case .hdr: hdr.toggle()
-        case .coverShape: coverShape = stepped(coverShape, in: CoverShape.allCases)
-        case .buttonGuide: buttonGuide = stepped(buttonGuide, in: ButtonGuideMode.allCases)
-        case .reconnect, .about, .buttonMapping: break
+        case .bitrate: break // left/right move the slider
+        case .buttonMapping: isShowingButtonMapping = true
+        case .about: isShowingAbout = true
+        case .reconnect:
+            dismiss()
+            live?.reconnect()
         }
     }
 

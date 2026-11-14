@@ -870,3 +870,32 @@ struct FoldFilterTests {
         #expect(!FoldAvoidance.isFold(.null, in: size))
     }
 }
+
+/// Vibepollo lists only Resume and Disconnect while this device holds a Remote Monitor session: no games, so Home has
+/// to show the session rather than "Loading Games".
+@MainActor struct RemoteSessionTests {
+    private func app(_ id: Int, _ title: String, control: Int) -> HostApp {
+        HostApp(fields: ["ID": "\(id)", "AppTitle": title, "UUID": "9a1c5a25-58fe-40e0-b9aa-7d3f0000000\(control)"])!
+    }
+
+    @Test func ownRemoteMonitorSession() {
+        let catalog = GameCatalog()
+        catalog.demoApps([app(2147483601, "Resume", control: 1), app(2147483602, "Disconnect Remote Monitor", control: 2)],
+                         history: GameHistory(), pcID: "pc")
+        #expect(catalog.games(on: ["pc"]).isEmpty)
+        let session = catalog.remoteSession(on: "pc")
+        #expect(session?.isOwn == true)
+        #expect(session?.kind == "Remote Monitor")
+        #expect(session?.join?.id == 2147483601)
+    }
+
+    @Test func otherDeviceSession() {
+        let catalog = GameCatalog()
+        catalog.demoApps([HostApp(fields: ["ID": "1", "AppTitle": "Hades II"])!, app(2147483601, "Resume", control: 1), app(2147483604, "Terminate", control: 4)],
+                         history: GameHistory(), pcID: "pc")
+        let session = catalog.remoteSession(on: "pc")
+        #expect(session?.isOwn == false)
+        #expect(session?.end?.id == 2147483604)
+        #expect(catalog.remoteSession(on: "other") == nil)
+    }
+}

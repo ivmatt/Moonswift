@@ -256,9 +256,24 @@ nonisolated enum FocusMove {
 }
 
 extension View {
-    /// Sends controller commands to `handle` while this view is on screen and nothing newer is.
-    func onGamepad(_ handle: @escaping (GamepadCommand) -> Void) -> some View {
-        modifier(GamepadHandler(handle: handle))
+    /// Sends controller commands to `handle` while this view is on screen, `isActive`, and nothing newer is. Turning
+    /// `isActive` off hands the controller back at once, for a view still animating away.
+    func onGamepad(isActive: Bool = true, _ handle: @escaping (GamepadCommand) -> Void) -> some View {
+        modifier(GamepadHandler(isActive: isActive, handle: handle))
+    }
+
+    /// A list row's controller highlight: the same white ring as everywhere else, drawn inside the row (a list clips
+    /// anything outside it), over the row's usual background.
+    func focusedRowBackground(_ isOn: Bool) -> some View {
+        listRowBackground(
+            Color(.secondarySystemGroupedBackground).overlay {
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(.primary, lineWidth: 2)
+                    .padding(3)
+                    .opacity(isOn ? 1 : 0)
+                    .animation(.snappy(duration: 0.15), value: isOn)
+            }
+        )
     }
 
     /// The controller focus highlight: slightly bigger, a thin ring (white in dark mode, black in light) an even gap outside the shape, and a shadow.
@@ -283,13 +298,15 @@ extension View {
 private struct GamepadHandler: ViewModifier {
     @Environment(GamepadInput.self) private var gamepad
     @State private var id = UUID()
+    let isActive: Bool
     let handle: (GamepadCommand) -> Void
 
     func body(content: Content) -> some View {
         let _ = gamepad.refresh(id, handle) // the closure captured at onAppear would see stale non-State values
         content
-            .onAppear { gamepad.register(id, handle) }
+            .onAppear { if isActive { gamepad.register(id, handle) } }
             .onDisappear { gamepad.unregister(id) }
+            .onChange(of: isActive) { if isActive { gamepad.register(id, handle) } else { gamepad.unregister(id) } }
     }
 }
 
@@ -311,8 +328,10 @@ extension View {
     /// The page's button guide, placed the same on every tab. With the tab bar beside or above (the Duo, iPad): bottom
     /// left, in line with the content 36 points in. With it along the bottom (iPhone): at the top, on the title's line;
     /// while the tab bar is shrunk to its corner, in the room it left at the bottom.
-    func buttonGuide(_ hints: [(buttons: [ControllerHints.Button], label: String)]) -> some View {
-        modifier(ButtonGuidePlacement(hints: hints))
+    /// `reportsLayout`: a tab's page, which says where the tab bar is; false for a sheet's, whose guide shows over its
+    /// tab's.
+    func buttonGuide(_ hints: [(buttons: [ControllerHints.Button], label: String)], reportsLayout: Bool = true) -> some View {
+        modifier(ButtonGuidePlacement(hints: hints, reportsLayout: reportsLayout))
     }
 
     /// For a scrolling page: follows the tab bar's shrinking (scrolling down) and coming back (scrolling up), which iOS
@@ -384,36 +403,26 @@ private struct TabBarMinimizeTracking: ViewModifier {
 
 private struct ButtonGuidePlacement: ViewModifier {
     let hints: [(buttons: [ControllerHints.Button], label: String)]
-    /// The page's safe area: the guide is placed from the screen's edges, which an overlay keeps clear of.
-    @State private var insets = EdgeInsets()
-    /// Measured only while the tab bar shows: hidden, the bottom inset no longer says where it was.
-    @State private var isTabBarBelow = false
+    let reportsLayout: Bool
+    @State private var id = UUID()
+    @Environment(ButtonGuideCenter.self) private var center: ButtonGuideCenter?
     @Environment(TabBarMinimize.self) private var tabBar: TabBarMinimize?
+    @Environment(GamepadInput.self) private var gamepad
+    @AppStorage(SettingsKey.buttonGuide) private var mode = ButtonGuideMode.automatic
 
     func body(content: Content) -> some View {
-        let isHidden = tabBar?.isHidden ?? false
-        let isAtBottom = (tabBar?.isMinimized ?? false) || isHidden
+        let shows = mode.isShown(controllerConnected: gamepad.isControllerConnected) && !hints.isEmpty
         content
-            // No spacing of the system's own above it: Home's covers end the same 28 points above it as Play is above them.
-            .safeAreaInset(edge: .bottom, alignment: .leading, spacing: 0) {
-                // 4 points lower than its slot, into the margin above the home indicator, so it sits balanced there.
-                if !isTabBarBelow { ControllerHints(hints: hints).padding(.leading, 36).padding(.bottom, -4) }
+            // Room at the bottom for the guide (drawn above everything, by ButtonGuideWindow), with no spacing of the
+            // system's own: Home's covers end the same 28 points above it as Play is above them. The guide sits 4
+            // points into the margin below, so it looks balanced there.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if shows, !(center?.isTabBarBelow ?? false) { Color.clear.frame(height: max(0, (center?.height ?? 34) - 4)) }
             }
-            .overlay(alignment: isAtBottom ? .bottom : .top) {
-                if isTabBarBelow {
-                    ControllerHints(hints: hints)
-                        // On the title's line (TabTitle: 23 points down, 48 tall); or level with the shrunk tab bar.
-                        .padding(isAtBottom ? .bottom : .top,
-                                 isAtBottom ? HomeView.windowBottomInset + 6 - insets.bottom
-                                            : HomeView.titleTop(HomeView.windowTopInset) + 8 - insets.top)
-                        .id(isAtBottom) // fades out of one place and into the other
-                        .transition(.opacity)
-                }
-            }
-            .animation(.easeInOut(duration: 0.25), value: isAtBottom)
-            // Measured outside the guide's own inset, so its height doesn't count.
-            .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets = $0 }
-            .onTabBarBelowChange { if !isHidden { isTabBarBelow = $0 } }
+            .onTabBarBelowChange { if reportsLayout, !(tabBar?.isHidden ?? false) { center?.isTabBarBelow = $0 } }
+            .onAppear { center?.set(id, isOverTabs: !reportsLayout, hints) }
+            .onDisappear { center?.remove(id) }
+            .onChange(of: hints.map(\.label)) { center?.set(id, isOverTabs: !reportsLayout, hints) }
     }
 }
 
@@ -442,8 +451,9 @@ struct ControllerHints: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .background(.regularMaterial, in: .capsule)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            // Glass, like the tab bar and toolbar it floats with; not interactive, as it can't be tapped.
+            .glassEffect(.regular, in: .capsule)
+            .transition(.opacity)
             .accessibilityHidden(true) // controller-only help; VoiceOver users have the on-screen controls
         }
     }

@@ -2,10 +2,10 @@ import Network
 import SwiftData
 import SwiftUI
 
-/// The app's tabs, like Apple's Games app: Home (featured games and rows), Library (every game from every PC), PCs
-/// (devices) and Search. Keeps every PC's status and game list current for all of them, and opens links and Shortcuts.
+/// The app's tabs, like Apple's Games app: Home (featured games and rows), Library (every game from every host) and
+/// Hosts; Settings opens over them from each tab's gear. Keeps every PC's status and game list current for all of them, and opens links and Shortcuts.
 struct RootView: View {
-    enum TabID: Hashable, CaseIterable { case home, library, pcs, settings }
+    enum TabID: Hashable, CaseIterable { case home, library, pcs }
 
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -18,40 +18,52 @@ struct RootView: View {
     /// `startingTab` is for previews; the app starts on Home (or a debug launch argument's tab).
     init(startingTab: TabID? = nil) {
         _tab = State(initialValue: startingTab ?? Self.firstTab)
+        #if DEBUG
+        _showsSettings = State(initialValue: Self.launchArgument("-MoonswiftTab") == "settings") // for screenshots
+        #endif
     }
+
+    #if DEBUG
+    private static func launchArgument(_ name: String) -> String? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: name), index + 1 < arguments.count else { return nil }
+        return arguments[index + 1]
+    }
+    #endif
 
     /// Home, or in debug builds the tab named by `-MoonswiftTab library|pcs|settings|search` (for screenshots).
     private static var firstTab: TabID {
         #if DEBUG
-        let arguments = ProcessInfo.processInfo.arguments
-        if let index = arguments.firstIndex(of: "-MoonswiftTab"), index + 1 < arguments.count,
-           let tab = TabID.allCases.first(where: { "\($0)" == arguments[index + 1] }) { return tab }
+        if let name = launchArgument("-MoonswiftTab"), let tab = TabID.allCases.first(where: { "\($0)" == name }) { return tab }
         #endif
         return .home
     }
     @State private var menu: MenuSpec?
     @State private var isRefreshing = false
     @State private var tabBar = TabBarMinimize()
+    @State private var guide = ButtonGuideCenter()
+    @Environment(GamepadInput.self) private var gamepad
+    /// Settings, over whichever tab (the toolbar's gear, or the controller's Menu button).
+    @State private var showsSettings = false
 
     var body: some View {
         TabView(selection: $tab) {
             Tab("Home", systemImage: "house", value: .home) {
-                HomeView(switchTab: step, openSettings: { tab = .settings }, refresh: { Task { await refresh() } },
+                HomeView(switchTab: step, openSettings: openSettings, refresh: { Task { await refresh() } },
                          isRefreshing: isRefreshing)
             }
-            Tab("Library", systemImage: "app.grid.2x2", value: .library) { GamesView(switchTab: step) { tab = .settings } }
-            Tab("Hosts", systemImage: "link", value: .pcs) { PCsView(openSettings: { tab = .settings }, switchTab: step) }
-            Tab("Settings", systemImage: "switch.2", value: .settings) { SettingsView(switchTab: step) }
+            Tab("Library", systemImage: "app.grid.2x2", value: .library) { GamesView(switchTab: step, openSettings: openSettings) }
+            Tab("Hosts", systemImage: "link", value: .pcs) { PCsView(openSettings: openSettings, switchTab: step) }
         }
-        // On iPhone, the tab bar shrinks to a button while you scroll down (Library, Search, Hosts, Settings) and gives the
+        // On iPhone, the tab bar shrinks to a button while you scroll down (Library, Hosts) and gives the
         // short landscape screen its height back; scrolling up or tapping brings it back. Apple's way, over moving it.
         .tabBarMinimizeBehavior(.onScrollDown)
-        .environment(tabBar)
+        .onAppear { ButtonGuideWindow.install(center: guide, gamepad: gamepad, tabBar: tabBar, launcher: launcher) }
         .onChange(of: tab) { tabBar.isMinimized = false } // a tab change brings the tab bar back
         // Behind everything, out to the screen's edges (on the Duo, the rail's column too): the grey of the grouped
-        // lists on PCs, Settings and Search, the plain background elsewhere.
+        // list on Hosts, the plain background elsewhere.
         .background {
-            ([.pcs, .settings].contains(tab) ? Color(.systemGroupedBackground) : Color(.systemBackground)).ignoresSafeArea()
+            (tab == .pcs ? Color(.systemGroupedBackground) : Color(.systemBackground)).ignoresSafeArea()
         }
         // iPad: the selected tab white rather than blue (see styleFloatingTabBar); again after a tab change or rotation,
         // which can rebuild the bar.
@@ -62,6 +74,7 @@ struct RootView: View {
             styleFloatingTabBar()
         }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { _ in Task { styleFloatingTabBar() } }
+        .sheet(isPresented: $showsSettings) { SettingsView() }
         .streamLauncher(launcher)
         .actionMenu($menu)
         // Restarts at once when a PC is added, removed, (re)paired or gets a new address.
@@ -95,6 +108,9 @@ struct RootView: View {
         .onChange(of: launcher.session, initial: true) { directory.session = launcher.session }
         .onOpenURL { url in if let request = LaunchRequest(url: url) { LaunchRouter.shared.pending = request } }
         .onChange(of: LaunchRouter.shared.pending) { routePending() }
+        // Outermost, so the sheets and the stream presented above get them too.
+        .environment(tabBar)
+        .environment(guide)
     }
 
     private func updatePolling(checkNow shouldCheck: Bool) {
@@ -145,10 +161,12 @@ struct RootView: View {
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) { scene.windows.forEach(style) }
     }
 
-    /// L1/R1: the previous or next tab.
+    private func openSettings() { showsSettings = true }
+
+    /// L1/R1: the previous or next tab, stopping at the first and last (L1 on Home went round to the last).
     private func step(_ offset: Int) {
-        let all = TabID.allCases, index = all.firstIndex(of: tab) ?? 0
-        tab = all[(index + offset + all.count) % all.count]
+        let all = TabID.allCases, index = (all.firstIndex(of: tab) ?? 0) + offset
+        if all.indices.contains(index) { tab = all[index] }
     }
 
     /// A link or Shortcut asked for a game: start it once its PC's status is known.
