@@ -4,6 +4,8 @@ import SwiftUI
 /// move through): a glass panel beside the setting's row, a tick by the current choice, and a soft light pill on the
 /// highlighted one. Up/down move, A picks, B closes; a tap picks too, and a tap outside closes.
 struct ChoiceMenuSpec {
+    /// Each opening its own: a menu reopened while the last one is still shrinking away starts fresh.
+    let id = UUID()
     /// The row it opened from: its value fades out while the menu is open (`ChoiceRow`).
     let source: AnyHashable
     let options: [String]
@@ -12,6 +14,21 @@ struct ChoiceMenuSpec {
     /// The setting's row, in the `ChoiceMenuSpec.space` coordinate space: the menu opens beside it.
     let anchor: CGRect
     let pick: (Int) -> Void
+    /// Wider for longer lines (Home's host status).
+    var width: CGFloat = 230
+    /// Lines to read above the options, each under its own header, like a system menu's sections: not choices,
+    /// so the highlight skips them. A divider follows them.
+    var info: [Info] = []
+    /// An icon beside each option, where the tick would go ("" for none); options with icons show no tick.
+    var icons: [String] = []
+    /// Grows rightwards out of the whole anchor (a button), instead of leftwards out of a row's value.
+    var opensRight = false
+
+    struct Info {
+        let header: String
+        let text: String
+        let dot: Color
+    }
 
     static let space = "choiceMenu"
 }
@@ -34,7 +51,11 @@ extension View {
                 // No transition of its own: it grows out of the row and shrinks back into it (see ChoiceMenu). Once it's
                 // gone, the row's value fades back in.
                 if let spec = menu.wrappedValue {
-                    ChoiceMenu(spec: spec) { withAnimation(.easeOut(duration: 0.12)) { menu.wrappedValue = nil } }
+                    ChoiceMenu(spec: spec) {
+                        // Only its own: a newer menu may have opened while this one shrank away.
+                        if menu.wrappedValue?.id == spec.id { withAnimation(.easeOut(duration: 0.12)) { menu.wrappedValue = nil } }
+                    }
+                    .id(spec.id)
                 }
             }
     }
@@ -75,7 +96,7 @@ private struct ChoiceMenu: View {
     /// Closing: the controller goes back to the page at once, not after the menu has shrunk away.
     @State private var isClosing = false
 
-    private static let rowHeight: CGFloat = 44, width: CGFloat = 230, inset: CGFloat = 8, margin: CGFloat = 12
+    private static let rowHeight: CGFloat = 44, headerHeight: CGFloat = 26, dividerHeight: CGFloat = 9, inset: CGFloat = 8, margin: CGFloat = 12
     /// The size it grows from: about the row's value, at the row's right end.
     private static let seed = CGSize(width: 120, height: 34)
 
@@ -90,21 +111,26 @@ private struct ChoiceMenu: View {
             // The row's frame in this view's own coordinates, whatever the page's bars and insets.
             let origin = proxy.frame(in: .named(ChoiceMenuSpec.space)).origin
             let row = spec.anchor.offsetBy(dx: -origin.x, dy: -origin.y)
-            // As tall as its choices, or the screen less its margins: then it scrolls (Button Mapping's buttons).
-            let height = min(CGFloat(spec.options.count) * Self.rowHeight + 2 * Self.inset, proxy.size.height - 2 * Self.margin)
-            // Over the row's right end, covering its value, like the system's; kept on screen.
-            let right = min(row.maxX, proxy.size.width - Self.margin)
+            // As tall as its contents, or the screen less its margins: then it scrolls (Button Mapping's buttons).
+            let infoHeight = spec.info.isEmpty ? 0 : CGFloat(spec.info.count) * (Self.headerHeight + Self.rowHeight) + Self.dividerHeight
+            let height = min(CGFloat(spec.options.count) * Self.rowHeight + infoHeight + 2 * Self.inset,
+                             proxy.size.height - 2 * Self.margin)
+            // Over the row's right end, covering its value, like the system's (or from a button's left edge, over
+            // it); kept on screen at both sides.
+            let right = max(min(row.maxX, proxy.size.width - Self.margin), spec.width + Self.margin)
+            let left = max(Self.margin, min(row.minX, proxy.size.width - spec.width - Self.margin))
             let top = max(Self.margin, min(row.minY - 6, proxy.size.height - height - Self.margin))
-            let size = isOpen ? CGSize(width: Self.width, height: height) : Self.seed
+            let seed = spec.opensRight ? row.size : Self.seed
+            let size = isOpen ? CGSize(width: spec.width, height: height) : seed
             let y = isOpen ? top + height / 2 : row.midY
             ZStack(alignment: .topLeading) {
                 Color.clear.contentShape(.rect).onTapGesture { close() }
                 panel
-                    .frame(width: size.width, height: size.height, alignment: .topTrailing)
-                    .clipShape(.rect(cornerRadius: isOpen ? 26 : Self.seed.height / 2))
-                    .glassEffect(.regular, in: .rect(cornerRadius: isOpen ? 26 : Self.seed.height / 2))
+                    .frame(width: size.width, height: size.height, alignment: spec.opensRight ? .topLeading : .topTrailing)
+                    .clipShape(.rect(cornerRadius: isOpen ? 26 : seed.height / 2))
+                    .glassEffect(.regular, in: .rect(cornerRadius: isOpen ? 26 : seed.height / 2))
                     .opacity(isOpen ? 1 : 0) // grows and fades in together, shrinks and fades out together
-                    .position(x: right - size.width / 2, y: y)
+                    .position(x: spec.opensRight ? left + size.width / 2 : right - size.width / 2, y: y)
             }
         }
         .onAppear { withAnimation(.spring(duration: 0.3, bounce: 0.2)) { isOpen = true } } // a quick, springy grow
@@ -122,11 +148,29 @@ private struct ChoiceMenu: View {
         ScrollViewReader { scroller in
         ScrollView {
         VStack(spacing: 0) {
+            ForEach(spec.info.indices, id: \.self) { index in
+                let info = spec.info[index]
+                Text(info.header)
+                    .font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: Self.headerHeight, alignment: .bottomLeading)
+                    .padding(.horizontal, 14)
+                HStack(spacing: 10) {
+                    Circle().fill(info.dot).frame(width: 12, height: 12).frame(width: 16)
+                    Text(info.text).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 14)
+                .frame(height: Self.rowHeight)
+            }
+            if !spec.info.isEmpty {
+                Divider().padding(.horizontal, 14).frame(height: Self.dividerHeight)
+            }
             ForEach(spec.options.indices, id: \.self) { index in
+                let icon = index < spec.icons.count ? spec.icons[index] : ""
                 Button { choose(index) } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: "checkmark").font(.footnote.weight(.semibold))
-                            .opacity(index == spec.selected ? 1 : 0)
+                        Image(systemName: icon.isEmpty ? "checkmark" : icon).font(.footnote.weight(.semibold))
+                            .opacity(!icon.isEmpty || index == spec.selected ? 1 : 0)
                             .frame(width: 16)
                         Text(spec.options[index])
                         Spacer(minLength: 0)
@@ -149,7 +193,7 @@ private struct ChoiceMenu: View {
         .onAppear { scroller.scrollTo(focus, anchor: .center) } // opens on the current choice
         .onChange(of: focus) { withAnimation(.snappy(duration: 0.15)) { scroller.scrollTo(focus, anchor: .center) } }
         }
-        .frame(width: Self.width) // laid out at full size while it grows, so nothing reflows
+        .frame(width: spec.width) // laid out at full size while it grows, so nothing reflows
         .opacity(isOpen ? 1 : 0) // the choices fade in as it grows, out as it shrinks
         .animation(.snappy(duration: 0.15), value: focus)
     }

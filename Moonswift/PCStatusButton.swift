@@ -38,22 +38,40 @@ nonisolated struct PCStatusLine: Equatable {
 struct PCStatusButton: View {
     var refresh: () -> Void
     var isRefreshing: Bool
+    /// The controller is on it: A opens Home's own copy of its menu (the system's opens only by touch).
+    var isFocused = false
+    /// Its controller menu is open over it: shrunk and faded into it, as the menu grows out of it.
+    var isHidden = false
 
     @Environment(PCDirectory.self) private var directory
     @Environment(GameCatalog.self) private var catalog
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
 
     private func line(_ host: SavedHost, now: Date) -> PCStatusLine {
+        Self.line(host, directory: directory, catalog: catalog, now: now)
+    }
+
+    /// One host's status line; with no `now`, without when it was last checked.
+    static func line(_ host: SavedHost, directory: PCDirectory, catalog: GameCatalog, now: Date?) -> PCStatusLine {
         let id = host.uniqueID
         return .make(status: directory.statuses[id], isNotResponding: directory.notResponding.contains(id),
                      isFetching: catalog.fetching.contains(id), fetchFailed: catalog.fetchFailed.contains(id),
                      hasSavedGames: !(catalog.apps[id] ?? []).isEmpty,
-                     checkedAgo: directory.lastChecked[id].map { Int(now.timeIntervalSince($0)) })
+                     checkedAgo: now.flatMap { now in directory.lastChecked[id].map { Int(now.timeIntervalSince($0)) } })
     }
 
     private var worst: PCStatusLine.Health { hosts.map { line($0, now: .now).health }.max() ?? .fine }
 
     private var isSpinning: Bool { isRefreshing || worst == .checking }
+
+    private var word: String {
+        switch worst {
+        case .fine: "Online"
+        case .checking: "Checking…"
+        case .problem: "Needs Attention"
+        case .offline: "Offline"
+        }
+    }
 
     private var dot: Color {
         switch worst {
@@ -64,7 +82,6 @@ struct PCStatusButton: View {
     }
 
     var body: some View {
-        // A menu rather than a popover: from a toolbar button a popover took two taps to close and then two to open.
         Menu {
             ForEach(hosts) { host in
                 let line = line(host, now: .now)
@@ -72,36 +89,50 @@ struct PCStatusButton: View {
                     Label {
                         Text(line.text)
                     } icon: {
-                        Image(systemName: "circle.fill").symbolRenderingMode(.palette).foregroundStyle(color(line))
+                        Image(systemName: "circle.fill").symbolRenderingMode(.palette).foregroundStyle(Self.color(line))
                     }
                 }
             }
             Divider()
             Button("Refresh", systemImage: "arrow.clockwise", action: refresh).disabled(isRefreshing)
         } label: {
-            // Always the symbol, the arc drawn over it while it spins: on the Duo the system keeps only symbols in
-            // the side column, and moved the button to a bar along the bottom while the arc stood in for it.
-            Image(systemName: "desktopcomputer")
-                .overlay(alignment: .bottomTrailing) {
-                    Circle().fill(dot)
-                        .frame(width: 9, height: 9)
-                        .overlay { Circle().stroke(.black.opacity(0.35), lineWidth: 1) } // shows on light and dark glass
-                        .offset(x: 3, y: 1)
-                }
-                // Shrinks and fades into the arc, and back.
-                .opacity(isSpinning ? 0 : 1)
-                .scaleEffect(isSpinning ? 0.5 : 1)
-                .overlay {
-                    if isSpinning { ArcSpinner().transition(.opacity.combined(with: .scale(scale: 0.5))) }
-                }
+            // A pill in place of Home's title: the PC with its traffic-light dot (or the arc while it checks), and
+            // the status in a word, so the dot's colour comes with its meaning.
+            HStack(spacing: 10) {
+                Image(systemName: "desktopcomputer")
+                    .overlay(alignment: .bottomTrailing) {
+                        Circle().fill(dot)
+                            .frame(width: 9, height: 9)
+                            .overlay { Circle().stroke(.black.opacity(0.35), lineWidth: 1) } // shows on light and dark glass
+                            .offset(x: 3, y: 1)
+                    }
+                    // Shrinks and fades into the arc, and back.
+                    .opacity(isSpinning ? 0 : 1)
+                    .scaleEffect(isSpinning ? 0.5 : 1)
+                    .overlay {
+                        if isSpinning { ArcSpinner().transition(.opacity.combined(with: .scale(scale: 0.5))) }
+                    }
+                Text(word).contentTransition(.opacity)
+            }
+            .font(.body.weight(.semibold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 16)
+            .frame(height: 44) // the standard button height, like the gear's
+            .glassEffect(.regular.interactive(), in: .capsule)
+            .tint(.primary) // white words, not the accent colour a menu gives its label
         }
+        .focusRing(isFocused, cornerRadius: .infinity)
+        .scaleEffect(isHidden ? 0.6 : 1, anchor: .leading)
+        .opacity(isHidden ? 0 : 1)
+        .animation(.spring(duration: 0.3, bounce: 0.2), value: isHidden) // in step with the menu growing out of it
         .animation(.default, value: worst)
         .animation(.spring(duration: 0.35), value: isSpinning)
         .accessibilityLabel("Host Status")
         .accessibilityValue(hosts.map { "\($0.displayName): \(line($0, now: .now).text)" }.joined(separator: ", "))
     }
 
-    private func color(_ line: PCStatusLine) -> Color {
+    /// A host's dot in the menu.
+    static func color(_ line: PCStatusLine) -> Color {
         if line.isWaiting { return .yellow }
         return switch line.health {
         case .fine: .green

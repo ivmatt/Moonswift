@@ -15,6 +15,10 @@ import UIKit
     var isTabBarBelow = false
     /// The guide's height, for pages to keep its room at the bottom.
     var height: CGFloat = 34
+    /// The tab page's side insets (the Duo's side column on one side): with the column on the left, the guide centres
+    /// in the room beside it.
+    var pageLeading: CGFloat = 0
+    var pageTrailing: CGFloat = 0
 
     func set(_ id: UUID, isOverTabs: Bool, _ hints: [Hint]) {
         if let index = entries.firstIndex(where: { $0.id == id }) { entries[index].hints = hints } else { entries.append((id, isOverTabs, hints)) }
@@ -83,7 +87,9 @@ private struct ButtonGuideOverlay: View {
     var body: some View {
         let movesToTop = center.isTabBarBelow
         let isAtBottom = !movesToTop || tabBar.isMinimized || tabBar.isHidden
-        ZStack(alignment: movesToTop ? (isAtBottom ? .bottom : .top) : .bottomLeading) {
+        // The Duo folded, curved side up: its side column is on the left, where the guide would start.
+        let isRailOnLeft = !movesToTop && UIDevice.current.userInterfaceIdiom != .pad && center.pageLeading - center.pageTrailing >= 20
+        ZStack(alignment: movesToTop || isRailOnLeft ? (isAtBottom ? .bottom : .top) : .bottomLeading) {
             Color.clear
             if launcher.stream == nil { // not over a game
                 ControllerHints(hints: center.current)
@@ -91,7 +97,8 @@ private struct ButtonGuideOverlay: View {
                     // Bottom left 36 points in, in line with the pages' content and just into the margin above the
                     // home indicator; on iPhone on the title's line (TabTitle: 23 points down, 48 tall), or level
                     // with the shrunk tab bar.
-                    .padding(.leading, movesToTop ? 0 : HomeView.windowLeadingInset + 36)
+                    .padding(.leading, movesToTop ? 0 : isRailOnLeft ? center.pageLeading : HomeView.windowLeadingInset + 36)
+                    .padding(.trailing, isRailOnLeft ? center.pageTrailing : 0)
                     .padding(.top, movesToTop && !isAtBottom ? HomeView.titleTop(HomeView.windowTopInset) + 8 : 0)
                     .padding(.bottom, !isAtBottom ? 0 : movesToTop ? HomeView.windowBottomInset + 6 : HomeView.windowBottomInset - 4)
                     .id(isAtBottom) // fades out of one place and into the other

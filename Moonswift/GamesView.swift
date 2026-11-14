@@ -45,8 +45,8 @@ struct GamesView: View {
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
     @AppStorage("libraryOrder") private var order = Order.recent
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
-    @State private var favoritesOnly = false
-    @State private var showsApps = true
+    @AppStorage("libraryFavoritesOnly") private var favoritesOnly = false
+    @AppStorage("libraryShowsApps") private var showsApps = true
     /// What the search field filters the wall by (Library is where search lives; there's no Search tab).
     @State private var query = ""
     /// Search is on: the bar shows its close button and stays put at the top as the wall scrolls. Separate from the

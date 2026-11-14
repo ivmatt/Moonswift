@@ -420,6 +420,11 @@ private struct ButtonGuidePlacement: ViewModifier {
                 if shows, !(center?.isTabBarBelow ?? false) { Color.clear.frame(height: max(0, (center?.height ?? 34) - 4)) }
             }
             .onTabBarBelowChange { if reportsLayout, !(tabBar?.isHidden ?? false) { center?.isTabBarBelow = $0 } }
+            .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets in
+                guard reportsLayout else { return }
+                center?.pageLeading = insets.leading
+                center?.pageTrailing = insets.trailing
+            }
             .onAppear { center?.set(id, isOverTabs: !reportsLayout, hints) }
             .onDisappear { center?.remove(id) }
             .onChange(of: hints.map(\.label)) { center?.set(id, isOverTabs: !reportsLayout, hints) }
@@ -451,8 +456,8 @@ struct ControllerHints: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            // Glass, like the tab bar and toolbar it floats with; not interactive, as it can't be tapped.
-            .glassEffect(.regular, in: .capsule)
+            // A pill that blurs what's behind it, not glass: readable over art, quiet on the black pages.
+            .background(.ultraThinMaterial, in: .capsule)
             .transition(.opacity)
             .accessibilityHidden(true) // controller-only help; VoiceOver users have the on-screen controls
         }

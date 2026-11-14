@@ -5,7 +5,12 @@ import SwiftUI
 /// The app's tabs, like Apple's Games app: Home (featured games and rows), Library (every game from every host) and
 /// Hosts; Settings opens over them from each tab's gear. Keeps every PC's status and game list current for all of them, and opens links and Shortcuts.
 struct RootView: View {
-    enum TabID: Hashable, CaseIterable { case home, library, pcs }
+    enum TabID: Hashable, CaseIterable {
+        case home, library, pcs
+
+        var title: String { switch self { case .home: "Home"; case .library: "Library"; case .pcs: "Hosts" } }
+        var symbol: String { switch self { case .home: "house"; case .library: "app.grid.2x2"; case .pcs: "link" } }
+    }
 
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -47,14 +52,7 @@ struct RootView: View {
     @State private var showsSettings = false
 
     var body: some View {
-        TabView(selection: $tab) {
-            Tab("Home", systemImage: "house", value: .home) {
-                HomeView(switchTab: step, openSettings: openSettings, refresh: { Task { await refresh() } },
-                         isRefreshing: isRefreshing)
-            }
-            Tab("Library", systemImage: "app.grid.2x2", value: .library) { GamesView(switchTab: step, openSettings: openSettings) }
-            Tab("Hosts", systemImage: "link", value: .pcs) { PCsView(openSettings: openSettings, switchTab: step) }
-        }
+        tabs
         // On iPhone, the tab bar shrinks to a button while you scroll down (Library, Hosts) and gives the
         // short landscape screen its height back; scrolling up or tapping brings it back. Apple's way, over moving it.
         .tabBarMinimizeBehavior(.onScrollDown)
@@ -113,6 +111,21 @@ struct RootView: View {
         // Outermost, so the sheets and the stream presented above get them too.
         .environment(tabBar)
         .environment(guide)
+    }
+
+    private var tabs: some View {
+        TabView(selection: $tab) {
+            Tab(TabID.home.title, systemImage: TabID.home.symbol, value: .home) {
+                HomeView(switchTab: step, openSettings: openSettings, refresh: { Task { await refresh() } },
+                         isRefreshing: isRefreshing)
+            }
+            Tab(TabID.library.title, systemImage: TabID.library.symbol, value: .library) {
+                GamesView(switchTab: step, openSettings: openSettings)
+            }
+            Tab(TabID.pcs.title, systemImage: TabID.pcs.symbol, value: .pcs) {
+                PCsView(openSettings: openSettings, switchTab: step)
+            }
+        }
     }
 
     private func updatePolling(checkNow shouldCheck: Bool) {

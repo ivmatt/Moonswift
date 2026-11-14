@@ -25,10 +25,16 @@ struct TabToolbar<Other: View>: ToolbarContent {
 }
 
 extension TabToolbar {
-    /// The toolbar runs along the top unless the Duo's side column (its toolbar and tab rail) takes room on the right,
-    /// which makes the tab's right inset larger than its left (an iPhone's are equal, either side of the camera).
+    /// The toolbar runs along the top unless the Duo's side column (its toolbar and tab rail) takes room on one side,
+    /// which makes that inset larger than the other (an iPhone's are equal, either side of the camera). The column is
+    /// on the left with the folded Duo turned curved side up.
     /// shortcut: iOS doesn't say where it put the toolbar; this reads it from the room it takes. Revisit if it says.
     static func hasTopBar(insets: EdgeInsets) -> Bool {
-        UIDevice.current.userInterfaceIdiom == .pad || insets.trailing - insets.leading < 20
+        UIDevice.current.userInterfaceIdiom == .pad || abs(insets.trailing - insets.leading) < 20
+    }
+
+    /// The Duo's side column is on the left (folded, curved side up).
+    static func isRailOnLeft(insets: EdgeInsets) -> Bool {
+        UIDevice.current.userInterfaceIdiom != .pad && insets.leading - insets.trailing >= 20
     }
 }
