@@ -40,7 +40,7 @@ enum ButtonGuideWindow {
         guard window == nil,
               let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
         let window = PassthroughWindow(windowScene: scene)
-        let host = UIHostingController(rootView: ButtonGuideOverlay(center: center, tabBar: tabBar, launcher: launcher)
+        let host = GuideHostingController(rootView: ButtonGuideOverlay(center: center, tabBar: tabBar, launcher: launcher)
             .environment(gamepad))
         host.view.backgroundColor = .clear
         window.rootViewController = host
@@ -49,8 +49,29 @@ enum ButtonGuideWindow {
         self.window = window
     }
 
+    /// The status bar and home indicator follow the app's screen on top (hidden during a stream), not this window,
+    /// which, being the topmost, iOS asks instead: the status bar showed over games.
+    @MainActor static func refreshSystemOverlays() {
+        window?.rootViewController?.setNeedsStatusBarAppearanceUpdate()
+        window?.rootViewController?.setNeedsUpdateOfHomeIndicatorAutoHidden()
+        window?.rootViewController?.setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
+    }
+
     private final class PassthroughWindow: UIWindow {
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
+    }
+
+    private final class GuideHostingController<Content: View>: UIHostingController<Content> {
+        /// The app's own topmost screen: the main window's root, or what it presents (the stream).
+        private var appScreen: UIViewController? {
+            var screen = view.window?.windowScene?.windows.first { !($0 is PassthroughWindow) }?.rootViewController
+            while let presented = screen?.presentedViewController, !presented.isBeingDismissed { screen = presented }
+            return screen
+        }
+        override var childForStatusBarHidden: UIViewController? { appScreen }
+        override var childForStatusBarStyle: UIViewController? { appScreen }
+        override var childForHomeIndicatorAutoHidden: UIViewController? { appScreen }
+        override var childForScreenEdgesDeferringSystemGestures: UIViewController? { appScreen }
     }
 }
 
@@ -79,6 +100,13 @@ private struct ButtonGuideOverlay: View {
         }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.25), value: isAtBottom)
+        .onChange(of: launcher.stream == nil || launcher.isMinimized) {
+            Task { // now, and again once the stream screen has finished sliding in or out
+                ButtonGuideWindow.refreshSystemOverlays()
+                try? await Task.sleep(for: .milliseconds(600))
+                ButtonGuideWindow.refreshSystemOverlays()
+            }
+        }
         .animation(.easeInOut(duration: 0.2), value: center.current.map(\.label))
     }
 }

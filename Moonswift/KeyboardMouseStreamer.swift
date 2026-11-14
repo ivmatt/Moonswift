@@ -69,6 +69,9 @@ nonisolated enum KeyMap {
 
 /// Sends a hardware keyboard and mouse to the host while streaming.
 final class KeyboardMouseStreamer {
+    /// When a mouse or trackpad button was last pressed for real (system uptime), so a trackpad's tap to click, which
+    /// GCMouse doesn't report, can be told from a physical click (TouchInputView).
+    static var lastPhysicalClick: TimeInterval = 0
     private weak var gamepad: GamepadInput?
     private var pressed: [Int: KeyMap.Key] = [:] // by HID usage, so they can all be released
     private var modifiers: Int8 = 0
@@ -132,6 +135,7 @@ final class KeyboardMouseStreamer {
             for (button, code) in buttons {
                 button?.pressedChangedHandler = { [weak self] _, _, pressed in
                     MainActor.assumeIsolated {
+                        if pressed { KeyboardMouseStreamer.lastPhysicalClick = ProcessInfo.processInfo.systemUptime }
                         if self?.isPaused == false {
                             LiSendMouseButtonEvent(CChar(pressed ? BUTTON_ACTION_PRESS : BUTTON_ACTION_RELEASE), code)
                         }

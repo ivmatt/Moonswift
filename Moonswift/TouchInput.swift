@@ -180,7 +180,12 @@ final class TouchInputView: UIView, UIKeyInput {
     private var video: CGRect { VideoGeometry.videoRect(stream: streamSize, in: bounds) }
     private var hostSupportsTouch: Bool { LiGetHostFeatureFlags() & UInt32(LI_FF_PEN_TOUCH_EVENTS) != 0 }
 
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+    override func touchesBegan(_ all: Set<UITouch>, with event: UIEvent?) {
+        for touch in all where touch.type == .indirectPointer {
+            pointerTouches[ObjectIdentifier(touch)] = (touch.timestamp, event?.buttonMask.contains(.secondary) == true)
+        }
+        let touches = fingers(all)
+        guard !touches.isEmpty else { return }
         if activeTouches == 0 { isShortcutGesture = false }
         activeTouches += touches.count
         if isShortcutGesture { // a finger joining an ongoing shortcut (the fourth of a pinch) starts where it lands
@@ -210,7 +215,9 @@ final class TouchInputView: UIView, UIKeyInput {
         }
     }
 
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+    override func touchesMoved(_ all: Set<UITouch>, with event: UIEvent?) {
+        let touches = fingers(all)
+        guard !touches.isEmpty else { return }
         if isShortcutGesture { return track(touches) }
         guard !isPaused else { return }
         for touch in touches {
@@ -222,12 +229,39 @@ final class TouchInputView: UIView, UIKeyInput {
         }
     }
 
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        finish(touches, event: event, cancelled: false)
+    override func touchesEnded(_ all: Set<UITouch>, with event: UIEvent?) {
+        pointerEnded(all, cancelled: false)
+        let touches = fingers(all)
+        if !touches.isEmpty { finish(touches, event: event, cancelled: false) }
     }
 
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        finish(touches, event: event, cancelled: true)
+    override func touchesCancelled(_ all: Set<UITouch>, with event: UIEvent?) {
+        pointerEnded(all, cancelled: true)
+        let touches = fingers(all)
+        if !touches.isEmpty { finish(touches, event: event, cancelled: true) }
+    }
+
+    // MARK: Trackpad and mouse pointer
+
+    /// A trackpad's or mouse's touches (the pointer), when they started and whether it was a secondary (two-finger)
+    /// click. Moves and physical clicks reach the host through GCMouse (KeyboardMouseStreamer), not here; only a
+    /// trackpad's tap to click doesn't, so a quick one with no physical click sends a click. (Upstream Moonlight
+    /// misses tap to click too.)
+    private var pointerTouches: [ObjectIdentifier: (start: TimeInterval, isSecondary: Bool)] = [:]
+
+    /// Finger touches: the pointer's aren't touches on the game, nor trackpad-mode gestures.
+    private func fingers(_ touches: Set<UITouch>) -> Set<UITouch> { touches.filter { $0.type != .indirectPointer } }
+
+    private func pointerEnded(_ touches: Set<UITouch>, cancelled: Bool) {
+        for touch in touches where touch.type == .indirectPointer {
+            guard let (start, isSecondary) = pointerTouches.removeValue(forKey: ObjectIdentifier(touch)),
+                  !cancelled, !isPaused, touch.timestamp - start < 0.3,
+                  KeyboardMouseStreamer.lastPhysicalClick < start - 0.05 // a real click: GCMouse has sent it
+            else { continue }
+            let button = isSecondary ? BUTTON_RIGHT : BUTTON_LEFT
+            LiSendMouseButtonEvent(CChar(BUTTON_ACTION_PRESS), button)
+            LiSendMouseButtonEvent(CChar(BUTTON_ACTION_RELEASE), button)
+        }
     }
 
     private func track(_ touches: Set<UITouch>) {

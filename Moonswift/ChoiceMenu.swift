@@ -90,7 +90,8 @@ private struct ChoiceMenu: View {
             // The row's frame in this view's own coordinates, whatever the page's bars and insets.
             let origin = proxy.frame(in: .named(ChoiceMenuSpec.space)).origin
             let row = spec.anchor.offsetBy(dx: -origin.x, dy: -origin.y)
-            let height = CGFloat(spec.options.count) * Self.rowHeight + 2 * Self.inset
+            // As tall as its choices, or the screen less its margins: then it scrolls (Button Mapping's buttons).
+            let height = min(CGFloat(spec.options.count) * Self.rowHeight + 2 * Self.inset, proxy.size.height - 2 * Self.margin)
             // Over the row's right end, covering its value, like the system's; kept on screen.
             let right = min(row.maxX, proxy.size.width - Self.margin)
             let top = max(Self.margin, min(row.minY - 6, proxy.size.height - height - Self.margin))
@@ -118,6 +119,8 @@ private struct ChoiceMenu: View {
     }
 
     private var panel: some View {
+        ScrollViewReader { scroller in
+        ScrollView {
         VStack(spacing: 0) {
             ForEach(spec.options.indices, id: \.self) { index in
                 Button { choose(index) } label: {
@@ -137,9 +140,15 @@ private struct ChoiceMenu: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .id(index)
             }
         }
         .padding(Self.inset)
+        }
+        .scrollBounceBehavior(.basedOnSize) // a menu that fits doesn't move
+        .onAppear { scroller.scrollTo(focus, anchor: .center) } // opens on the current choice
+        .onChange(of: focus) { withAnimation(.snappy(duration: 0.15)) { scroller.scrollTo(focus, anchor: .center) } }
+        }
         .frame(width: Self.width) // laid out at full size while it grows, so nothing reflows
         .opacity(isOpen ? 1 : 0) // the choices fade in as it grows, out as it shrinks
         .animation(.snappy(duration: 0.15), value: focus)
