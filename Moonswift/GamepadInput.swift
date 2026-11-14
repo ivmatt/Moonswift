@@ -385,6 +385,8 @@ private struct PhoneTabBarHiding: ViewModifier {
     var isMinimized = false
     /// A page has hidden it (`hidesTabBarOnPhone`).
     var isHidden = false
+    /// Home has tucked it away (an iPhone in landscape): the guide stays where it was, as the bar will be back.
+    var isAway = false
 }
 
 private struct TabBarMinimizeTracking: ViewModifier {
@@ -419,7 +421,7 @@ private struct ButtonGuidePlacement: ViewModifier {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if shows, !(center?.isTabBarBelow ?? false) { Color.clear.frame(height: max(0, (center?.height ?? 34) - 4)) }
             }
-            .onTabBarBelowChange { if reportsLayout, !(tabBar?.isHidden ?? false) { center?.isTabBarBelow = $0 } }
+            .onTabBarBelowChange { if reportsLayout, !(tabBar?.isHidden ?? false), !(tabBar?.isAway ?? false) { center?.isTabBarBelow = $0 } }
             .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets in
                 guard reportsLayout else { return }
                 center?.pageLeading = insets.leading

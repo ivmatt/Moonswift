@@ -10,6 +10,8 @@ struct RootView: View {
 
         var title: String { switch self { case .home: "Home"; case .library: "Library"; case .pcs: "Hosts" } }
         var symbol: String { switch self { case .home: "house"; case .library: "app.grid.2x2"; case .pcs: "link" } }
+        /// As the tab bar draws it.
+        var filledSymbol: String { switch self { case .home: "house.fill"; case .library: "app.grid.2x2.fill"; case .pcs: "link" } }
     }
 
     @Environment(\.modelContext) private var context

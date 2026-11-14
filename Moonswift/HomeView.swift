@@ -17,14 +17,35 @@ struct HomeView: View {
     @Environment(GameCatalog.self) private var catalog
     @Environment(StreamLauncher.self) private var launcher
     @Environment(GamepadInput.self) private var gamepad
+    @Environment(TabBarMinimize.self) private var tabBar: TabBarMinimize?
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
     @State private var isAdding = false
+    /// An iPhone in landscape: the tab bar has tucked itself away (`floatsTabBar`).
+    @State private var isTabBarAway = false
+    /// Bumped to restart the tab bar's wait before tucking away.
+    @State private var tabBarWake = 0
+    /// How long the tab bar stays before tucking away: a short while on arriving at Home, longer once you've opened it.
+    @State private var tabBarStay: Duration = .seconds(2.5)
+    /// While tucked away: the stand-in has shrunk into the corner button (false: it's the bar's shape, at the bar's
+    /// place, mid-morph).
+    @State private var isTabBarShrunk = false
+    /// The real bar is hidden, its stand-in alone on screen (the stand-in fades in over it first, and out over it last).
+    @State private var isRealTabBarHidden = false
+    @State private var standInOpacity: Double = 0
+    /// Where the system draws its bar and its shrunk button, read as it tucks away.
+    @State private var tabBarFrames = TabBarFrames.fallback
     @State private var editing: CatalogGame?
     /// The selected game, by ID: playing one moves it to the front of the row, and the selection goes with it.
     /// Controller focus is on the row (1), the hero's buttons (0), or the host status pill (-1).
     @State private var selectedID: String?
     @State private var focusRow = 1
     @State private var heroButton = 0 // 0 Play/Resume, 1 Quit
+    /// An iPhone in landscape (not the Duo, whose rail is beside the page): the page is laid out as if there were no tab
+    /// bar, which floats over the covers when it shows, and tucks itself away to a small button a moment after Home
+    /// comes up (iOS can't shrink its bar on command, only while scrolling, which Home doesn't).
+    private var floatsTabBar: Bool { UIDevice.current.userInterfaceIdiom == .phone && verticalSizeClass == .compact && hasTopBar }
+
     /// The status pill's menu, opened with the controller.
     @State private var statusMenu: ChoiceMenuSpec?
     @State private var pillFrame = RowFrames()
@@ -65,6 +86,8 @@ struct HomeView: View {
     private var statusPill: AnyView? {
         hosts.isEmpty ? nil : AnyView(PCStatusButton(refresh: refresh, isRefreshing: isRefreshing,
                                                      isFocused: gamepad.isActive && focusRow == -1, isHidden: statusMenu != nil)
+            // Floating tab bar: in line with its shrunk button below, rather than the top bar's inner margin in.
+            .offset(x: floatsTabBar ? -10 : 0)
             // In the page's own coordinates for its menu, wherever the pill is: the top bar sits outside the page.
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { pillFrame.frames["status"] = $0 })
     }
@@ -130,6 +153,24 @@ struct HomeView: View {
             }
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
             .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { railInsets = $0 }
+            // Touching the page (not the bar) sends the tab bar away at once.
+            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in tuckTabBarAway() })
+            .toolbar(floatsTabBar && isRealTabBarHidden ? .hidden : .automatic, for: .tabBar)
+            .overlay { tabBarStandIn }
+            // Shows on arriving at Home (and after the button's tap), then tucks away after a moment.
+            .task(id: "\(floatsTabBar)|\(tabBarWake)") {
+                guard floatsTabBar, !isTabBarAway else { return }
+                try? await Task.sleep(for: tabBarStay)
+                if !Task.isCancelled { tuckTabBarAway() }
+            }
+            .onChange(of: isTabBarAway, initial: true) { tabBar?.isAway = isTabBarAway }
+            .onDisappear {
+                withTransaction(Transaction(animation: nil)) {
+                    isTabBarAway = false; isTabBarShrunk = false; isRealTabBarHidden = false; standInOpacity = 0
+                }
+                tabBar?.isAway = false
+                tabBarStay = .seconds(2.5) // the short wait next time Home comes up
+            }
 
             // Out to the screen's edges, under the rail too, like the hero art.
             .background {
@@ -209,13 +250,55 @@ struct HomeView: View {
         // would, at the safe area's edge (the row's 12 points of focus-ring room hang below it, into the home
         // indicator's margin, though not under a tab bar along the bottom).
         // On the Air the row sits right above the guide (just its focus-ring room between), leaving the hero more height.
-        .padding(.bottom, showsGuide ? Self.guideGap : (isTabBarBelow ? 8 : -12))
+        .padding(.bottom, floatsTabBar ? -12 : showsGuide ? Self.guideGap : (isTabBarBelow ? 8 : -12))
+        // Floating tab bar: down to the home indicator's margin whether the bar shows or not, so nothing moves.
+        .padding(.bottom, floatsTabBar ? Self.windowBottomInset - railInsets.bottom : 0)
     }
 
-    /// An iPhone in landscape: short, with the tab bar along the bottom. Stacked, the covers would shrink to a sliver
-    /// with half the screen empty, so the hero goes on the left and the covers, as tall as there's room for, on the
-    /// right. No "Home" title: the tab bar right below already says it (Apple: few controls on screen; keep the tab
-    /// bar visible, so it's the title that goes).
+    /// The tucked-away tab bar, like the system's own when it shrinks while scrolling: a glass button with the tab's
+    /// symbol, in the bottom corner. A tap brings the bar back.
+    /// Stands in for the system's tab bar while it's tucked away, the way the system shrinks it while scrolling: a glass
+    /// copy of the bar, in its exact place, that morphs into the round button in the corner (and back on a tap). The
+    /// system's own bar can't be shrunk from code, and only glass the app draws can morph.
+    private var tabBarStandIn: some View {
+        GeometryReader { proxy in
+            if floatsTabBar, isTabBarAway {
+                let origin = proxy.frame(in: .global).origin
+                TabBarMorph(progress: isTabBarShrunk ? 1 : 0, frames: tabBarFrames, origin: origin, tap: showTabBar)
+                    .opacity(standInOpacity)
+            }
+        }
+        .ignoresSafeArea()
+    }
+
+    /// A quick spring with only a touch of overshoot, like the system's.
+    static let tabBarMorphCurve = Animation.spring(duration: 0.2, bounce: 0.1)
+
+    /// The real bar goes at once and its glass copy, in the same place, shrinks into the corner button.
+    private func tuckTabBarAway() {
+        guard floatsTabBar, !isTabBarAway else { return } // only from the bar showing
+        tabBarFrames = TabBarFrames.read() ?? .fallback
+        withTransaction(Transaction(animation: nil)) { isTabBarAway = true; isTabBarShrunk = false; standInOpacity = 0 }
+        // The copy fades in over the real bar, which then goes underneath it, and only then does it shrink.
+        withAnimation(.easeOut(duration: 0.12)) { standInOpacity = 1 } completion: {
+            withTransaction(Transaction(animation: nil)) { isRealTabBarHidden = true }
+            withAnimation(Self.tabBarMorphCurve) { isTabBarShrunk = true }
+        }
+    }
+
+    /// The corner button grows back into the bar, then the real bar takes its place.
+    private func showTabBar() {
+        // Grows back into the bar, the real bar comes back underneath, and the copy fades out over it.
+        withAnimation(Self.tabBarMorphCurve) { isTabBarShrunk = false } completion: {
+            withTransaction(Transaction(animation: nil)) { isRealTabBarHidden = false }
+            withAnimation(.easeIn(duration: 0.12)) { standInOpacity = 0 } completion: {
+                withTransaction(Transaction(animation: nil)) { isTabBarAway = false }
+                tabBarStay = .seconds(4) // opened on purpose: it stays a little longer
+                tabBarWake += 1
+            }
+        }
+    }
+
     /// The selected game's own hero picture, behind the title and hero and fading out just above the covers; plain
     /// background without.
     @ViewBuilder private var heroArt: some View {
@@ -390,6 +473,7 @@ struct HomeView: View {
     }
 
     private func handle(_ command: GamepadCommand) {
+        tuckTabBarAway() // any press on the page sends the floating tab bar away
         guard launcher.busy == nil, let game = selectedGame else {
             if command == .previousTab { switchTab(-1) } else if command == .nextTab { switchTab(1) } else if command == .settings { openSettings() }
             return
@@ -660,5 +744,98 @@ struct FunctionButtonLabel: View {
             .contentShape(.circle)
             .glassEffect(.regular.interactive(), in: .circle)
             .focusRing(isFocused, cornerRadius: .infinity)
+    }
+}
+
+/// The tab bar's glass stand-in, `progress` of the way from the bar (0) to the corner button (1): one glass shape whose
+/// frame moves between the two, the tabs gone in its first third and the house only showing in its last, blurred while
+/// in motion, so one symbol shows at a time and only clearly once it's nearly there.
+private struct TabBarMorph: View, Animatable {
+    var progress: CGFloat
+    let frames: TabBarFrames
+    let origin: CGPoint
+    let tap: () -> Void
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        let t = progress, bar = frames.bar, button = frames.button
+        let frame = CGRect(x: bar.minX + (button.minX - bar.minX) * t, y: bar.minY + (button.minY - bar.minY) * t,
+                           width: max(button.width, bar.width + (button.width - bar.width) * t),
+                           height: bar.height + (button.height - bar.height) * t)
+        let blur = sin(min(max(t, 0), 1) * .pi) * 4
+        ZStack {
+            tabs
+                .frame(width: bar.width, height: bar.height)
+                .frame(width: frame.width, height: frame.height, alignment: .leading)
+                .clipped()
+                .opacity(1 - min(max(t * 3, 0), 1))
+            Image(systemName: "house.fill").font(.system(size: 19, weight: .semibold))
+                .opacity(min(max((t - 0.65) / 0.35, 0), 1))
+        }
+        .blur(radius: blur)
+        .frame(width: frame.width, height: frame.height)
+        .contentShape(.capsule)
+        .onTapGesture { if progress >= 1 { tap() } }
+        .glassEffect(.clear.interactive(), in: .capsule) // as clear as the system's bar (measured against it)
+        .position(x: frame.midX - origin.x, y: frame.midY - origin.y)
+        .accessibilityElement()
+        .accessibilityLabel("Show Tabs")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    /// The system's bar, as drawn on an iPhone in landscape (measured from it): three equal slots, filled symbols and
+    /// white 12-point labels, and Home, the selected one, on a dark pill.
+    private var tabs: some View {
+        HStack(spacing: 0) {
+            ForEach(RootView.TabID.allCases, id: \.self) { tab in
+                HStack(spacing: 8) {
+                    Image(systemName: tab.filledSymbol).font(.system(size: 16, weight: .medium))
+                    Text(tab.title).font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background { if tab == .home { Capsule().fill(.black.opacity(0.32)).padding(.vertical, 4).padding(.horizontal, 2.5) } }
+            }
+        }
+        // The system's slots, measured: almost none at the left, a little at the right.
+        .padding(.leading, 0.5)
+        .padding(.trailing, 3)
+    }
+}
+
+/// Where the system draws its tab bar and the round button it shrinks to, in the window, read from its views.
+/// shortcut: found by the views' type names, which iOS doesn't promise; if they change, the measured fallback (the
+/// iPhone Air's) is used. Revisit if iOS offers a way to shrink its bar from code.
+struct TabBarFrames {
+    var bar: CGRect
+    var button: CGRect
+
+    @MainActor static func read() -> TabBarFrames? {
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first
+        else { return nil }
+        var bar: CGRect?, button: CGRect?
+        func walk(_ view: UIView) {
+            switch String(describing: type(of: view)) {
+            case "_UITabBarItemPlatterView": bar = view.convert(view.bounds, to: window)
+                bar = view.convert(view.bounds, to: window)
+            case "_UITabBarPlatterView": button = view.convert(view.bounds, to: window)
+            default: break
+            }
+            view.subviews.forEach(walk)
+        }
+        walk(window)
+        guard let bar, let button, bar.width > 0, button.width > 0 else { return nil }
+        return TabBarFrames(bar: bar, button: button)
+    }
+
+    @MainActor static var fallback: TabBarFrames {
+        let size = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.bounds.size }.first
+            ?? CGSize(width: 912, height: 420)
+        return TabBarFrames(bar: CGRect(x: (size.width - 266) / 2, y: size.height - 64, width: 266, height: 44),
+                            button: CGRect(x: 38, y: size.height - 64, width: 44, height: 44))
     }
 }
