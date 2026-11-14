@@ -108,6 +108,16 @@ struct HomeView: View {
             .background {
                 Color(.systemBackground).padding(.leading, -railInsets.leading).padding(.trailing, -railInsets.trailing).ignoresSafeArea()
             }
+            // Back from a stream (disconnected, or shrunk to Picture in Picture): its game selected, with the
+            // controller on Resume, to carry on or quit.
+            .onChange(of: launcher.stream == nil || launcher.isMinimized) { _, isBack in
+                guard isBack, let session = launcher.session,
+                      let game = games.first(where: { $0.sources.contains { $0.pcID == session.pcID && $0.app.id == session.appID } })
+                else { return }
+                withAnimation(.snappy) { selectedID = game.id }
+                focusRow = 0
+                heroButton = 0
+            }
             .task { // each time Home comes on screen
                 isTitleFaded = false
                 try? await Task.sleep(for: .seconds(3))
@@ -117,6 +127,8 @@ struct HomeView: View {
             .sheet(item: $editing) { GameEditView(game: $0) }
             .onGamepad(handle)
         }
+        // A sheet's keyboard (Edit Game's name) mustn't push Home's covers and hero up behind it.
+        .ignoresSafeArea(.keyboard)
     }
 
     /// The button guide's buttons: the selected game's, then the page's.

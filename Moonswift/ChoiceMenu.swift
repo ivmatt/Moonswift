@@ -7,7 +7,7 @@ struct ChoiceMenuSpec {
     /// The row it opened from: its value fades out while the menu is open (`ChoiceRow`).
     let source: AnyHashable
     let options: [String]
-    /// The current choice: ticked, and where the highlight starts.
+    /// The current choice: ticked, and where the highlight starts; -1 for actions rather than choices (none ticked).
     let selected: Int
     /// The setting's row, in the `ChoiceMenuSpec.space` coordinate space: the menu opens beside it.
     let anchor: CGRect
@@ -82,7 +82,7 @@ private struct ChoiceMenu: View {
     init(spec: ChoiceMenuSpec, dismiss: @escaping () -> Void) {
         self.spec = spec
         self.dismiss = dismiss
-        _focus = State(initialValue: spec.selected)
+        _focus = State(initialValue: max(spec.selected, 0)) // -1: nothing ticked, the first highlighted
     }
 
     var body: some View {

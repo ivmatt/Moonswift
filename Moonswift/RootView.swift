@@ -60,6 +60,8 @@ struct RootView: View {
         .tabBarMinimizeBehavior(.onScrollDown)
         .onAppear { ButtonGuideWindow.install(center: guide, gamepad: gamepad, tabBar: tabBar, launcher: launcher) }
         .onChange(of: tab) { tabBar.isMinimized = false } // a tab change brings the tab bar back
+        // Back from a stream (disconnected, or shrunk to Picture in Picture): Home, where its game is (HomeView).
+        .onChange(of: launcher.stream == nil || launcher.isMinimized) { _, isBack in if isBack { tab = .home } }
         // Behind everything, out to the screen's edges (on the Duo, the rail's column too): the grey of the grouped
         // list on Hosts, the plain background elsewhere.
         .background {
