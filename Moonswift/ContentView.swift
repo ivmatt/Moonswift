@@ -50,6 +50,7 @@ struct PCsView: View {
         NavigationStack {
             ScrollViewReader { scroller in
                 List {
+                    Section { } header: { TabTitle(text: "Hosts", topInset: topInset).asListHeader() }
                     Section("My Hosts") {
                         if hosts.isEmpty {
                             Text("No hosts yet.").foregroundStyle(.secondary)
@@ -80,12 +81,10 @@ struct PCsView: View {
                 .onChange(of: focusIndex) { withAnimation { scroller.scrollTo(items[focusIndex].id) } }
             }
             .tint(.primary) // rows are buttons, but shouldn't look like links
-            .safeAreaInset(edge: .bottom) { ControllerHints(hints: [([.y], "Host Menu"), ([.menu], "Settings")]) }
+            .tracksTabBarMinimize().hidesTabBarOnPhone(gamepad.isActive && focusIndex > 0).buttonGuide([([.y], "Host Menu"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")])
             .navigationTitle("Hosts")
             .toolbar(.hidden, for: .navigationBar) // the title is TabTitle, placed like Home's
-            .safeAreaInset(edge: .top, spacing: 0) { // the tab's title, fixed and placed like every tab's
-                TabTitle(text: "Hosts", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 4).background(Color(.systemGroupedBackground)) // the list's grey
-            }
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
             .sheet(isPresented: $isAdding) { AddHostView() }
             .sheet(item: $pairing) { target in

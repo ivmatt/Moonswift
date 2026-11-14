@@ -20,6 +20,10 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Moonswift listens when you search your games by voice.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Moonswift turns what you say into a search of your games.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_nvstream._tcp</string>

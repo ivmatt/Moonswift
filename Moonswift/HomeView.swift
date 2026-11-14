@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Home, after Apple's Games app, on one screen with no scrolling: one row of every game, most recently played first,
 /// and above it a hero for the selected game (your own art behind it, if you added some), with Play, or Resume and
-/// Quit while it runs. Tap a cover to select it, tap again to play. Controller: left/right through the row, up/down
+/// Quit while it runs. Tap a cover to select it, and Play to play it. Controller: left/right through the row, up/down
 /// between the row and the hero's buttons, A plays (or the button), Y edits the game, X quits it, L1/R1 switch tabs,
 /// Menu opens Settings.
 struct HomeView: View {
@@ -25,8 +25,9 @@ struct HomeView: View {
     @State private var selectedID: String?
     @State private var focusRow = 1
     @State private var heroButton = 0 // 0 Play/Resume, 1 Quit
+    @State private var isPressingPlay = false
     @State private var topInset: CGFloat = 0
-    @State private var guideHeight: CGFloat = 0
+    @AppStorage(SettingsKey.buttonGuide) private var guideMode = ButtonGuideMode.automatic
     /// The tab rail's width on either side: the hero art reaches under it, so it spans the whole screen.
     @State private var railInsets = EdgeInsets()
     @State private var heroFold = FoldAvoidance(fold: nil, in: .zero)
@@ -73,6 +74,7 @@ struct HomeView: View {
                     dashboard
                 }
             }
+            .buttonGuide(guideHints) // inside the insets measured below, which say where the tab bar is
             .navigationTitle("") // drawn by TabTitle instead, lined up with the content 36 points in
             .toolbar {
                 if !hosts.isEmpty {
@@ -94,21 +96,11 @@ struct HomeView: View {
         }
     }
 
-    /// With a controller: the button guide, bottom left, in line with the page's content and resting on the bottom of
-    /// the safe area. It slides away when the controller goes, and the covers grow into its space.
-    @ViewBuilder private var buttonGuide: some View {
-        if gamepad.isControllerConnected, !games.isEmpty {
-            ControllerHints(hints: [([.a], "Play"), ([.y], "Edit")]
-                            + (selectedGame?.isRunning(directory) == true ? [([.x], "Quit")] : [])
-                            // Side by side the guide shares the hero's column: just the game's own buttons.
-                            + (isSideBySide ? [] : [([.view], "Refresh"), ([.menu], "Settings")]))
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { guideHeight = $0 }
-                .padding(.leading, 36) // lined up with the title, hero and covers
-                // ControllerHints keeps 8 points below itself: its pill ends at the safe area's edge, or keeps those 8
-                // points clear of a tab bar along the bottom.
-                .offset(y: isTabBarBelow ? 0 : 8)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
+    /// The button guide's buttons: the selected game's, then the page's.
+    private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
+        guard !games.isEmpty else { return [] }
+        return [([.a], "Play"), ([.y], "Edit")] + (selectedGame?.isRunning(directory) == true ? [([.x], "Quit")] : [])
+            + [([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")]
     }
 
     private var welcome: some View {
@@ -131,7 +123,7 @@ struct HomeView: View {
                 if let game = selectedGame {
                     HeroCard(game: game, subtitle: heroSubtitle(game), isShort: isShort,
                              isRunning: game.isRunning(directory), focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
-                             play: { start(game) }, quit: { quit(game) })
+                             play: { start(game) }, quit: { quit(game) }, isPressingPlay: isPressingPlay)
                         .frame(maxWidth: heroFold.maxWidth ?? .infinity, alignment: .leading)
                 }
             }
@@ -156,9 +148,7 @@ struct HomeView: View {
         // With a controller, room for the button guide (its pill, then a gap); without, the covers end where the guide
         // would, at the safe area's edge (the row's 12 points of focus-ring room hang below it, into the home
         // indicator's margin, though not under a tab bar along the bottom).
-        .padding(.bottom, gamepad.isControllerConnected ? guideHeight - (isTabBarBelow ? 0 : 8) + Self.guideGap
-                                                        : (isTabBarBelow ? 8 : -12))
-        .overlay(alignment: .bottomLeading) { buttonGuide }
+        .padding(.bottom, showsGuide ? Self.guideGap : (isTabBarBelow ? 8 : -12))
     }
 
     /// An iPhone in landscape: short, with the tab bar along the bottom. Stacked, the covers would shrink to a sliver
@@ -174,11 +164,10 @@ struct HomeView: View {
                 if let game = selectedGame {
                     HeroCard(game: game, subtitle: heroSubtitle(game), isShort: true,
                              isRunning: game.isRunning(directory), focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
-                             play: { start(game) }, quit: { quit(game) })
+                             play: { start(game) }, quit: { quit(game) }, isPressingPlay: isPressingPlay)
                         .fixedSize(horizontal: false, vertical: true) // its own height, centred in the column
                 }
                 Spacer(minLength: 0)
-                buttonGuide.padding(.bottom, 8)
             }
             .containerRelativeFrame(.horizontal) { width, _ in width * 0.38 }
             VStack(spacing: 0) {
@@ -225,10 +214,11 @@ struct HomeView: View {
         return UnitPoint(x: slotLeading / (rowWidth - coverWidth), y: 0.5)
     }
 
-    private func isBeforeSelection(_ game: CatalogGame, in games: [CatalogGame]) -> Bool {
+    /// How many covers `game` sits before the selection (0 for the selection and those after it).
+    private func placesBeforeSelection(_ game: CatalogGame, in games: [CatalogGame]) -> Int {
         guard let index = games.firstIndex(where: { $0.id == game.id }),
-              let selected = games.firstIndex(where: { $0.id == selectedGame?.id }) else { return false }
-        return index < selected
+              let selected = games.firstIndex(where: { $0.id == selectedGame?.id }) else { return 0 }
+        return max(0, selected - index)
     }
 
     /// Side by side, a swipe along the row moves the selection, a cover per cover-width dragged (a flick goes further),
@@ -267,17 +257,18 @@ struct HomeView: View {
     /// The tab bar runs along the bottom (the Duo's inner display in portrait), so nothing may hang below the safe area.
     /// shortcut: iOS doesn't say where its tab bar is; a bottom inset this tall is one. Revisit if the system says.
     private var isTabBarBelow: Bool { railInsets.bottom > 40 }
+    private var showsGuide: Bool { guideMode.isShown(controllerConnected: gamepad.isControllerConnected) && !games.isEmpty }
 
     /// Above the guide: with the cover row's 12 points of focus-ring room, the same 28 points as between Play and the
     /// covers (the hero's 16 below Play, plus those 12).
     static let guideGap: CGFloat = 16
     /// Covers are bigger without a controller (easier to tap), smaller with one to make room for its guide; and on a
-    /// short screen (the Duo's outer display) no taller than about a third of Home, so the hero keeps its room.
+    /// short screen (the Duo's outer display) no taller than 38% of Home, so the hero keeps its room.
     private var coverWidth: CGFloat {
         // Side by side, the covers have the height to themselves: about two thirds of it, leaving focus-ring room.
         if isSideBySide, homeHeight > 0 { return (homeHeight * 0.66 * coverShape.ratio).rounded() }
-        let preferred: CGFloat = gamepad.isControllerConnected ? 104 : 128
-        return homeHeight > 0 ? min(preferred, (homeHeight * 0.34 * coverShape.ratio).rounded()) : preferred
+        let preferred: CGFloat = showsGuide ? 116 : 128
+        return homeHeight > 0 ? min(preferred, (homeHeight * 0.38 * coverShape.ratio).rounded()) : preferred
     }
     /// Home is short (the Duo's outer display): the hero's title is set smaller.
     private var isShort: Bool { homeHeight > 0 && homeHeight < 520 }
@@ -285,6 +276,14 @@ struct HomeView: View {
     /// The window's top safe area: a tab without a toolbar has just this.
     static var windowTopInset: CGFloat {
         UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.top }.first ?? 0
+    }
+    /// The window's bottom safe area: the home indicator's room.
+    static var windowBottomInset: CGFloat {
+        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.bottom }.first ?? 0
+    }
+    /// The window's leading safe area: the notch's side of an iPhone in landscape.
+    static var windowLeadingInset: CGFloat {
+        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.left }.first ?? 0
     }
 
     /// Where tab titles start: a fixed space below the top of the safe area (the status bar, where there is one), as in
@@ -337,10 +336,10 @@ struct HomeView: View {
                             CoverTile(game: game, client: client(for: game), isRunning: game.isRunning(directory),
                                       offlinePC: offlinePC(game), isFocused: focusRow == 1 && game.id == selectedGame?.id,
                                       isGlass: isSideBySide && game.id != selectedGame?.id,
-                                      fadesOut: isSideBySide && isBeforeSelection(game, in: games))
+                                      fade: isSideBySide ? CoverTile.Fade(placesBeforeSelection: placesBeforeSelection(game, in: games)) : .none)
                                 .frame(width: coverWidth)
-                                .onTapGesture { // select, then play
-                                    if game.id == selectedGame?.id { start(game) } else { withAnimation(.snappy) { selectedID = game.id } }
+                                .onTapGesture { // selects only: Play starts it, so a stray second tap can't
+                                    withAnimation(.snappy) { selectedID = game.id }
                                     focusRow = 1
                                 }
                                 .contextMenu { gameMenu(game) }
@@ -398,6 +397,16 @@ struct HomeView: View {
         }
     }
 
+    /// A on a cover or Play: the Play button presses, then the game starts.
+    private func pressPlay(_ game: CatalogGame) {
+        isPressingPlay = true
+        Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            isPressingPlay = false
+            start(game)
+        }
+    }
+
     private func handle(_ command: GamepadCommand) {
         guard launcher.busy == nil, let game = selectedGame else {
             if command == .previousTab { switchTab(-1) } else if command == .nextTab { switchTab(1) } else if command == .settings { openSettings() }
@@ -416,7 +425,7 @@ struct HomeView: View {
                 withAnimation(.snappy) { selectedID = games[min(max(index + offset, 0), max(count - 1, 0))].id }
             }
         case .select:
-            if focusRow == 0, heroButton == 1, isRunning { quit(game) } else { start(game) }
+            if focusRow == 0, heroButton == 1, isRunning { quit(game) } else { pressPlay(game) }
         case .alternate: if isRunning { quit(game) }
         case .menu: editing = game
         case .options: refresh()
@@ -440,6 +449,11 @@ private struct HeroCard: View {
     let focusedButton: Int?
     let play: () -> Void
     let quit: () -> Void
+    /// A controller's A on a cover: the Play button shows a press as the game starts, so A reads as pressing it.
+    var isPressingPlay = false
+    /// Big enough to hold its own beside the Play button; with Dynamic Type.
+    @ScaledMetric(relativeTo: .largeTitle) private var titleSize: CGFloat = 46
+    @ScaledMetric(relativeTo: .title) private var shortTitleSize: CGFloat = 36
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -447,7 +461,7 @@ private struct HeroCard: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(isRunning ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
             Text(game.title)
-                .font(isShort ? .title.bold() : .largeTitle.bold()) // 28 or 34 points by default, and Dynamic Type
+                .font(.system(size: isShort ? shortTitleSize : titleSize, weight: .bold))
                 .foregroundStyle(.primary)
                 .lineLimit(2)
                 .minimumScaleFactor(0.6)
@@ -458,6 +472,9 @@ private struct HeroCard: View {
                 }
                 .buttonStyle(.glass)
                 .focusRing(focusedButton == 0, cornerRadius: .infinity) // the glass button is a capsule
+                .scaleEffect(isPressingPlay ? 0.92 : 1)
+                .brightness(isPressingPlay ? 0.25 : 0)
+                .animation(.snappy(duration: 0.12), value: isPressingPlay)
                 if isRunning {
                     Button(action: quit) {
                         Text("Quit").font(.headline).frame(width: 90)
@@ -488,10 +505,16 @@ struct CoverTile: View {
     let offlinePC: String?
     let isFocused: Bool
     /// Clear glass with the art greyed and faint, so what's behind shows through (the side-by-side Home's covers
-    /// other than the selected one); `fadesOut` also fades it away to its left (those before the selection, beside the
-    /// hero's title).
+    /// other than the selected one); `fade` clears it away beside the hero's title and Play button.
     var isGlass = false
-    var fadesOut = false
+    var fade = Fade.none
+
+    /// Side by side, the covers left of the selection go so they don't cover the hero: the one beside it is clear on
+    /// its left half and comes in over its right; those further left are gone.
+    enum Fade {
+        case none, half, gone
+        init(placesBeforeSelection places: Int) { self = places == 0 ? .none : places == 1 ? .half : .gone }
+    }
     @Environment(GameCatalog.self) private var catalog
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
 
@@ -524,13 +547,15 @@ struct CoverTile: View {
             .clipShape(.rect(cornerRadius: 14))
             .background { if isGlass { Color.clear.glassEffect(.clear, in: .rect(cornerRadius: 14)) } }
             .mask {
-                LinearGradient(stops: [.init(color: .black.opacity(fadesOut ? 0 : 1), location: 0),
-                                       .init(color: .black.opacity(fadesOut ? 0.5 : 1), location: 0.5),
+                LinearGradient(stops: [.init(color: .black.opacity(fade == .none ? 1 : 0), location: 0),
+                                       .init(color: .black.opacity(fade == .none ? 1 : 0), location: 0.5),
                                        .init(color: .black, location: 1)], startPoint: .leading, endPoint: .trailing)
                     .padding(-16) // the focus ring and shadow stay inside the mask
             }
             .animation(.snappy, value: isGlass) // turns solid as it becomes the selection
-            .animation(.snappy, value: fadesOut)
+            .opacity(fade == .gone ? 0 : 1)
+            .allowsHitTesting(fade != .gone) // nothing to tap where nothing shows
+            .animation(.snappy, value: fade)
             .overlay {
                 if isRunning { RoundedRectangle(cornerRadius: 14).stroke(.green, lineWidth: 3) }
             }
@@ -580,6 +605,61 @@ struct TabTitle<Accessory: View>: View {
             .frame(minHeight: FunctionButtonLabel.size) // every tab's title on the same line, button or not
             .padding(.top, isTabBarOnTop ? 8 : HomeView.titleTop(topInset) - topInset)
         }
+    }
+}
+
+extension TabTitle {
+    /// As a list's first header: it scrolls away with the list, under the system's soft blur at the top edge, like the
+    /// titles in Apple's own apps. 36 points in, like every tab's title.
+    func asListHeader() -> some View { ListTitle(title: self) }
+}
+
+extension View {
+    /// As a scrolling title leaves the top, it blurs and fades on its way up (the Duo has no top bar for the system's
+    /// scroll-edge blur to show in).
+    func blursAway() -> some View { modifier(BlurAway()) }
+}
+
+/// Blurs and fades by how far it has scrolled up from where it rests, with a little slack.
+private struct BlurAway: ViewModifier {
+    @State private var rest: CGFloat = -.infinity
+    @State private var gone: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .scrollView) } action: { frame in
+                // Where it rests, taken once: following the highest top seen let a pull past the top move it, so the
+                // title stayed blurred afterwards.
+                guard frame.height > 0 else { return }
+                if rest == -.infinity { rest = frame.minY }
+                let next = min(max((rest - 12 - frame.minY) / frame.height, 0), 1)
+                if abs(next - gone) > 0.01 || next == 0 || next == 1 { gone = next }
+            }
+            .blur(radius: gone * 10)
+            .opacity(1 - gone)
+    }
+}
+
+/// A tab title as a list's header: the list sets headers in from the edge and greys them, so this measures where it
+/// landed on screen and moves it to where Home's and Library's titles are (36 points in from the window's safe area,
+/// at its top), in the title's own colour.
+private struct ListTitle<Accessory: View>: View {
+    let title: TabTitle<Accessory>
+    /// Where the list put it, taken once: following it as it scrolled moved the padding with it, and the title
+    /// flickered and jittered.
+    @State private var origin: CGPoint?
+
+    var body: some View {
+        title
+            .foregroundStyle(Color(.label))
+            .textCase(nil)
+            .padding(.leading, origin.map { 36 + HomeView.windowLeadingInset - $0.x } ?? 0)
+            .padding(.top, origin.map { HomeView.windowTopInset - $0.y } ?? 0)
+            // Measured outside the padding, so the offset doesn't depend on itself.
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                if origin == nil, frame.height > 0 { origin = CGPoint(x: frame.minX.rounded(), y: frame.minY.rounded()) }
+            }
+            .blursAway()
     }
 }
 

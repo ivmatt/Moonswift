@@ -81,8 +81,8 @@ private struct ActionMenu: View {
             switch command {
             case .up, .down: focus = FocusMove.next(focus, count: rows.count, columns: 1, command)
             case .select: choose(focus)
-            case .back, .menu, .alternate: dismiss()
-            case .left, .right, .streamMenu, .settings, .options, .previousTab, .nextTab: break
+            case .back, .menu, .alternate, .options: dismiss() // View closes what it opened (Library's filter menu)
+            case .left, .right, .streamMenu, .settings, .previousTab, .nextTab: break
             }
         }
     }

@@ -831,6 +831,7 @@ struct LibraryColumnsTests {
         #expect(GamesView.columns(forWidth: 200) == 2) // never fewer than two
         #expect(GamesView.columns(forWidth: 788, height: 420) == 6) // iPhone Air in landscape: a row fits above the tab bar
         #expect(GamesView.columns(forWidth: 867, height: 669) == 6) // Duo, open: the height changes nothing
+        #expect(GamesView.columns(forWidth: 1342, height: 0) == 10) // a layout pass with no height: still sane
         for width in stride(from: 200, through: 1400, by: 37) { #expect(GamesView.columns(forWidth: CGFloat(width)) % 2 == 0) }
     }
 }

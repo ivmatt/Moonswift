@@ -31,6 +31,7 @@ struct RootView: View {
     }
     @State private var menu: MenuSpec?
     @State private var isRefreshing = false
+    @State private var tabBar = TabBarMinimize()
 
     var body: some View {
         TabView(selection: $tab) {
@@ -45,6 +46,8 @@ struct RootView: View {
         // On iPhone, the tab bar shrinks to a button while you scroll down (Library, Search, Hosts, Settings) and gives the
         // short landscape screen its height back; scrolling up or tapping brings it back. Apple's way, over moving it.
         .tabBarMinimizeBehavior(.onScrollDown)
+        .environment(tabBar)
+        .onChange(of: tab) { tabBar.isMinimized = false } // a tab change brings the tab bar back
         // Behind everything, out to the screen's edges (on the Duo, the rail's column too): the grey of the grouped
         // lists on PCs, Settings and Search, the plain background elsewhere.
         .background {

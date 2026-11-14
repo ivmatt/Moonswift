@@ -31,19 +31,20 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
     @AppStorage(SettingsKey.playAudioOnPC) private var playAudioOnPC = false
     @AppStorage(SettingsKey.hdr) private var hdr = false
+    @AppStorage(SettingsKey.buttonGuide) private var buttonGuide = ButtonGuideMode.automatic
     @State private var focus = 0
     @State private var liveBitrateNote: String?
     @State private var bitrateChange: Task<Void, Never>?
     @State private var isShowingAbout = false
     @State private var isShowingButtonMapping = false
 
-    private enum Row { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, buttonMapping, coverShape, about }
+    private enum Row { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, buttonMapping, buttonGuide, coverShape, about }
     private enum BitrateMode: String, CaseIterable { case automatic = "Automatic", custom = "Custom" }
     private var bitrateMode: BitrateMode {
         bitrate == 0 ? .automatic : .custom
     }
     private var rows: [Row] {
-        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : []) + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay, .pcAudio, .buttonMapping, .coverShape, .about]
+        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : []) + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .overlay, .pcAudio, .buttonMapping, .buttonGuide, .coverShape, .about]
     }
     private var videoFormats: Int32 {
         StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware, av1InHardware: ScreenInfo.av1InHardware,
@@ -67,7 +68,6 @@ struct SettingsView: View {
     private var automaticBitrate: Int { StreamSettings.bitrate(width: size.width, height: size.height, fps: fps) }
 
     #if DEBUG
-    @AppStorage(GamepadInput.debugControllerKey) private var debugController = ""
     @AppStorage(PCDirectory.debugOfflineKey) private var debugOffline = false
     @Environment(PCDirectory.self) private var directory
     #endif
@@ -75,6 +75,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                if isTab { Section { } header: { TabTitle(text: "Settings", topInset: topInset).asListHeader() } }
                 if needsReconnect, let live {
                     Section {
                         row(.reconnect) {
@@ -166,8 +167,15 @@ struct SettingsView: View {
                     row(.buttonMapping) {
                         Button("Button Mapping") { isShowingButtonMapping = true }.foregroundStyle(.primary)
                     }
+                    row(.buttonGuide) {
+                        Picker("Button Guide", selection: $buttonGuide) {
+                            ForEach(ButtonGuideMode.allCases, id: \.self) { Text($0.rawValue) }
+                        }
+                    }
                 } header: {
                     Text("Controller")
+                } footer: {
+                    Text("The strip of controller buttons along the bottom. Automatic shows it while a controller is connected.")
                 }
                 if live == nil { // not while streaming
                     Section {
@@ -188,17 +196,12 @@ struct SettingsView: View {
                 #if DEBUG
                 if live == nil {
                     Section {
-                        Picker("Controller", selection: $debugController) {
-                            Text("Automatic").tag("")
-                            Text("Connected").tag("YES")
-                            Text("Disconnected").tag("NO")
-                        }
                         Toggle("Hosts Offline", isOn: $debugOffline)
                             .onChange(of: debugOffline) { if DemoMode.isOn { directory.setDemo(pcID: DemoMode.pcID, running: 1) } }
                     } header: {
                         Text("Developer")
                     } footer: {
-                        Text("Debug builds only. Acts as if a controller were connected or not, and as if every host were offline, whatever is, to check layouts on the simulator.")
+                        Text("Debug builds only. Acts as if every host were offline, whatever is, to check layouts on the simulator.")
                     }
                 }
                 #endif
@@ -213,11 +216,10 @@ struct SettingsView: View {
             .navigationTitle(live == nil ? "Settings" : "Stream Settings")
             // As a tab, the title is TabTitle, placed like Home's; as a sheet (from a stream) it keeps its bar and Done.
             .toolbar(isTab ? .hidden : .automatic, for: .navigationBar)
-            .safeAreaInset(edge: .top, spacing: 0) { // as a tab: the title, fixed and placed like every tab's
-                if isTab {
-                    TabTitle(text: "Settings", topInset: topInset).padding(.horizontal, 36).padding(.bottom, 4).background(Color(.systemGroupedBackground)) // the list's grey
-                }
-            }
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .tracksTabBarMinimize()
+            .hidesTabBarOnPhone(isTab && gamepad.isActive && focus > 0)
+            .buttonGuide(isTab ? [([.l1, .r1], "Tabs")] : [])
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
             .navigationDestination(isPresented: $isShowingAbout) { AboutView() }
             .navigationDestination(isPresented: $isShowingButtonMapping) { ButtonMappingView() }
@@ -286,6 +288,7 @@ struct SettingsView: View {
         case .pcAudio: playAudioOnPC.toggle()
         case .hdr: hdr.toggle()
         case .coverShape: coverShape = stepped(coverShape, in: CoverShape.allCases)
+        case .buttonGuide: buttonGuide = stepped(buttonGuide, in: ButtonGuideMode.allCases)
         case .reconnect, .about, .buttonMapping: break
         }
     }
