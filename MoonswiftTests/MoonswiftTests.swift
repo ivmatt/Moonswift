@@ -393,7 +393,7 @@ struct StreamSettingsTests {
     }
 
     @Test func endedStreamsExplainThemselves() {
-        #expect(terminationReason(ML_ERROR_NO_VIDEO_TRAFFIC) == "The host sent no video. A lower bitrate may help.")
+        #expect(terminationReason(ML_ERROR_NO_VIDEO_TRAFFIC) == "The host sent no video.")
         #expect(terminationReason(-999) == "Connection lost (error -999).")
     }
 
@@ -904,5 +904,21 @@ struct FoldFilterTests {
         #expect(session?.isOwn == false)
         #expect(session?.end?.id == 2147483604)
         #expect(catalog.remoteSession(on: "other") == nil)
+    }
+}
+
+struct StreamFailureTests {
+    @Test func problemAndSolutionsFollowWhatWentWrong() {
+        let host = StreamFailure(message: "The host sent no video. A lower bitrate may help.\n\nThis network lets those ports through, so the host's side is blocking UDP 47998, UDP 48000. Check the host's firewall.", hadPicture: false)
+        #expect(host.problem == "The host's firewall is blocking the streaming ports.")
+        #expect(host.solutions[0] == "Allow UDP 47998, UDP 48000 in the host's firewall.")
+        let noVideo = StreamFailure(message: "The host sent no video.", hadPicture: false)
+        #expect(noVideo.problem == "The host didn't send any video." && noVideo.solutions[0].contains("Quit & Retry"))
+        let stuck = StreamFailure(message: "The host sent no video.", hadPicture: false, hostSeemsStuck: true)
+        #expect(stuck.problem.contains("stuck") && stuck.solutions[0].hasPrefix("Restart"))
+        let noPicture = StreamFailure(message: "The host didn't send a picture within 15 seconds.", hadPicture: false)
+        #expect(!noPicture.isConnection && noPicture.solutions[0].contains("Quit & Retry"))
+        let ended = StreamFailure(message: "The host ended the stream.", hadPicture: true)
+        #expect(ended.problem == "The host ended the stream." && ended.solutions.last!.contains("logs"))
     }
 }

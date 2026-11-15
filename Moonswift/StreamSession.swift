@@ -134,7 +134,9 @@ nonisolated private let audioRenderer = AudioRenderer()
             liveStats.withLock { $0.isPoor = status == CONN_STATUS_POOR }
         }
         listener.connectionTerminated = { code in
-            reportFailure(StreamStats.State.ended, terminationReason(code), ports: LiGetPortFlagsFromTerminationErrorCode(code))
+            // No port test here: it connected, so a passing test would wrongly blame the host's firewall when the host
+            // just had nothing to send (e.g. its display broke).
+            reportFailure(StreamStats.State.ended, terminationReason(code), ports: 0)
         }
         // The host's requests for the controllers arrive on the library's threads; apply them on the main thread.
         listener.rumble = { number, low, high in
@@ -235,7 +237,7 @@ nonisolated private let audioRenderer = AudioRenderer()
 nonisolated func terminationReason(_ code: Int32) -> String {
     switch code {
     case ML_ERROR_GRACEFUL_TERMINATION: "The host ended the stream."
-    case ML_ERROR_NO_VIDEO_TRAFFIC: "The host sent no video. A lower bitrate may help."
+    case ML_ERROR_NO_VIDEO_TRAFFIC: "The host sent no video."
     case ML_ERROR_NO_VIDEO_FRAME: "Video arrived but couldn't be shown. A lower bitrate may help."
     case ML_ERROR_UNEXPECTED_EARLY_TERMINATION: "The host ended the stream unexpectedly. The game may have closed."
     case ML_ERROR_PROTECTED_CONTENT: "The host can't stream protected content (DRM video)."

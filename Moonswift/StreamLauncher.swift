@@ -172,15 +172,36 @@ import SwiftUI
 
     /// The stream screen's reconnect (after the background, a network switch, Apply & Reconnect): find the PC at
     /// whichever address answers now, and resume with the current settings.
-    func reconnect() async throws -> (HostClient, StreamTarget) {
+    /// Quit & Retry is only offered for this device's own game: a joined session is another device's.
+    /// Starts in a row, per host, that connected but never got a picture: from the second, its display is likely stuck
+    /// (the host can't tell clients that itself).
+    @ObservationIgnored private var pictureless: [String: Int] = [:]
+    func countPictureless() -> Int {
+        guard let id = streaming?.pc.id else { return 0 }
+        pictureless[id, default: 0] += 1
+        return pictureless[id] ?? 0
+    }
+    func notePicture() { if let id = streaming?.pc.id, pictureless[id] != nil { pictureless[id] = nil } }
+
+    var canRelaunch: Bool { streaming?.app.sessionControl == nil }
+
+    /// `fresh`: quits the game first and launches it again (Quit & Retry), rather than resuming it.
+    func reconnect(fresh: Bool = false) async throws -> (HostClient, StreamTarget) {
         guard var (app, pc) = streaming, let address = await Self.answeringAddress(pc) else {
             throw ServerInfoError.unreachable(.timedOut)
         }
         pc.client = HostClient(hostID: pc.id, address: address, httpsPort: pc.client.httpsPort, serverCert: pc.client.serverCert)
         streaming = (app, pc)
         let settings = Self.settings
-        let launch = try await pc.client.resume(app, width: settings.width, height: settings.height, fps: settings.fps,
+        let launch: LaunchSession
+        if fresh {
+            _ = try? await pc.client.quit() // nothing running is fine: it just launches
+            launch = try await pc.client.launch(app, width: settings.width, height: settings.height, fps: settings.fps,
                                                 videoFormats: settings.formats)
+        } else {
+            launch = try await pc.client.resume(app, width: settings.width, height: settings.height, fps: settings.fps,
+                                                videoFormats: settings.formats)
+        }
         return (pc.client, Self.target(app, launch))
     }
 
@@ -283,7 +304,7 @@ private struct StreamWindow: View {
 
     var body: some View {
         let pinch = launcher.pinchProgress
-        StreamView(client: client, target: target, resume: launcher.reconnect)
+        StreamView(client: client, target: target, resume: { try await launcher.reconnect(fresh: $0) })
             .clipShape(.rect(cornerRadius: pinch == nil ? 0 : 36))
             .scaleEffect(max(pinch ?? 1, 0.25))
             .shadow(color: .black.opacity(pinch == nil ? 0 : 0.5), radius: 20, y: 8)

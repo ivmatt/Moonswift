@@ -72,6 +72,9 @@ struct SettingsView: View {
 
     #if DEBUG
     @AppStorage(PCDirectory.debugOfflineKey) private var debugOffline = false
+    #if DEBUG
+    @AppStorage(FakeStreamFailure.key) private var fakeFailure = FakeStreamFailure.off
+    #endif
     @Environment(PCDirectory.self) private var directory
     #endif
 
@@ -186,10 +189,13 @@ struct SettingsView: View {
                     Section {
                         Toggle("Hosts Offline", isOn: $debugOffline)
                             .onChange(of: debugOffline) { if DemoMode.isOn { directory.setDemo(pcID: DemoMode.pcID, running: 1) } }
+                        Picker("Fail Next Stream", selection: $fakeFailure) {
+                            ForEach(FakeStreamFailure.allCases, id: \.self) { Text($0.rawValue) }
+                        }
                     } header: {
                         Text("Developer")
                     } footer: {
-                        Text("Debug builds only. Acts as if every host were offline, whatever is, to check layouts on the simulator.")
+                        Text("Debug builds only. Hosts Offline acts as if every host were offline. Fail Next Stream shows that failure page 2 seconds into the next stream, once.")
                     }
                 }
                 #endif

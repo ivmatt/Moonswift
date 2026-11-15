@@ -26,10 +26,11 @@ struct StreamView: View {
     /// Both change on a reconnect: the PC may answer at another address, and the new session has its own keys.
     @State private var client: HostClient
     @State private var target: StreamTarget
-    /// Finds the PC again, resumes the game with the current settings, and returns the new connection.
-    let resume: () async throws -> (HostClient, StreamTarget)
+    /// Finds the PC again, resumes the game with the current settings (or with `true`, quits it and launches it
+    /// afresh), and returns the new connection.
+    let resume: (Bool) async throws -> (HostClient, StreamTarget)
 
-    init(client: HostClient, target: StreamTarget, resume: @escaping () async throws -> (HostClient, StreamTarget)) {
+    init(client: HostClient, target: StreamTarget, resume: @escaping (Bool) async throws -> (HostClient, StreamTarget)) {
         _client = State(initialValue: client)
         _target = State(initialValue: target)
         self.resume = resume
@@ -57,6 +58,11 @@ struct StreamView: View {
     @State private var status: String?
     /// Between stopping the old connection and starting the new one: its "ended" isn't an ending.
     @State private var isRestarting = false
+    /// It failed or ended on its own: the page that says why, with Quit & Retry.
+    @State private var failure: StreamFailure?
+    /// When this connection started: no picture 15 seconds on, it's given up.
+    @State private var waitingSince = ContinuousClock.now
+    static let pictureTimeout: Duration = .seconds(15)
     // Not @AppStorage: the once-a-second loop runs on the copy of this view from when the stream started, whose
     // @AppStorage values don't follow later changes (Stream Settings). Reading UserDefaults is always current.
     private var adaptive: Bool { UserDefaults.standard.bool(forKey: SettingsKey.adaptiveBitrate) }
@@ -72,7 +78,14 @@ struct StreamView: View {
     private var isPlaying: Bool { menu == nil && !isShowingSettings && scenePhase == .active && !launcher.isMinimized }
 
     private var stats: StreamStats { session.stats }
-    private var shownStatus: String? { status ?? (stats.state == .connecting ? "Connecting to \(target.title)…" : nil) }
+    /// Until the first picture arrives (connected isn't enough: a game that didn't start sends none), so the stream
+    /// only shows once there's something to see.
+    private var shownStatus: String? {
+        if let status { return status }
+        guard failure == nil else { return nil }
+        if stats.state == .connecting { return "Connecting to \(target.title)…" }
+        return stats.state == .connected && stats.videoFrames == 0 ? "Starting \(target.title)…" : nil
+    }
 
     var body: some View {
         ZStack {
@@ -118,8 +131,14 @@ struct StreamView: View {
                 .ignoresSafeArea()
                 .transition(.opacity)
             }
+            if let failure {
+                StreamFailurePage(failure: failure, title: target.title, canRelaunch: launcher.canRelaunch,
+                                  quitAndRetry: { retry(fresh: true) }, reconnect: { retry(fresh: false) }, close: { leave() })
+                    .transition(.opacity)
+            }
         }
         .animation(.easeInOut(duration: 0.45), value: shownStatus == nil)
+        .animation(.easeInOut(duration: 0.3), value: failure == nil)
         .ignoresSafeArea(.keyboard) // the on-screen keyboard covers the picture rather than squeezing it
         // An edge swipe needs a second swipe, so play doesn't drop out by accident; not while it's the small window.
         .defersSystemGestures(on: launcher.isMinimized ? [] : .all)
@@ -161,13 +180,10 @@ struct StreamView: View {
                 status = nil
                 startInput()
                 setUpPictureInPicture()
-            case .failed, .ended:
+            case .failed(let message), .ended(let message):
                 // Ending it ourselves (Disconnect, Quit, reconnecting) isn't news: the screen just closes or reconnects.
-                guard !isRestarting, !isLeaving else { return }
-                status = nil
-                stopInput()
-                withAnimation(.spring(duration: 0.45, bounce: 0.15)) { launcher.isMinimized = false } // the menu needs the room
-                showMenu()
+                guard !isRestarting, !isLeaving, failure == nil else { return }
+                showFailure(message)
             case .connecting: break
             }
         }
@@ -195,7 +211,30 @@ struct StreamView: View {
         activeControllers = nil
     }
 
+    /// Stops what's left of the connection and puts up the page that says what went wrong.
+    private func showFailure(_ message: String) {
+        var failure = StreamFailure(message: message, hadPicture: stats.videoFrames > 0)
+        if !failure.hadPicture, !failure.isConnection { failure.hostSeemsStuck = launcher.countPictureless() >= 2 }
+        present(failure)
+    }
+
+    private func present(_ failure: StreamFailure) {
+        status = nil
+        stopInput()
+        menu = nil
+        withAnimation(.spring(duration: 0.45, bounce: 0.15)) { launcher.isMinimized = false } // the page needs the room
+        self.failure = failure
+        Task { await session.stop() } // its "ended" is ignored now the page is up
+    }
+
+    /// Quit & Retry (`fresh`) or Reconnect, from the failure page.
+    private func retry(fresh: Bool) {
+        failure = nil
+        reconnect(fresh ? "Quitting \(target.title)…" : "Reconnecting to \(target.title)…", fresh: fresh)
+    }
+
     private func showMenu() {
+        guard failure == nil, status == nil else { return } // the page or a reconnect is in charge
         switch stats.state {
         case .failed(let message), .ended(let message):
             // No X: closing this would leave a black screen. Close leaves the stream.
@@ -329,7 +368,7 @@ struct StreamView: View {
     }
 
     /// Closes this connection and opens a new one without leaving the stream screen. The game keeps running on the PC.
-    private func reconnect(_ reason: String) {
+    private func reconnect(_ reason: String, fresh: Bool = false) {
         guard !isRestarting, !isLeaving else { return }
         isRestarting = true
         menu = nil
@@ -342,20 +381,18 @@ struct StreamView: View {
             UIApplication.shared.endBackgroundTask(time)
             // Left for the background: wait until the app is back in front.
             while UIApplication.shared.applicationState != .active { try? await Task.sleep(for: .milliseconds(300)) }
-            status = "Reconnecting to \(target.title)…"
+            status = fresh ? "Starting \(target.title)…" : "Reconnecting to \(target.title)…"
             do {
-                (client, target) = try await resume()
+                (client, target) = try await resume(fresh)
                 adaptiveController = nil // starts over from the new session's bitrate
                 session.start(host: client, target: target, renderer: renderer)
                 session.refresh() // shows "connecting" now, so the coming "connected" is a change that clears the status
-                isRestarting = false // from here, an ending is real; "connected" clears the status
+                waitingSince = .now
+                status = nil // "Connecting…" and "Starting…" take over until the picture arrives
+                isRestarting = false // from here, an ending is real
             } catch {
                 isRestarting = false
-                status = nil
-                menu = MenuSpec(title: "Couldn't reconnect", message: error.localizedDescription + " The game is still running.", actions: [
-                    .init(title: "Try Again") { reconnect("Reconnecting to \(target.title)…") },
-                    .init(title: "Close") { leave() },
-                ], closable: false)
+                showFailure(error.localizedDescription)
             }
         }
     }
@@ -374,12 +411,26 @@ struct StreamView: View {
 
     private func run() async {
         session.start(host: client, target: target, renderer: renderer)
+        waitingSince = .now
+        #if DEBUG
+        if let fake = FakeStreamFailure(rawValue: UserDefaults.standard.string(forKey: FakeStreamFailure.key) ?? "")?.failure {
+            UserDefaults.standard.removeObject(forKey: FakeStreamFailure.key) // once: Quit & Retry then streams for real
+            try? await Task.sleep(for: .seconds(2))
+            present(fake)
+        }
+        #endif
         let started = ContinuousClock.now
         var previous = (counters: StreamCounters(), time: started)
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(1))
             session.refresh()
             let now = ContinuousClock.now
+            if stats.videoFrames > 0 { launcher.notePicture() }
+            // Connected (or still trying) with no picture: the game didn't start, or the host can't capture yet.
+            if stats.videoFrames == 0, failure == nil, !isRestarting, !isLeaving, now - waitingSince > Self.pictureTimeout,
+               stats.state == .connecting || stats.state == .connected {
+                showFailure("The host didn't send a picture within 15 seconds.")
+            }
             let isLive = stats.state == .connected && !isLeaving // the library's stats exist only while connected
             var rtp = RTP_VIDEO_STATS()
             var rtt: UInt32 = 0, rttVariance: UInt32 = 0
@@ -474,5 +525,146 @@ private final class LayerHostView: UIView {
         CATransaction.setDisableActions(true) // no animated resize on rotation
         hostedLayer?.frame = bounds
         CATransaction.commit()
+    }
+}
+
+/// Why a stream stopped, for its page: the message, and whether any picture had come through.
+nonisolated struct StreamFailure: Equatable {
+    let message: String
+    let hadPicture: Bool
+    /// The second start in a row on this host with no picture.
+    var hostSeemsStuck = false
+
+    /// The connection itself couldn't be set up (rather than set up with nothing to show).
+    var isConnection: Bool { message.hasPrefix("Couldn't connect to the host") || message.contains("block") }
+
+    /// The ports the port test named, e.g. "UDP 47998, UDP 48000"; nil when it didn't run.
+    private var blockedPorts: String? {
+        guard let range = message.range(of: #"(blocking|blocks) [^.]+"#, options: .regularExpression) else { return nil }
+        return String(message[range].drop { $0 != " " }.dropFirst())
+    }
+
+    private static let logs = "Check the host's logs for errors."
+
+    /// The likely cause, in one line.
+    var problem: String {
+        if message.contains("network this device is on blocks") { return "This network blocks the streaming ports." }
+        if message.contains("host's side is blocking") { return "The host's firewall is blocking the streaming ports." }
+        if isConnection { return "Couldn't reach the host's streaming ports." }
+        if hostSeemsStuck { return "The host's display seems stuck: it sent no video twice in a row." }
+        if !hadPicture { return "The host didn't send any video." }
+        return message.components(separatedBy: "\n")[0]
+    }
+
+    /// What to try, most likely first.
+    var solutions: [String] {
+        if message.contains("network this device is on blocks") {
+            return ["Try another network, or turn off a VPN.", Self.logs]
+        }
+        if isConnection {
+            return ["Allow \(blockedPorts ?? "the streaming ports") in the host's firewall.",
+                    "Away from home, forward them on the router or use a VPN.", Self.logs]
+        }
+        if hostSeemsStuck {
+            return ["Restart the host's streaming app or the PC, then Quit & Retry.", Self.logs]
+        }
+        if !hadPicture {
+            return ["Quit & Retry to start it fresh.", "If it keeps happening, restart the host's streaming app or the PC.",
+                    "Make sure the host's firewall allows UDP 47998.", Self.logs]
+        }
+        return ["Reconnect if your network dropped.", Self.logs]
+    }
+}
+
+#if DEBUG
+/// Developer setting: the next stream shows this page 2 seconds in, without anything going wrong.
+enum FakeStreamFailure: String, CaseIterable {
+    case off = "Off", noVideo = "No Video", stuck = "Stuck Host", hostFirewall = "Host Firewall",
+         network = "This Network", ended = "Ended Mid-Game"
+    static let key = "MoonswiftFakeFailure"
+
+    var failure: StreamFailure? {
+        let connect = "Couldn't connect to the host: RTSP handshake didn't finish (error 10060).\n\n"
+        return switch self {
+        case .off: nil
+        case .noVideo: StreamFailure(message: "The host sent no video.", hadPicture: false)
+        case .stuck: StreamFailure(message: "The host sent no video.", hadPicture: false, hostSeemsStuck: true)
+        case .hostFirewall: StreamFailure(message: connect + (portAdvice(ports: 1, testResult: 0) ?? ""), hadPicture: false)
+        case .network: StreamFailure(message: connect + (portAdvice(ports: 1, testResult: 1) ?? ""), hadPicture: false)
+        case .ended: StreamFailure(message: "The host ended the stream unexpectedly. The game may have closed.", hadPicture: true)
+        }
+    }
+}
+#endif
+
+/// Full screen over the stream when it couldn't start or ended on its own: what happened, what usually fixes it, and
+/// Quit & Retry, Reconnect and Close. Works by touch and with a controller.
+private struct StreamFailurePage: View {
+    let failure: StreamFailure
+    let title: String
+    /// Not for a session joined from another device: quitting would end that device's game.
+    let canRelaunch: Bool
+    let quitAndRetry: () -> Void
+    let reconnect: () -> Void
+    let close: () -> Void
+    @Environment(GamepadInput.self) private var gamepad
+    @State private var focus = 0
+
+    /// Quit & Retry first when it never started (that's what fixes it); Reconnect first after playing.
+    private var buttons: [(title: String, isPrimary: Bool, run: () -> Void)] {
+        let retry = (title: "Quit & Retry", run: quitAndRetry), rejoin = (title: "Reconnect", run: reconnect)
+        let order = !canRelaunch ? [rejoin] : failure.hadPicture ? [rejoin, retry] : [retry, rejoin]
+        return order.enumerated().map { ($1.title, $0 == 0, $1.run) } + [("Close", false, close)]
+    }
+
+    private func section(_ heading: String, _ lines: [String], icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(heading).font(.footnote.weight(.semibold)).foregroundStyle(.white.opacity(0.6)).textCase(.uppercase)
+            ForEach(lines, id: \.self) { line in
+                Label(line, systemImage: icon).font(.subheadline).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial).environment(\.colorScheme, .dark)
+            Color.black.opacity(0.6)
+            VStack(spacing: 18) {
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 40)).foregroundStyle(.yellow)
+                Text(failure.hadPicture ? "Stream Ended" : "Couldn't Start \(title)").font(.title2.weight(.bold))
+                VStack(alignment: .leading, spacing: 14) {
+                    section("Possible Problem", [failure.problem], icon: "questionmark.circle")
+                    section("Possible Solutions", failure.solutions, icon: "lightbulb")
+                }
+                .frame(maxWidth: 520, alignment: .leading)
+                HStack(spacing: 12) {
+                    ForEach(Array(buttons.enumerated()), id: \.offset) { index, button in
+                        Group {
+                            if button.isPrimary {
+                                Button(action: button.run) { Text(button.title).font(.headline).frame(minWidth: 110) }.buttonStyle(.glassProminent)
+                            } else {
+                                Button(action: button.run) { Text(button.title).font(.headline).frame(minWidth: 110) }.buttonStyle(.glass)
+                            }
+                        }
+                        .focusRing(gamepad.isActive && focus == index, cornerRadius: .infinity)
+                    }
+                }
+                .controlSize(.large)
+                .padding(.top, 6)
+            }
+            .foregroundStyle(.white)
+            .padding(32)
+        }
+        .ignoresSafeArea()
+        .onGamepad { command in
+            switch command {
+            case .left: focus = max(focus - 1, 0)
+            case .right: focus = min(focus + 1, buttons.count - 1)
+            case .select: buttons[min(focus, buttons.count - 1)].run()
+            case .back: close()
+            default: break
+            }
+        }
     }
 }
