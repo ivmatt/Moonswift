@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Starts, resumes and quits games from any screen, and owns the stream screen. A PC runs one game at a time: the
 /// running one resumes straight away; another asks to quit it first. Shown on top of everything by
-/// `.streamLauncher(_:)` at the app's root. A four-finger pinch moves the stream into Picture in Picture, still
+/// `.streamLauncher(_:)` at the app's root. Leaving the app mid-stream moves it into Picture in Picture, still
 /// streaming; its restore button (or Resume in the app) brings it back, its close button disconnects.
 @Observable final class StreamLauncher {
     /// e.g. "Launching Hades…" while a request is in flight.
@@ -12,8 +12,6 @@ import SwiftUI
     var stream: StreamTarget?
     /// The stream is in Picture in Picture: it keeps streaming, and the app takes the input.
     var isMinimized = false
-    /// A four-finger pinch's progress while the fingers are down (1 = full size), for the stream to shrink with it.
-    var pinchProgress: CGFloat?
     /// Bumped to ask the stream screen to disconnect (the game keeps running); `afterDisconnect` runs once it has.
     private(set) var disconnectRequest = 0
     @ObservationIgnored private(set) var afterDisconnect: () -> Void = {}
@@ -262,7 +260,6 @@ import SwiftUI
         stream = nil
         streaming = nil
         isMinimized = false
-        pinchProgress = nil
         revision += 1
         let next = afterDisconnect
         afterDisconnect = {}
@@ -354,7 +351,7 @@ private struct StreamLauncherPresentation: ViewModifier {
     }
 }
 
-/// The stream over the app. While pinched it shrinks with the fingers; in Picture in Picture the system's window shows
+/// The stream over the app. In Picture in Picture the system's window shows
 /// it, and this stays in place invisible (its video layer feeds that window) and lets touches through to the app.
 private struct StreamWindow: View {
     let launcher: StreamLauncher
@@ -362,11 +359,7 @@ private struct StreamWindow: View {
     let target: StreamTarget
 
     var body: some View {
-        let pinch = launcher.pinchProgress
         StreamView(client: client, target: target, resume: { try await launcher.reconnect(fresh: $0) })
-            .clipShape(.rect(cornerRadius: pinch == nil ? 0 : 36))
-            .scaleEffect(max(pinch ?? 1, 0.25))
-            .shadow(color: .black.opacity(pinch == nil ? 0 : 0.5), radius: 20, y: 8)
             .opacity(launcher.isMinimized ? 0 : 1)
             .allowsHitTesting(!launcher.isMinimized)
             .ignoresSafeArea()

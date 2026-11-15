@@ -684,7 +684,7 @@ struct StreamGestureTests {
         let four = fingers + [CGPoint(x: 190, y: 360)]
         let squeezed = four.map { CGPoint(x: 167 + ($0.x - 167) * 0.3, y: 312 + ($0.y - 312) * 0.3) }
         #expect(StreamGesture.classify(start: four, end: squeezed) == .pinch)
-        #expect(StreamGesture.classify(start: Array(four.prefix(3)), end: Array(squeezed.prefix(3))) == nil) // three fingers: no
+        #expect(StreamGesture.classify(start: Array(four.prefix(3)), end: Array(squeezed.prefix(3))) == .pinch) // three too
         let slight = fingers.map { CGPoint(x: 160 + ($0.x - 160) * 0.8, y: $0.y) }
         #expect(StreamGesture.classify(start: fingers, end: slight) == nil) // resting fingers drifting together
         #expect(StreamGesture.classify(start: fingers, end: moved(20, 30)) == nil) // too short to be a swipe
@@ -775,14 +775,15 @@ struct PinchProgressTests {
         let start = [CGPoint(x: 0, y: 0), CGPoint(x: 200, y: 0), CGPoint(x: 0, y: 200), CGPoint(x: 200, y: 200)]
         let half = start.map { CGPoint(x: 50 + $0.x / 2, y: 50 + $0.y / 2) }
         #expect(abs((StreamGesture.pinchProgress(start: start, now: half) ?? 0) - 0.5) < 0.001)
-        #expect(StreamGesture.pinchProgress(start: Array(start.prefix(3)), now: Array(half.prefix(3))) == nil) // three: a swipe
+        #expect(StreamGesture.pinchProgress(start: Array(start.prefix(3)), now: Array(half.prefix(3))) != nil) // three pinch too
         #expect(StreamGesture.classify(start: start, end: half) == .pinch)
     }
 
-    @Test func fourFingersNeverSwipe() {
+    @Test func fourFingersSwipeAndPinchLikeThree() {
         let start = [CGPoint(x: 0, y: 0), CGPoint(x: 200, y: 0), CGPoint(x: 0, y: 200), CGPoint(x: 200, y: 200)]
-        let down = start.map { CGPoint(x: $0.x, y: $0.y + 150) } // a pinch that drifted down, not closed enough
-        #expect(StreamGesture.classify(start: start, end: down) == nil)
+        let down = start.map { CGPoint(x: $0.x, y: $0.y + 150) }
+        #expect(StreamGesture.classify(start: start, end: down) == .swipeDown)
+        #expect(StreamGesture.leftPull(start: start, now: down) == nil)
         let three = Array(start.prefix(3))
         #expect(StreamGesture.classify(start: three, end: three.map { CGPoint(x: $0.x, y: $0.y + 150) }) == .swipeDown)
         let natural = start.map { CGPoint(x: 30 + $0.x * 0.65, y: 30 + $0.y * 0.65) } // closed to 0.65: a trackpad pinch
@@ -934,5 +935,19 @@ struct KeyShortcutTests {
         #expect(presses.last?.modifiers == 0)
         let start = KeyShortcut.builtIns.first { $0.id == "win" }!
         #expect(start.keys == "Win" && start.presses.count == 2)
+    }
+}
+
+struct GestureActionTests {
+    @Test func savedActionsComeBackTheSame() {
+        for action in GestureAction.fixed + [.shortcut("alttab")] {
+            #expect(GestureAction(stored: action.stored) == action)
+        }
+        #expect(GestureAction(stored: "bogus") == nil)
+        #expect(TouchGesture(kind: .swipeDown, fingers: 3).defaultAction == .nothing)
+        #expect(TouchGesture(kind: .hold, fingers: 3).defaultAction == .overlay)
+        #expect(TouchGesture(kind: .pinch, fingers: 3).defaultAction == .nothing)
+        #expect(TouchGesture(kind: .pinch, fingers: 4).defaultAction == .nothing)
+        #expect(TouchGesture(kind: .swipeLeft, fingers: 4).defaultAction == .nothing)
     }
 }

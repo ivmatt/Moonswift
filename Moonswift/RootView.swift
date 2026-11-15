@@ -121,17 +121,25 @@ struct RootView: View {
     private var tabs: some View {
         TabView(selection: $tab) {
             Tab(TabID.home.title, systemImage: TabID.home.symbol, value: .home) {
-                HomeView(switchTab: step, openSettings: openSettings, refresh: { Task { await refresh() } },
-                         isRefreshing: isRefreshing)
+                if isUnderStream { Color.black } else {
+                    HomeView(switchTab: step, openSettings: openSettings, refresh: { Task { await refresh() } },
+                             isRefreshing: isRefreshing)
+                }
             }
             Tab(TabID.library.title, systemImage: TabID.library.symbol, value: .library) {
-                GamesView(switchTab: step, openSettings: openSettings)
+                if isUnderStream { Color.black } else { GamesView(switchTab: step, openSettings: openSettings) }
             }
             Tab(TabID.pcs.title, systemImage: TabID.pcs.symbol, value: .pcs) {
-                PCsView(openSettings: openSettings, switchTab: step)
+                if isUnderStream { Color.black } else { PCsView(openSettings: openSettings, switchTab: step) }
             }
         }
     }
+
+    /// A full-screen stream covers the tabs: they aren't drawn under it. Home redrew itself without end under the
+    /// stream once the on-screen keyboard came up, freezing the game; nothing there is seen anyway, so nothing there
+    /// runs. They come back as the stream ends or goes into Picture in Picture (Home on the game just played, the
+    /// catalog's first).
+    private var isUnderStream: Bool { launcher.stream != nil && !launcher.isMinimized }
 
     private func updatePolling(checkNow shouldCheck: Bool) {
         directory.interval = showsSettings ? .seconds(10) : .seconds(2)

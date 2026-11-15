@@ -38,11 +38,12 @@ struct SettingsView: View {
     @State private var bitrateChange: Task<Void, Never>?
     @State private var isShowingAbout = false
     @State private var isShowingButtonMapping = false
+    @State private var isShowingGestures = false
     /// A setting's choices, for the controller, beside its row.
     @State private var choice: ChoiceMenuSpec?
     @State private var rowFrames = RowFrames()
 
-    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, splash, splashWait, splashSound, pictureInPicture, buttonMapping, buttonGuide, coverShape, about }
+    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, splash, splashWait, splashSound, pictureInPicture, gestures, buttonMapping, buttonGuide, coverShape, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
     private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
     @State private var page = Page.stream
@@ -52,7 +53,7 @@ struct SettingsView: View {
     }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .buttonGuide, .buttonMapping] + (live == nil ? [.coverShape] : []) + [.about] }
+        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .gestures, .buttonGuide, .buttonMapping] + (live == nil ? [.coverShape] : []) + [.about] }
         return (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
             + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .overlay]
     }
@@ -185,14 +186,17 @@ struct SettingsView: View {
                     row(.pictureInPicture) {
                         Toggle("Picture in Picture", isOn: $allowsPictureInPicture)
                     }
+                    row(.gestures) {
+                        Button("Gestures") { isShowingGestures = true }.foregroundStyle(.primary)
+                    }
                 } header: {
                     Text("Experience")
                 } footer: {
                     Text("Splash Screen shows the game's art from Play until the game is on screen. Splash Wait keeps it up "
                          + "that long past the first picture, so the host's desktop and launchers don't flash by; a game's "
                          + "Edit page can set its own. End on Game Sound lifts it as soon as the game makes sound, with Splash Wait "
-                         + "the longest it stays; a launcher's or the desktop's sounds can end it early. Picture in Picture: a pinch on the stream, or "
-                         + "leaving the app while streaming, floats the game in a small window over other apps; off, leaving "
+                         + "the longest it stays; a launcher's or the desktop's sounds can end it early. Picture in Picture: leaving the "
+                         + "app while streaming floats the game in a small window over other apps; off, leaving "
                          + "the app pauses the stream until you come back. Applies from the next stream.")
                 }
                 Section {
@@ -260,6 +264,7 @@ struct SettingsView: View {
             .choiceMenu($choice)
             .navigationDestination(isPresented: $isShowingAbout) { AboutView() }
             .navigationDestination(isPresented: $isShowingButtonMapping) { ButtonMappingView() }
+            .navigationDestination(isPresented: $isShowingGestures) { GesturesView() }
             .onChange(of: effectiveBitrate) { _, kbps in applyLive(kbps) }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .onAppear {
@@ -329,6 +334,7 @@ struct SettingsView: View {
         case .overlay: showsPerformance.toggle()
         case .pcAudio: playAudioOnPC.toggle()
         case .pictureInPicture: allowsPictureInPicture.toggle()
+        case .gestures: isShowingGestures = true
         case .splash: showsSplash.toggle()
         case .splashSound: splashEndsOnSound.toggle()
         case .splashWait: choices("Splash Wait", LaunchSplash.waitChoices, current: splashWait, name: Self.seconds) { splashWait = $0 }

@@ -1,8 +1,7 @@
 import AVKit
 
 /// The system's Picture in Picture for the stream: the video layer moves into iOS's own floating window (which drags,
-/// snaps, resizes and works over other apps) while the stream keeps going. A four-finger pinch starts it, and so does
-/// leaving the app mid-stream. Its restore button brings the stream back full screen; its close button disconnects
+/// snaps, resizes and works over other apps) while the stream keeps going. Leaving the app mid-stream starts it. Its restore button brings the stream back full screen; its close button disconnects
 /// (the game keeps running on the PC).
 final class StreamPictureInPicture: NSObject {
     var onActiveChange: (Bool) -> Void = { _ in }
@@ -23,10 +22,8 @@ final class StreamPictureInPicture: NSObject {
         self.controller = controller
     }
 
-    var isPossible: Bool { controller?.isPictureInPicturePossible == true }
     var isActive: Bool { controller?.isPictureInPictureActive == true }
 
-    func start() { controller?.startPictureInPicture() }
 
     /// Closes the window without counting as its close button: for coming back full screen, or leaving the stream.
     func stopQuietly() {

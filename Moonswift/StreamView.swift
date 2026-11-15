@@ -15,10 +15,10 @@ struct StreamTarget: Hashable, Identifiable {
     var id: LaunchSession { launch }
 }
 
-/// The game, full screen with sound, played with controllers, touch, keyboard and mouse. Three-finger gestures:
-/// swipe up for the keyboard, down for the performance overlay, left for Actions and right for Quick Settings; a four-finger pinch (or
-/// leaving the app) moves it into the system's Picture in Picture window, still streaming, while the app takes the input.
-/// Menu + View on a controller opens the control panel (ControlCenter): Actions (key shortcuts for the host, the
+/// The game, full screen with sound, played with controllers, touch, keyboard and mouse. Three- (and four-) finger
+/// gestures do what Settings → Experience → Gestures says (by default: left the control panel, up the keyboard, a hold
+/// the performance overlay). Leaving the app moves it into the system's Picture in Picture window, still streaming,
+/// while the app takes the input. Menu + View on a controller opens the control panel (ControlCenter): Actions (key shortcuts for the host, the
 /// clipboard, Disconnect, Quit) and, a bumper away, Quick Settings (bitrate, overlay, trackpad, More Settings). The screen stays awake while streaming. Leaving the app, switching networks and Apply & Reconnect
 /// reconnect in place: the last frame stays up, blurred, with the status in the middle.
 struct StreamView: View {
@@ -47,7 +47,6 @@ struct StreamView: View {
     @State private var renderer = VideoRenderer()
     @State private var foldLift: CGFloat = 0
     @State private var pictureInPicture = StreamPictureInPicture()
-    @State private var isStartingPictureInPicture = false
     @State private var menu: MenuSpec?
     /// The control panel, in from the right, on its Actions or Quick Settings tab; and the shortcut editor over it.
     @State private var panel: StreamPanel?
@@ -55,6 +54,10 @@ struct StreamView: View {
     @State private var panelPull: CGFloat?
     /// A three-finger swipe right on the open panel: how far, so it goes back with the fingers.
     @State private var panelPush: CGFloat = 0
+    /// A swipe left set to Quick Settings pulls the panel out on that tab.
+    private var pullsQuickSettings: Bool {
+        TouchGesture.active.contains { $0.kind == .swipeLeft && $0.action == .quickSettings }
+    }
     /// 0 to 1: how far out the panel is.
     private var panelShown: CGFloat {
         let travel = ControlPanel<EmptyView>.travel
@@ -89,7 +92,7 @@ struct StreamView: View {
     @State private var adaptiveNote: String?
     @State private var adaptiveUnsupported = false
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
-    /// Off: no floating window; leaving the app pauses the stream, and a pinch does nothing.
+    /// Off: no floating window; leaving the app pauses the stream.
     @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = true
     @State private var performance: PerformanceOverlay.Readout?
     @State private var fpsHistory: [Double] = [] // the last minute, for the HUD's graph
@@ -126,8 +129,13 @@ struct StreamView: View {
             ZStack {
                 VideoLayerView(renderer: renderer)
                 TouchInputLayer(mode: touchMode, streamSize: CGSize(width: target.width, height: target.height),
-                                isPaused: !isPlaying || !isSendingInput, onGesture: gesture, onPinchProgress: followPinch,
-                                onSwipeProgress: followSwipe)
+                                isPaused: !isPlaying || !isSendingInput, onGesture: gesture,
+                                onSwipeProgress: followSwipe,
+                                keyboardGestures: Set(TouchGesture.active.filter { $0.action == .keyboard }),
+                                followsSwipeLeft: Set(TouchGesture.active.filter {
+                                    $0.kind == .swipeLeft && [.controlPanel, .quickSettings].contains($0.action)
+                                }.map(\.fingers)),
+                                allowsFourFingers: TouchGesture.fourFingersOn)
             }
             .padding(.bottom, foldLift)
             // Safe Area mode keeps the picture (and the touches mapped onto it) clear of the cutout and home indicator.
@@ -154,7 +162,7 @@ struct StreamView: View {
                     .transition(.opacity)
                     .zIndex(1) // above the video's layer as it goes, or it vanishes rather than fading
                 ControlPanel(tab: panelTab) {
-                    switch panel ?? .actions {
+                    switch panel ?? (pullsQuickSettings ? .settings : .actions) { // pulling out
                     case .actions:
                         ActionsPanel(tab: panelTab, shortcuts: shortcuts,
                                      copyFromHost: copyFromPC, sendClipboard: sendClipboardToPC,
@@ -326,7 +334,7 @@ struct StreamView: View {
         if pull == nil {
             withAnimation(.spring(duration: 0.3, bounce: 0)) { panelPull = nil }
         } else {
-            panelPull = pull
+            panelPull = pull.map { $0 * 1.3 } // a little ahead of the fingers, so it doesn't take a long swipe
         }
     }
 
@@ -345,52 +353,28 @@ struct StreamView: View {
         }
     }
 
-    /// The three-finger shortcuts the touch layer doesn't handle itself (the keyboard's swipes up and down).
-    private func gesture(_ gesture: StreamGesture) {
-        switch gesture {
-        case .swipeLeft: showMenu(.actions)
-        case .swipeRight: break
-        case .swipeDown:
+    /// A gesture's action (Settings → Experience → Gestures); Keyboard is the touch layer's own.
+    private func gesture(_ gesture: TouchGesture) {
+        switch gesture.action {
+        case .nothing, .keyboard: break
+        case .controlPanel: showMenu(.actions)
+        case .quickSettings: showMenu(.settings)
+        case .overlay:
             showsPerformance.toggle()
             show(showsPerformance ? "Performance overlay on" : "Performance overlay off")
-        case .pinch:
-            guard allowsPictureInPicture else { return }
-            if pictureInPicture.isPossible {
-                isStartingPictureInPicture = true
-                pictureInPicture.start() // flies from where the pinch left it
-            } else {
-                show("Picture in Picture isn't available right now")
-            }
-        case .swipeUp: break
+        case .shortcut(let id):
+            guard let shortcut = shortcuts.all.first(where: { $0.id == id }) else { return }
+            Task { await shortcut.send() }
+            show("Sent \(shortcut.keys)")
         }
     }
 
     private func setUpPictureInPicture() {
         guard allowsPictureInPicture else { return } // never attached: leaving the app pauses instead
         pictureInPicture.attach(renderer.layer)
-        pictureInPicture.onActiveChange = { isActive in
-            isStartingPictureInPicture = false
-            if isActive {
-                launcher.isMinimized = true
-                launcher.pinchProgress = nil // hidden by now; full size for coming back
-            } else {
-                withAnimation(.spring(duration: 0.35, bounce: 0.2)) { launcher.pinchProgress = nil }
-            }
-        }
+        pictureInPicture.onActiveChange = { isActive in if isActive { launcher.isMinimized = true } }
         pictureInPicture.onRestore = { launcher.isMinimized = false }
         pictureInPicture.onClose = { launcher.disconnect() } // its close button: the game keeps running
-    }
-
-    /// The stream shrinks with the fingers. Once they lift it springs back, unless Picture in Picture is taking it
-    /// from there (it resets the size itself once the window is up, or if it can't start).
-    private func followPinch(_ progress: CGFloat?) {
-        guard allowsPictureInPicture else { return } // the stream doesn't shrink for a window that won't come
-        if progress == nil {
-            guard !isStartingPictureInPicture else { return }
-            withAnimation(.spring(duration: 0.35, bounce: 0.2)) { launcher.pinchProgress = nil }
-        } else {
-            launcher.pinchProgress = progress
-        }
     }
 
     private func copyFromPC() {

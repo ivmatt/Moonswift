@@ -98,31 +98,38 @@ nonisolated struct TrackpadGestures {
     }
 }
 
-/// A three-finger stream shortcut, read from where the fingers started and ended.
+/// A three- (or four-) finger stream shortcut, read from where the fingers started and ended.
 nonisolated enum StreamGesture: Equatable {
     case swipeUp, swipeDown, swipeLeft, swipeRight, pinch
+    /// The fingers down and still for `holdTime`.
+    case hold
 
-    /// Four or more fingers only ever pinch, closing to `pinchClosed` of their spread (three-finger pinches happen by
-    /// accident); a swipe is exactly three fingers moving together at least 60 points.
+    /// Long enough that fingers resting a moment before a swipe aren't taken for a hold.
+    static let holdTime: TimeInterval = 0.8
+
+    /// A pinch closes to `pinchClosed` of the fingers' spread; a swipe is them moving together at least 60 points.
     /// How far a pinch closes (spread now ÷ at the start) to count, like a trackpad's: a natural pinch, not every
     /// finger together. A quick flick counts sooner (see `TouchInputView`).
     static let pinchClosed: CGFloat = 0.7
 
-    /// How far three fingers have moved left together, as it happens (nil: not a leftward swipe): the control panel
-    /// follows them out of the right edge.
+    /// How far the fingers have moved left together, as it happens: the control panel follows them out of the right
+    /// edge. Forgiving, as a hand's swipe drifts: anything more left than up or down by half counts (nil: it doesn't).
     static func leftPull(start: [CGPoint], now: [CGPoint]) -> CGFloat? {
-        guard start.count == 3, now.count == 3 else { return nil }
-        func centre(_ points: [CGPoint]) -> CGPoint {
-            CGPoint(x: points.map(\.x).reduce(0, +) / 3, y: points.map(\.y).reduce(0, +) / 3)
-        }
-        let (from, to) = (centre(start), centre(now))
-        let dx: CGFloat = to.x - from.x, dy: CGFloat = to.y - from.y
-        return dx < 0 && abs(dx) > abs(dy) ? -dx : nil
+        movement(start, now).flatMap { dx, dy in dx < 0 && -dx * 2 > abs(dy) ? -dx : nil }
     }
 
-    /// A four-finger pinch's spread now ÷ at the start, as it happens: the stream shrinks with it.
+    /// The fingers' centre, moved since they landed.
+    private static func movement(_ start: [CGPoint], _ now: [CGPoint]) -> (dx: CGFloat, dy: CGFloat)? {
+        guard start.count >= 3, start.count == now.count else { return nil }
+        let count = CGFloat(start.count)
+        let dx: CGFloat = now.map(\.x).reduce(0, +) / count - start.map(\.x).reduce(0, +) / count
+        let dy: CGFloat = now.map(\.y).reduce(0, +) / count - start.map(\.y).reduce(0, +) / count
+        return (dx, dy)
+    }
+
+    /// A pinch's spread now ÷ at the start, as it happens: for telling a quick flick from a pinch.
     static func pinchProgress(start: [CGPoint], now: [CGPoint]) -> CGFloat? {
-        guard start.count >= 4, start.count == now.count else { return nil }
+        guard start.count >= 3, start.count == now.count else { return nil }
         func spread(_ points: [CGPoint]) -> CGFloat {
             let c = CGPoint(x: points.map(\.x).reduce(0, +) / CGFloat(points.count), y: points.map(\.y).reduce(0, +) / CGFloat(points.count))
             return points.map { hypot($0.x - c.x, $0.y - c.y) }.reduce(0, +) / CGFloat(points.count)
@@ -141,8 +148,7 @@ nonisolated enum StreamGesture: Equatable {
         }
         let (from, to) = (centre(start), centre(end))
         let (before, after) = (spread(start, from), spread(end, to))
-        if start.count >= 4 { return before > 0 && after < before * pinchClosed ? .pinch : nil }
-        if before > 0, after < before * pinchClosed { return nil }
+        if before > 0, after < before * pinchClosed { return .pinch }
         if after > before * 1.6 { return nil } // a spread: not used
         let (dx, dy) = (to.x - from.x, to.y - from.y)
         guard max(abs(dx), abs(dy)) >= 60 else { return nil }
@@ -150,9 +156,9 @@ nonisolated enum StreamGesture: Equatable {
     }
 }
 
-/// A transparent view over the video that sends touches to the host. Three-finger gestures are shortcuts: swipe up
-/// shows the on-screen keyboard (whose text and keys it sends to the PC), swipe down hides it, and the rest (including a
-/// four-finger pinch) go to `onGesture`.
+/// A transparent view over the video that sends touches to the host. Three-finger (and, if on, four-finger) gestures are
+/// shortcuts: those set to Keyboard show the on-screen keyboard (whose text and keys it sends to the PC), a swipe down
+/// hides it, and the rest go to `onGesture`.
 final class TouchInputView: UIView, UIKeyInput {
     var mode = TouchMode.touchscreen { didSet { if mode != oldValue { cancelAll() } } }
     var streamSize = CGSize(width: 1920, height: 1080)
@@ -163,11 +169,20 @@ final class TouchInputView: UIView, UIKeyInput {
             _ = resignFirstResponder() // the keyboard goes away with the menu
         }
     }
-    var onGesture: (StreamGesture) -> Void = { _ in }
-    /// A four-finger pinch's progress while the fingers are down (1 = as they started); nil once they lift.
-    var onPinchProgress: (CGFloat?) -> Void = { _ in }
+    var onGesture: (TouchGesture) -> Void = { _ in }
     /// A three-finger swipe left's distance while the fingers are down; nil once they lift (or it isn't one).
     var onSwipeProgress: (CGFloat?) -> Void = { _ in }
+    /// The gestures set to Keyboard: they show it (or hide it) here, rather than going to `onGesture`.
+    var keyboardGestures: Set<TouchGesture> = []
+    /// The finger counts whose swipe left pulls out the control panel.
+    var followsSwipeLeft: Set<Int> = []
+    var allowsFourFingers = false
+    /// The hold fired: lifting the fingers afterwards isn't a swipe.
+    private var didHold = false
+    /// How far out the fingers have pulled the panel: past 50 points it opens when they lift, however the swipe ended
+    /// (fingers drifting together read as a pinch, and iOS can cancel touches at the screen's edge).
+    private var pulled: CGFloat = 0
+    private var holdCheck = 0
 
     private var ids: [ObjectIdentifier: UInt32] = [:]
     private var nextID: UInt32 = 0
@@ -209,6 +224,11 @@ final class TouchInputView: UIView, UIKeyInput {
         if activeTouches >= 3, !isShortcutGesture {
             cancelAll()
             isShortcutGesture = true
+            didHold = false
+            pulled = 0
+            holdCheck += 1
+            let check = holdCheck
+            DispatchQueue.main.asyncAfter(deadline: .now() + StreamGesture.holdTime) { [weak self] in self?.checkHold(check) }
             // Where every finger now down starts; later fingers (a fourth) aren't part of the shape.
             let down = (event?.allTouches ?? touches).filter { $0.phase != .ended && $0.phase != .cancelled }
             shortcutStart = Dictionary(down.map { (ObjectIdentifier($0), $0.location(in: self)) }, uniquingKeysWith: { a, _ in a })
@@ -284,14 +304,22 @@ final class TouchInputView: UIView, UIKeyInput {
         }
         guard !isPaused else { return }
         let keys = Array(shortcutStart.keys)
-        if let progress = StreamGesture.pinchProgress(start: keys.compactMap { shortcutStart[$0] }, now: keys.compactMap { shortcutLast[$0] }) {
-            let now = CACurrentMediaTime()
-            pinchSamples.append((now, progress))
-            pinchSamples.removeAll { now - $0.time > 0.12 }
-            onPinchProgress(progress)
+        let start = keys.compactMap { shortcutStart[$0] }, now = keys.compactMap { shortcutLast[$0] }
+        guard counts(start.count), !didHold else { return }
+        if let progress = StreamGesture.pinchProgress(start: start, now: now) {
+            let time = CACurrentMediaTime()
+            pinchSamples.append((time, progress))
+            pinchSamples.removeAll { time - $0.time > 0.12 }
         }
-        onSwipeProgress(StreamGesture.leftPull(start: keys.compactMap { shortcutStart[$0] }, now: keys.compactMap { shortcutLast[$0] }))
+        if followsSwipeLeft.contains(start.count) {
+            let pull = StreamGesture.leftPull(start: start, now: now)
+            pulled = pull ?? 0
+            onSwipeProgress(pull)
+        }
     }
+
+    /// Three fingers always; four only with four-finger gestures on.
+    private func counts(_ fingers: Int) -> Bool { fingers == 3 || (fingers == 4 && allowsFourFingers) }
 
     private func finish(_ touches: Set<UITouch>, event: UIEvent?, cancelled: Bool) {
         if isShortcutGesture { track(touches) }
@@ -309,10 +337,13 @@ final class TouchInputView: UIView, UIKeyInput {
         }
         for touch in touches { ids[ObjectIdentifier(touch)] = nil }
         guard activeTouches == 0, isShortcutGesture else { return }
-        defer { // whatever it was, the fingers are up: after the gesture, so a pinch can hand over first
-            onPinchProgress(nil)
+        defer { // whatever it was, the fingers are up: after the gesture, so the panel can take over first
             onSwipeProgress(nil)
             pinchSamples = []
+            pulled = 0
+        }
+        if pulled >= 50, !didHold, !isPaused, counts(shortcutStart.count) {
+            return perform(TouchGesture(kind: .swipeLeft, fingers: shortcutStart.count))
         }
         guard !cancelled, !isPaused else { return }
         let keys = Array(shortcutStart.keys)
@@ -323,12 +354,31 @@ final class TouchInputView: UIView, UIKeyInput {
             let speed = (last.progress - first.progress) / max(last.time - first.time, 0.001) // per second
             return speed < -1 && last.progress < 0.92
         }()
-        guard let gesture = isFlick ? .pinch : StreamGesture.classify(start: start, end: end) else { return }
-        switch gesture {
-        case .swipeUp: _ = becomeFirstResponder() // keyboards come up from the bottom
-        case .swipeDown where isFirstResponder: _ = resignFirstResponder() // and go back down
-        default: onGesture(gesture)
+        guard !didHold, counts(start.count),
+              let gesture = isFlick ? .pinch : StreamGesture.classify(start: start, end: end) else { return }
+        perform(TouchGesture(kind: gesture, fingers: start.count))
+    }
+
+    /// Exactly three fingers, down for `holdTime` and barely moved: a hold, once.
+    private func checkHold(_ check: Int) {
+        guard check == holdCheck, isShortcutGesture, !didHold, !isPaused, activeTouches == shortcutStart.count,
+              counts(shortcutStart.count) else { return }
+        let moved = shortcutStart.contains { id, start in
+            shortcutLast[id].map { hypot($0.x - start.x, $0.y - start.y) > 10 } ?? true
         }
+        guard !moved else { return }
+        didHold = true
+        onSwipeProgress(nil)
+        perform(TouchGesture(kind: .hold, fingers: shortcutStart.count))
+    }
+
+    private func perform(_ gesture: TouchGesture) {
+        if gesture.kind == .swipeDown, isFirstResponder { _ = resignFirstResponder(); return } // the keyboard goes back down
+        if keyboardGestures.contains(gesture) {
+            _ = isFirstResponder ? resignFirstResponder() : becomeFirstResponder()
+            return
+        }
+        onGesture(gesture)
     }
 
     // MARK: On-screen keyboard
@@ -450,9 +500,11 @@ struct TouchInputLayer: UIViewRepresentable {
     let mode: TouchMode
     let streamSize: CGSize
     let isPaused: Bool
-    let onGesture: (StreamGesture) -> Void
-    var onPinchProgress: (CGFloat?) -> Void = { _ in }
+    let onGesture: (TouchGesture) -> Void
     var onSwipeProgress: (CGFloat?) -> Void = { _ in }
+    var keyboardGestures: Set<TouchGesture> = []
+    var followsSwipeLeft: Set<Int> = []
+    var allowsFourFingers = false
 
     func makeUIView(context: Context) -> TouchInputView { TouchInputView(frame: .zero) }
 
@@ -461,8 +513,10 @@ struct TouchInputLayer: UIViewRepresentable {
         view.streamSize = streamSize
         view.isPaused = isPaused
         view.onGesture = onGesture
-        view.onPinchProgress = onPinchProgress
         view.onSwipeProgress = onSwipeProgress
+        view.keyboardGestures = keyboardGestures
+        view.followsSwipeLeft = followsSwipeLeft
+        view.allowsFourFingers = allowsFourFingers
     }
 }
 

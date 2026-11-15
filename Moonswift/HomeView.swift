@@ -477,12 +477,15 @@ struct HomeView: View {
     // MARK: Rows
 
     private func coverRow(_ games: [CatalogGame]) -> some View {
-        ScrollViewReader { scroller in
+        // Once, not per cover: each look builds and sorts the whole catalog.
+        let selected = selectedGame?.id
+        let selectedIndex = games.firstIndex { $0.id == selected } ?? 0
+        return ScrollViewReader { scroller in
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 14) {
                         ForEach(games) { game in
                             CoverTile(game: game, client: client(for: game), isRunning: game.isRunning(directory),
-                                      unavailable: game.unavailable(hosts: hosts, directory: directory), isFocused: focusRow == 1 && game.id == selectedGame?.id,
+                                      unavailable: game.unavailable(hosts: hosts, directory: directory), isFocused: focusRow == 1 && game.id == selected,
                                       isElsewhere: game.elsewhere(directory, catalog) != nil)
                                 .frame(width: coverWidth)
                                 .onTapGesture { // selects only: Play starts it, so a stray second tap can't
@@ -500,8 +503,8 @@ struct HomeView: View {
                 .scrollClipDisabled() // the focused cover's shadow fades out instead of ending in a hard edge
                 .fixedSize(horizontal: false, vertical: true) // as tall as the covers, not a share of the spare height
                 // Follows the selection, and the selected game when playing it moves it to the front.
-                .onChange(of: "\(selectedGame?.id ?? "")|\(games.firstIndex { $0.id == selectedGame?.id } ?? 0)") {
-                    withAnimation { scroller.scrollTo(selectedGame?.id, anchor: .center) }
+                .onChange(of: "\(selected ?? "")|\(selectedIndex)") {
+                    withAnimation { scroller.scrollTo(selected, anchor: .center) }
                 }
         }
     }
