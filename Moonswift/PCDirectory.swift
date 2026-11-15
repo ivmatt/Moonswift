@@ -63,6 +63,20 @@ nonisolated struct PCRef: Sendable {
         if session?.pcID == pcID { session = nil }
     }
 
+    /// One check's answer about what a PC runs. A single "nothing running" while a game was isn't trusted (the PC can
+    /// answer between two games) until the next check agrees; a refresh you asked for is trusted at once.
+    nonisolated static func reading(game: Int, shown: Int, emptyInARow: Int, isManual: Bool) -> (shown: Int, emptyInARow: Int) {
+        if !isManual, game == 0, shown != 0, emptyInARow < 1 { return (shown, emptyInARow + 1) }
+        return (game, 0)
+    }
+
+    /// This device's own session is over once its PC has said "nothing running" twice in a row (the game was ended
+    /// elsewhere, or the PC restarted); any game in between starts the count again.
+    nonisolated static func sessionReading(game: Int, emptyInARow: Int) -> (emptyInARow: Int, isOver: Bool) {
+        let count = game == 0 ? emptyInARow + 1 : 0
+        return (count, count >= 2)
+    }
+
     func isAvailable(_ id: String) -> Bool { statuses[id] == .online(paired: true) }
 
     func ref(_ host: SavedHost) -> PCRef {
@@ -118,17 +132,14 @@ nonisolated struct PCRef: Sendable {
                 lastChecked[id] = .now
                 statuses[id] = status
                 activeAddresses[id] = address
-                // Likewise one "nothing running" while a game was isn't trusted until the next check agrees.
                 let game = info?.currentGame ?? 0
-                if !isManual, game == 0, (reportedPlaying[id] ?? 0) != 0, idleReadings[id, default: 0] < 1 {
-                    idleReadings[id, default: 0] += 1
-                } else {
-                    idleReadings[id] = 0
-                    reportedPlaying[id] = game
-                }
+                let reading = Self.reading(game: game, shown: reportedPlaying[id] ?? 0, emptyInARow: idleReadings[id] ?? 0,
+                                           isManual: isManual)
+                (reportedPlaying[id], idleReadings[id]) = (reading.shown, reading.emptyInARow)
                 if let session, session.pcID == id, status == .online(paired: true) {
-                    sessionIdleReadings = game == 0 ? sessionIdleReadings + 1 : 0
-                    if sessionIdleReadings >= 2 { self.session = nil }
+                    let ended = Self.sessionReading(game: game, emptyInARow: sessionIdleReadings)
+                    sessionIdleReadings = ended.emptyInARow
+                    if ended.isOver { self.session = nil }
                 }
                 if info?.canSleep == true { sleepable.insert(id) } else if info != nil { sleepable.remove(id) }
                 guard let host = hosts.first(where: { $0.uniqueID == id }) else { continue }

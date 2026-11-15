@@ -9,7 +9,16 @@ import SwiftUI
 
     private var container: ModelContainer
 
+    /// The saved hosts. If their store won't open (an update SwiftData can't carry over), it's moved aside and a new
+    /// one starts, so the app still opens; the hosts then need pairing again.
     private static func makeContainer() -> ModelContainer {
+        if let container = try? ModelContainer(for: SavedHost.self) { return container }
+        let aside = URL.applicationSupportDirectory.appending(path: "unreadable-\(Int(Date.now.timeIntervalSince1970))")
+        try? FileManager.default.createDirectory(at: aside, withIntermediateDirectories: true)
+        for name in ["default.store", "default.store-shm", "default.store-wal"] { // SQLite's store and its two side files
+            try? FileManager.default.moveItem(at: URL.applicationSupportDirectory.appending(path: name),
+                                              to: aside.appending(path: name))
+        }
         do { return try ModelContainer(for: SavedHost.self) } catch { fatalError("Can't open the saved hosts: \(error)") }
     }
 

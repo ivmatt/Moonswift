@@ -350,12 +350,20 @@ struct SettingsView: View {
     /// In a stream, sends a new bitrate once the slider or controller has rested for a moment.
     private func applyLive(_ kbps: Int) {
         guard let live else { return }
-        bitrateChange?.cancel()
-        liveBitrateNote = "Applying…"
-        bitrateChange = Task {
-            try? await Task.sleep(for: .milliseconds(600))
-            guard !Task.isCancelled else { return }
-            liveBitrateNote = await live.setBitrate(kbps)
-        }
+        bitrateChange = applyLiveBitrate(kbps, replacing: bitrateChange, send: live.setBitrate) { liveBitrateNote = $0 }
+    }
+}
+
+/// A live bitrate change from a slider (Stream Settings, or the control panel's Quick Settings): "Applying…" at once,
+/// then sent once the slider or controller has rested for 600 ms (each move starts the wait again), and what the host
+/// said shown instead.
+@MainActor func applyLiveBitrate(_ kbps: Int, replacing pending: Task<Void, Never>?, send: @escaping (Int) async -> String,
+                                 note: @escaping (String) -> Void) -> Task<Void, Never> {
+    pending?.cancel()
+    note("Applying…")
+    return Task {
+        try? await Task.sleep(for: .milliseconds(600))
+        guard !Task.isCancelled else { return }
+        note(await send(kbps))
     }
 }

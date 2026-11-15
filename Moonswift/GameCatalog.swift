@@ -25,10 +25,12 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
 /// Every PC's games, kept on this device so Home and Library show them at once (and while a PC is offline), and
 /// refreshed from each PC while it's up. Favorites and last-played times come from each PC's GameHistory.
 @Observable final class GameCatalog {
-    private(set) var apps: [String: [HostApp]] = [:] // by PC, as last seen
-    private(set) var histories: [String: GameHistory] = [:] // by PC
+    private(set) var apps: [String: [HostApp]] = [:] { didSet { gamesCache = [:] } } // by PC, as last seen
+    private(set) var histories: [String: GameHistory] = [:] { didSet { gamesCache = [:] } } // by PC
     /// Your own name and pictures for a game, by game ID. Only how Moonswift shows it; the PC's list is untouched.
-    private(set) var nicknames: [String: String] = [:]
+    private(set) var nicknames: [String: String] = [:] { didSet { gamesCache = [:] } }
+    /// `games(on:)` by its PCs, until a list, history or nickname changes: Home reads it many times a redraw.
+    @ObservationIgnored private var gamesCache: [[String]: [CatalogGame]] = [:]
     /// Seconds the launch splash stays past the first picture, for games that need more (or less) than the default.
     private(set) var splashWaits: [String: Int] = [:]
     /// Your pictures by kind, then game ID: a hero, and a cover for each cover shape.
@@ -98,13 +100,13 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
     func setNickname(_ name: String, for game: CatalogGame) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         nicknames[game.id] = name.isEmpty || name == game.originalTitle ? nil : name
-        try? JSONEncoder().encode(nicknames).write(to: Self.customFolder.appending(path: "nicknames.json"))
+        try? JSONEncoder().encode(nicknames).write(to: Self.customFolder.appending(path: "nicknames.json"), options: .atomic)
     }
 
     /// nil: the default from Settings.
     func setSplashWait(_ seconds: Int?, for game: CatalogGame) {
         splashWaits[game.id] = seconds
-        try? JSONEncoder().encode(splashWaits).write(to: Self.customFolder.appending(path: "splashWaits.json"))
+        try? JSONEncoder().encode(splashWaits).write(to: Self.customFolder.appending(path: "splashWaits.json"), options: .atomic)
     }
 
     /// Saves a picture you picked (scaled down to what the screen needs), or removes it with nil.
@@ -148,7 +150,7 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
             if let list = try? await pc.client.apps() {
                 if apps[pc.id] != list {
                     apps[pc.id] = list
-                    try? JSONEncoder().encode(list).write(to: Self.folder.appending(path: "\(pc.id).json"))
+                    try? JSONEncoder().encode(list).write(to: Self.folder.appending(path: "\(pc.id).json"), options: .atomic)
                 }
                 histories[pc.id] = GameHistory.load(hostID: pc.id)
                 fetchFailed.remove(pc.id)
@@ -166,6 +168,14 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
 
     /// All games of the saved PCs, one entry per title, newest played first, then by name.
     func games(on pcIDs: [String]) -> [CatalogGame] {
+        _ = (apps, histories, nicknames) // read even when cached, so views still follow their changes
+        if let cached = gamesCache[pcIDs] { return cached }
+        let games = buildGames(on: pcIDs)
+        gamesCache[pcIDs] = games
+        return games
+    }
+
+    private func buildGames(on pcIDs: [String]) -> [CatalogGame] {
         var byTitle: [String: [CatalogGame.Source]] = [:]
         for id in pcIDs {
             // The session controls that come and go (Resume, Terminate…) aren't games: Home shows them as a banner.
@@ -227,7 +237,6 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
     }
     #endif
 
-    func reloadHistory(_ pcID: String) { histories[pcID] = GameHistory.load(hostID: pcID) }
 
         func notePlayed(_ app: HostApp, on pcID: String) {
         var history = histories[pcID] ?? GameHistory.load(hostID: pcID)
@@ -287,10 +296,4 @@ struct CoverArt: View {
                 image = UIImage(data: png)
             }
     }
-}
-
-/// "Played 3h ago", "Never played".
-nonisolated func playedText(_ date: Date?) -> String {
-    guard let date else { return "Never played" }
-    return "Played " + date.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
 }

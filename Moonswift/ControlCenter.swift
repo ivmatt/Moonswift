@@ -153,6 +153,7 @@ struct ActionsPanel: View {
 
     private func handle(_ command: GamepadCommand) {
         let count = tiles.count, lastRowStart = (count - 1) / 2 * 2
+        focus = min(focus, count + 1) // unpinning shortcuts shortens the grid: never past Quit, never a stale Quit
         let inGrid = (0..<count).contains(focus)
         switch command {
         case .back, .streamMenu: close()
@@ -234,14 +235,8 @@ struct QuickSettingsPanel: View {
 
     /// Sends the new bitrate once the slider or controller has rested for a moment.
     private func applyBitrate() {
-        bitrateChange?.cancel()
-        bitrateNote = "Applying…"
         let kbps = StreamSettings.effectiveBitrate(saved: bitrate, width: target.width, height: target.height, fps: target.fps)
-        bitrateChange = Task {
-            try? await Task.sleep(for: .milliseconds(600))
-            guard !Task.isCancelled else { return }
-            bitrateNote = await setBitrate(kbps)
-        }
+        bitrateChange = applyLiveBitrate(kbps, replacing: bitrateChange, send: setBitrate) { bitrateNote = $0 }
     }
 
     private func handle(_ command: GamepadCommand) {

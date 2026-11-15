@@ -951,3 +951,41 @@ struct GestureActionTests {
         #expect(TouchGesture(kind: .swipeLeft, fingers: 4).defaultAction == .nothing)
     }
 }
+
+struct HostStatusRuleTests {
+    @Test func oneEmptyAnswerWaitsForASecond() {
+        // Running game 5: the first "nothing" keeps it, the second shows nothing.
+        let first = PCDirectory.reading(game: 0, shown: 5, emptyInARow: 0, isManual: false)
+        #expect(first == (5, 1))
+        #expect(PCDirectory.reading(game: 0, shown: 5, emptyInARow: first.emptyInARow, isManual: false) == (0, 0))
+        // A refresh you asked for, or another game, is believed at once.
+        #expect(PCDirectory.reading(game: 0, shown: 5, emptyInARow: 0, isManual: true) == (0, 0))
+        #expect(PCDirectory.reading(game: 7, shown: 5, emptyInARow: 1, isManual: false) == (7, 0))
+    }
+
+    @Test func ownSessionEndsAfterTwoEmptyAnswers() {
+        #expect(PCDirectory.sessionReading(game: 0, emptyInARow: 0) == (1, false))
+        #expect(PCDirectory.sessionReading(game: 0, emptyInARow: 1) == (2, true))
+        #expect(PCDirectory.sessionReading(game: 5, emptyInARow: 1) == (0, false)) // a game in between starts over
+    }
+}
+
+struct GameListCacheTests {
+    /// The cached list still changes with a nickname, and a view reading it still hears about new game lists.
+    @MainActor @Test func cachedListFollowsChanges() {
+        let catalog = GameCatalog()
+        let app = HostApp(fields: ["ID": "1", "AppTitle": "Cache Test Game", "UUID": "cache-test"])!
+        catalog.demoApps([app], history: GameHistory(), pcID: "cache-test-pc")
+        let game = catalog.games(on: ["cache-test-pc"])[0]
+        catalog.setNickname("Renamed", for: game)
+        defer { catalog.setNickname("", for: game) }
+        #expect(catalog.games(on: ["cache-test-pc"]).first?.title == "Renamed")
+
+        final class Flag: @unchecked Sendable { var isSet = false } // set once, read after, on this thread
+        let heardChange = Flag()
+        withObservationTracking { _ = catalog.games(on: ["cache-test-pc"]) } onChange: { heardChange.isSet = true }
+        catalog.demoApps([], history: GameHistory(), pcID: "cache-test-pc")
+        #expect(heardChange.isSet)
+        #expect(catalog.games(on: ["cache-test-pc"]).isEmpty)
+    }
+}
