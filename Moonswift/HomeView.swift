@@ -48,6 +48,8 @@ struct HomeView: View {
 
     /// The status pill's menu, opened with the controller.
     @State private var statusMenu: ChoiceMenuSpec?
+    /// On the top row with a controller: 0 the status pill, 1 the session pill beside it.
+    @State private var topButton = 0
     @State private var pillFrame = RowFrames()
     @State private var isPressingPlay = false
     @State private var topInset: CGFloat = 0
@@ -86,13 +88,89 @@ struct HomeView: View {
 
     /// The host status, in place of the title: tap for each host's status and Refresh.
     private var statusPill: AnyView? {
-        hosts.isEmpty ? nil : AnyView(PCStatusButton(refresh: refresh, isRefreshing: isRefreshing,
-                                                     isFocused: gamepad.isActive && focusRow == -1, isHidden: statusMenu != nil,
-                                                     isCompact: floatsTabBar)
-            // Floating tab bar: in line with its shrunk button below, rather than the top bar's inner margin in.
-            .offset(x: floatsTabBar ? -10 : 0)
-            // In the page's own coordinates for its menu, wherever the pill is: the top bar sits outside the page.
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { pillFrame.frames["status"] = $0 })
+        hosts.isEmpty ? nil : AnyView(HStack(spacing: 10) {
+            PCStatusButton(refresh: refresh, isRefreshing: isRefreshing,
+                           isFocused: gamepad.isActive && focusRow == -1 && topButton == 0,
+                           isHidden: statusMenu?.source == AnyHashable("status"), isCompact: floatsTabBar)
+                // In the page's own coordinates for its menu, wherever the pill is: the top bar sits outside the page.
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { pillFrame.frames["status"] = $0 }
+            if let (host, session) = sessionHost { sessionPill(host, session) }
+        }
+        // Floating tab bar: in line with its shrunk button below, rather than the top bar's inner margin in.
+        .offset(x: floatsTabBar ? -10 : 0)
+        .animation(.snappy, value: sessionHost?.host.uniqueID))
+    }
+
+    /// A session on a host that isn't this device's stream: another device playing, or this device's own Remote
+    /// Monitor or Remote Input.
+    // shortcut: only the first such host gets a pill; enough until someone streams from two hosts at once.
+    private var sessionHost: (host: SavedHost, session: GameCatalog.RemoteSession)? {
+        hosts.lazy.filter { directory.isAvailable($0.uniqueID) }
+            .compactMap { host in catalog.remoteSession(on: host.uniqueID).map { (host, $0) } }.first
+    }
+
+    /// What the session pill offers: Join (or Resume), Disconnect, End Session.
+    private func sessionActions(_ host: SavedHost, _ session: GameCatalog.RemoteSession) -> [(title: String, icon: String, run: () -> Void)] {
+        let pc = directory.ref(host)
+        var actions: [(title: String, icon: String, run: () -> Void)] = []
+        if let join = session.join {
+            actions.append((session.isOwn ? "Resume" : "Join", "play.fill", {
+                session.isOwn ? launcher.join(join, on: pc) : launcher.confirmJoin(join, title: sessionTitle(host), on: pc)
+            }))
+        }
+        if let disconnect = session.disconnect { actions.append(("Disconnect", "xmark", { launcher.disconnectRemote(disconnect, on: pc) })) }
+        if let end = session.end { actions.append(("End Session", "xmark.circle", { launcher.confirmEndSession(end, on: pc) })) }
+        return actions
+    }
+
+    /// The running game's name, for the Join question and the menu.
+    private func sessionTitle(_ host: SavedHost) -> String {
+        catalog.title(of: directory.playing[host.uniqueID] ?? 0, on: host.uniqueID) ?? "the session"
+    }
+
+    private func sessionWord(_ session: GameCatalog.RemoteSession) -> String {
+        session.isOwn ? "\(session.kind) On" : "Playing on Another Device"
+    }
+
+    /// Beside the status pill, in its look: what's going on, and a menu to join or end it.
+    private func sessionPill(_ host: SavedHost, _ session: GameCatalog.RemoteSession) -> some View {
+        Menu {
+            Section("\(host.displayName) · \(sessionTitle(host))") {
+                ForEach(sessionActions(host, session), id: \.title) { action in
+                    Button(action.title, systemImage: action.icon, role: action.title == "End Session" ? .destructive : nil, action: action.run)
+                }
+            }
+        } label: {
+            HStack(spacing: floatsTabBar ? 8 : 10) {
+                Image(systemName: "dot.radiowaves.left.and.right").foregroundStyle(.orange)
+                    .font(floatsTabBar ? .system(size: 15, weight: .medium) : nil)
+                Text(sessionWord(session)).font(floatsTabBar ? .system(size: 13, weight: .semibold) : nil).lineLimit(1)
+            }
+            .font(.body.weight(.semibold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, floatsTabBar ? 14 : 16)
+            .frame(height: 44)
+            .glassEffect(.regular.interactive(), in: .capsule)
+            .tint(.primary)
+        }
+        .focusRing(gamepad.isActive && focusRow == -1 && topButton == 1, cornerRadius: .infinity)
+        .scaleEffect(statusMenu?.source == AnyHashable("session") ? 0.6 : 1, anchor: .leading)
+        .opacity(statusMenu?.source == AnyHashable("session") ? 0 : 1)
+        .animation(.spring(duration: 0.3, bounce: 0.2), value: statusMenu?.source == AnyHashable("session"))
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { pillFrame.frames["session"] = $0 }
+        .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .leading)))
+    }
+
+    /// The session pill's menu for the controller, like the one a tap opens.
+    private func openSessionMenu() {
+        guard let (host, session) = sessionHost else { return }
+        let actions = sessionActions(host, session)
+        statusMenu = ChoiceMenuSpec(source: "session", options: actions.map(\.title), selected: -1,
+                                    anchor: (pillFrame.frames["session"] ?? .zero).offsetBy(dx: -(pillFrame.frames["page"]?.minX ?? 0),
+                                                                                            dy: -(pillFrame.frames["page"]?.minY ?? 0)),
+                                    pick: { actions[$0].run() }, width: 280,
+                                    info: [.init(header: host.displayName, text: sessionTitle(host), dot: .orange)],
+                                    icons: actions.map(\.icon), opensRight: true)
     }
 
     /// The toolbar runs along the top (iPhone, iPad): the pill goes at its leading end, mirroring the gear.
@@ -128,9 +206,9 @@ struct HomeView: View {
                         TabTitle(text: "", topInset: topInset, beside: titlePill) { if isRailOnLeft, let statusPill { statusPill } }
                     .padding(.horizontal, 36)
                             .padding(.top, -max(0, topInset - Self.windowTopInset))
-                        Spacer()
-                        remoteSessionBanners
-                        Spacer()
+                        // Its controls are in the session pill beside the status.
+                        ContentUnavailableView("No Games Listed", systemImage: "dot.radiowaves.left.and.right",
+                                               description: Text("The host lists its games again once its session ends."))
                     }
                 } else if games.isEmpty {
                     ContentUnavailableView {
@@ -200,9 +278,10 @@ struct HomeView: View {
     /// The button guide's buttons: the selected game's, then the page's.
     private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
         guard !games.isEmpty else { return [] }
-        let a = focusRow == -1 ? "Open" : focusRow == 0 && heroButton == 1 ? "Quit"
-            : selectedGame?.isRunning(directory) == true ? "Resume" : "Play"
-        return [([.a], a), ([.y], "Edit")] + (selectedGame?.isRunning(directory) == true ? [([.x], "Quit")] : [])
+        let labels = selectedGame?.runningLabels(directory, catalog) ?? (resume: "Resume", quit: "Quit")
+        let a = focusRow == -1 ? "Open" : focusRow == 0 && heroButton == 1 ? labels.quit
+            : selectedGame?.isRunning(directory) == true ? labels.resume : "Play"
+        return [([.a], a), ([.y], "Edit")] + (selectedGame?.isRunning(directory) == true ? [([.x], labels.quit)] : [])
             + [([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")]
     }
 
@@ -243,7 +322,8 @@ struct HomeView: View {
                     .transition(.opacity)
                 } else if let game = selectedGame {
                     HeroCard(game: game, subtitle: heroSubtitle(game), isShort: isShort,
-                             isRunning: game.isRunning(directory), focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
+                             isRunning: game.isRunning(directory), labels: game.runningLabels(directory, catalog),
+                             isElsewhere: game.elsewhere(directory, catalog) != nil, focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
                              play: { start(game) }, quit: { quit(game) }, isPressingPlay: isPressingPlay)
                         .frame(maxWidth: heroFold.maxWidth ?? .infinity, alignment: .leading)
                 }
@@ -254,7 +334,6 @@ struct HomeView: View {
             .onGeometryChange(for: FoldAvoidance.self) { FoldAvoidance(fold: $0.fold, in: $0.size) } action: { heroFold = $0 }
             // Ends above the covers, so a wide picture shows whole; on a half-open Duo, above the fold.
             .background { heroArt.padding(.bottom, heroFold.lift) }
-            remoteSessionBanners
             if let row {
                 coverRow(row.games)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { coverRowHeight = $0 }
@@ -385,43 +464,12 @@ struct HomeView: View {
 
     private func heroSubtitle(_ game: CatalogGame) -> String {
         let pc = hosts.count > 1 ? game.sources.compactMap { s in hosts.first { $0.uniqueID == s.pcID }?.displayName }.first : nil
-        let state = game.isRunning(directory) ? "Running now" : nil // when it was last played: left out, it crowded the hero
+        let state = game.elsewhere(directory, catalog) != nil ? "Playing on another device"
+            : game.isRunning(directory) ? "Running now" : nil // when it was last played: left out, it crowded the hero
         return [pc, state].compactMap { $0 }.joined(separator: " · ")
     }
 
     // MARK: Another device's session
-
-    /// While another device streams from a PC, it offers to join (take over) or end that session.
-    @ViewBuilder private var remoteSessionBanners: some View {
-        ForEach(hosts.filter { directory.isAvailable($0.uniqueID) }) { host in
-            if let session = catalog.remoteSession(on: host.uniqueID) {
-                HStack(spacing: 16) {
-                    Image(systemName: "dot.radiowaves.left.and.right").font(.title2).foregroundStyle(.orange)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(session.isOwn ? "\(session.kind) is on" : "Being streamed on another device").font(.headline)
-                        Text(session.isOwn ? "\(host.displayName) lists its games again once you disconnect." : host.displayName)
-                            .font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if let join = session.join {
-                        Button(session.isOwn ? "Resume" : "Join") { launcher.join(join, on: directory.ref(host)) }.buttonStyle(.glassProminent)
-                    }
-                    if let disconnect = session.disconnect {
-                        Button("Disconnect") { launcher.disconnectRemote(disconnect, on: directory.ref(host)) }.buttonStyle(.glass)
-                    }
-                    if let end = session.end {
-                        Button("End Session", role: .destructive) { launcher.confirmEndSession(end, on: directory.ref(host)) }
-                            .buttonStyle(.glass)
-                            .tint(.red)
-                    }
-                }
-                .padding(12)
-                .background(.primary.opacity(0.08), in: .rect(cornerRadius: 18))
-                .padding(.leading, 36)
-                .padding(.trailing, 36)
-            }
-        }
-    }
 
     // MARK: Rows
 
@@ -431,7 +479,8 @@ struct HomeView: View {
                     LazyHStack(spacing: 14) {
                         ForEach(games) { game in
                             CoverTile(game: game, client: client(for: game), isRunning: game.isRunning(directory),
-                                      unavailable: game.unavailable(hosts: hosts, directory: directory), isFocused: focusRow == 1 && game.id == selectedGame?.id)
+                                      unavailable: game.unavailable(hosts: hosts, directory: directory), isFocused: focusRow == 1 && game.id == selectedGame?.id,
+                                      isElsewhere: game.elsewhere(directory, catalog) != nil)
                                 .frame(width: coverWidth)
                                 .onTapGesture { // selects only: Play starts it, so a stray second tap can't
                                     withAnimation(.snappy) { selectedID = game.id }
@@ -466,9 +515,7 @@ struct HomeView: View {
 
     /// Quits it on the PC that's running it, after asking.
     private func quit(_ game: CatalogGame) {
-        guard let source = game.sources.first(where: { directory.playing[$0.pcID] == $0.app.id }),
-              let host = hosts.first(where: { $0.uniqueID == source.pcID }) else { return }
-        launcher.confirmQuit(game.title, on: directory.ref(host))
+        Moonswift.quit(game, hosts: hosts, directory: directory, catalog: catalog, launcher: launcher)
     }
 
     @ViewBuilder private func gameMenu(_ game: CatalogGame) -> some View {
@@ -477,7 +524,7 @@ struct HomeView: View {
             catalog.toggleFavorite(game)
         }
         if game.isRunning(directory) {
-            Button("Quit", systemImage: "xmark", role: .destructive) { quit(game) }
+            Button(game.runningLabels(directory, catalog).quit, systemImage: "xmark", role: .destructive) { quit(game) }
         }
     }
 
@@ -501,6 +548,7 @@ struct HomeView: View {
         switch command {
         case .up:
             if focusRow == 1 { heroButton = 0 }
+            if focusRow == 0, !hosts.isEmpty { topButton = 0 }
             focusRow = focusRow == 1 || hosts.isEmpty ? 0 : -1
         case .down:
             if focusRow == -1 { heroButton = 0 }
@@ -508,7 +556,7 @@ struct HomeView: View {
         case .left, .right:
             let offset = command == .left ? -1 : 1
             if focusRow == -1 {
-                break
+                topButton = min(max(topButton + offset, 0), sessionHost == nil ? 0 : 1)
             } else if focusRow == 0 {
                 heroButton = isRunning ? min(max(heroButton + offset, 0), 1) : 0
             } else {
@@ -516,7 +564,7 @@ struct HomeView: View {
                 withAnimation(.snappy) { selectedID = games[min(max(index + offset, 0), max(count - 1, 0))].id }
             }
         case .select:
-            if focusRow == -1 { openStatusMenu() }
+            if focusRow == -1 { topButton == 1 && sessionHost != nil ? openSessionMenu() : openStatusMenu() }
             else if focusRow == 0, heroButton == 1, isRunning { quit(game) } else { pressPlay(game) }
         case .alternate: if isRunning { quit(game) }
         case .menu: editing = game
@@ -537,6 +585,10 @@ private struct HeroCard: View {
     /// On a short screen: a smaller title.
     var isShort = false
     let isRunning: Bool
+    /// Resume and Quit, or Join and End Session while another device plays it.
+    let labels: (resume: String, quit: String)
+    /// Another device is playing it: orange rather than green.
+    let isElsewhere: Bool
     /// The controller's focus on a button: 0 Play/Resume, 1 Quit.
     let focusedButton: Int?
     let play: () -> Void
@@ -552,7 +604,7 @@ private struct HeroCard: View {
             if !subtitle.isEmpty {
                 Label(subtitle, systemImage: isRunning ? "play.circle.fill" : "gamecontroller.fill")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(isRunning ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(isElsewhere ? AnyShapeStyle(.orange) : isRunning ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
             }
             Text(game.title)
                 .font(.system(size: isShort ? shortTitleSize : titleSize, weight: .bold))
@@ -562,7 +614,7 @@ private struct HeroCard: View {
                 .contentTransition(.opacity)
             HStack(spacing: 12) {
                 Button(action: play) {
-                    Text(isRunning ? "Resume" : "Play").font(.headline).frame(width: 140)
+                    Text(isRunning ? labels.resume : "Play").font(.headline).frame(width: 140)
                 }
                 .buttonStyle(.glass)
                 .focusRing(focusedButton == 0, cornerRadius: .infinity) // the glass button is a capsule
@@ -571,7 +623,7 @@ private struct HeroCard: View {
                 .animation(.snappy(duration: 0.12), value: isPressingPlay)
                 if isRunning {
                     Button(action: quit) {
-                        Text("Quit").font(.headline).frame(width: 90)
+                        Text(labels.quit).font(.headline).frame(minWidth: 90)
                     }
                     .buttonStyle(.glassProminent)
                     .tint(.red)
@@ -599,6 +651,8 @@ struct CoverTile: View {
     /// Its PC and what's wrong with it ("is offline"), when it can't be played.
     let unavailable: (pc: String, reason: String)?
     let isFocused: Bool
+    /// Running on another device: an orange ring rather than green.
+    var isElsewhere = false
     @Environment(GameCatalog.self) private var catalog
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
 
@@ -628,7 +682,7 @@ struct CoverTile: View {
             }
             .clipShape(.rect(cornerRadius: 14))
             .overlay {
-                if isRunning { RoundedRectangle(cornerRadius: 14).stroke(.green, lineWidth: 3) }
+                if isRunning { RoundedRectangle(cornerRadius: 14).stroke(isElsewhere ? .orange : .green, lineWidth: 3) }
             }
             .overlay(alignment: .topTrailing) {
                 if game.isFavorite {

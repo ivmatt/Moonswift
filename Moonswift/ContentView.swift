@@ -61,7 +61,8 @@ struct PCsView: View {
                             row(.saved(host)) {
                                 HostRow(name: host.displayName, address: active, status: statuses[host.uniqueID],
                                         line: PCStatusButton.line(host, directory: directory, catalog: catalog, now: nil),
-                                        wasPaired: !host.serverCert.isEmpty, playing: playingTitle(host))
+                                        wasPaired: !host.serverCert.isEmpty, playing: playingTitle(host),
+                                        isElsewhere: catalog.remoteSession(on: host.uniqueID).map { !$0.isOwn } ?? false)
                             }
                             .contextMenu { // touch's way to the PC menu (a controller uses Y)
                                 if sleepable.contains(host.uniqueID) {
@@ -214,6 +215,8 @@ private struct HostRow: View {
     /// Paired the last time it was, for while it's offline and can't say.
     let wasPaired: Bool
     let playing: String?
+    /// Another device is streaming it.
+    var isElsewhere = false
 
     /// Online answers say; offline, it's as it was.
     private var isPaired: Bool { status == .online(paired: false) ? false : wasPaired }
@@ -228,7 +231,8 @@ private struct HostRow: View {
             VStack(alignment: .leading) {
                 Text(name)
                 if let playing {
-                    Text("\(Image(systemName: "play.fill")) Streaming \(playing)").font(.caption).foregroundStyle(.green)
+                    Text("\(Image(systemName: "play.fill")) \(isElsewhere ? "Playing \(playing) on another device" : "Streaming \(playing)")")
+                        .font(.caption).foregroundStyle(isElsewhere ? .orange : .green)
                 }
                 if !isFine { Text(line.short).font(.caption).foregroundStyle(.secondary) }
                 Text(address).font(.caption).foregroundStyle(.secondary)

@@ -40,6 +40,12 @@ struct ServerInfoTests {
         }
     }
 
+    @Test func missingPermissionNamesItWithoutTheHostSoftware() {
+        let error = ServerInfoError.hostError(code: 403, message: #"Permission denied: this device lacks the "Launch applications" permission. Enable it on the host in the Vibepollo Web UI under Client Management."#)
+        let text = error.errorDescription ?? ""
+        #expect(text.contains(#"Turn on its "Launch applications" permission"#) && !text.contains("Vibepollo"))
+    }
+
     @Test func garbageIsMalformed() {
         #expect(throws: ServerInfoError.malformedResponse) {
             try ServerInfo(xml: Data("<html>not it".utf8))

@@ -68,6 +68,11 @@ nonisolated enum ServerInfoError: LocalizedError, Equatable {
             "This host's identity has changed, for example after its streaming software was reinstalled. Remove it and pair again."
         case .httpStatus(let code): "The host answered with HTTP \(code)."
         case .hostError(code: 401, _): "This host no longer recognizes this device. Remove it and pair again."
+        // The host names the missing permission; its own wording names the host's software, so it's said here instead.
+        case .hostError(code: 403, let message) where message.contains("permission"):
+            "This device isn't allowed to do that on the host. "
+            + (message.split(separator: "\"").dropFirst().first.map { "Turn on its \"\($0)\" permission" } ?? "Turn on its permissions")
+            + " in the host's web settings, under Client Management, or set them when pairing it."
         case .hostError(let code, let message): "The host reported an error (\(code)): \(message)"
         case .malformedResponse: "The host's reply wasn't understood."
         }

@@ -17,9 +17,11 @@ nonisolated struct PCRef: Sendable {
     private(set) var activeAddresses: [String: String] = [:] // by uniqueID: the address that last answered
     /// What each PC last said it's running, by uniqueID (0 or missing: nothing).
     private(set) var reportedPlaying: [String: Int] = [:]
-    /// The game this device streamed and hasn't quit (`StreamLauncher.session`): running, even when a check comes
-    /// back empty. Only the PC naming a different game overrules it.
-    var session: StreamingGame?
+    /// The game this device streamed and hasn't quit (`StreamLauncher.session`): running, even when one check comes
+    /// back empty. The PC naming a different game overrules it, and so do two empty answers in a row, which clear it
+    /// (the game was ended from another device, or the PC restarted).
+    var session: StreamingGame? { didSet { if session != oldValue { sessionIdleReadings = 0 } } }
+    @ObservationIgnored private var sessionIdleReadings = 0
     /// The running game's ID by PC (0 or missing: none).
     var playing: [String: Int] {
         var playing = reportedPlaying
@@ -116,6 +118,10 @@ nonisolated struct PCRef: Sendable {
                 } else {
                     idleReadings[id] = 0
                     reportedPlaying[id] = game
+                }
+                if let session, session.pcID == id, status == .online(paired: true) {
+                    sessionIdleReadings = game == 0 ? sessionIdleReadings + 1 : 0
+                    if sessionIdleReadings >= 2 { self.session = nil }
                 }
                 if info?.canSleep == true { sleepable.insert(id) } else if info != nil { sleepable.remove(id) }
                 guard let host = hosts.first(where: { $0.uniqueID == id }) else { continue }

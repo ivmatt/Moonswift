@@ -109,6 +109,8 @@ struct RootView: View {
             }
         }
         .onChange(of: launcher.session, initial: true) { directory.session = launcher.session }
+        // The PC says it's gone (PCDirectory): no Resume for it here either.
+        .onChange(of: directory.session) { if directory.session == nil, let session = launcher.session { launcher.forgetSession(on: session.pcID) } }
         .onOpenURL { url in if let request = LaunchRequest(url: url) { LaunchRouter.shared.pending = request } }
         .onChange(of: LaunchRouter.shared.pending) { routePending() }
         // Outermost, so the sheets and the stream presented above get them too.
@@ -233,6 +235,21 @@ extension CatalogGame {
         return (name, statuses.allSatisfy { $0 == .offline } ? "is offline" : "isn't paired")
     }
 
+    /// Another device is streaming it: the host's controls to join that session or end it.
+    @MainActor func elsewhere(_ directory: PCDirectory, _ catalog: GameCatalog) -> (pcID: String, join: HostApp?, end: HostApp?)? {
+        for source in sources where directory.playing[source.pcID] == source.app.id {
+            if let session = catalog.remoteSession(on: source.pcID), !session.isOwn, session.join != nil || session.end != nil {
+                return (source.pcID, session.join, session.end)
+            }
+        }
+        return nil
+    }
+
+    /// Its running buttons: Join and End Session while another device plays it, Resume and Quit otherwise.
+    @MainActor func runningLabels(_ directory: PCDirectory, _ catalog: GameCatalog) -> (resume: String, quit: String) {
+        elsewhere(directory, catalog) == nil ? ("Resume", "Quit") : ("Join", "End Session")
+    }
+
     @MainActor func isRunning(_ directory: PCDirectory) -> Bool {
         sources.contains { directory.playing[$0.pcID] == $0.app.id }
     }
@@ -241,6 +258,11 @@ extension CatalogGame {
 /// Plays a catalog game from any screen, or explains why it can't.
 @MainActor func play(_ game: CatalogGame, hosts: [SavedHost], directory: PCDirectory, catalog: GameCatalog,
                      launcher: StreamLauncher) {
+    // Another device is playing it: joining it, after asking.
+    if let other = game.elsewhere(directory, catalog), let join = other.join,
+       let host = hosts.first(where: { $0.uniqueID == other.pcID }) {
+        return launcher.confirmJoin(join, title: game.title, on: directory.ref(host))
+    }
     guard let source = game.source(directory: directory, catalog: catalog),
           let host = hosts.first(where: { $0.uniqueID == source.pcID }) else {
         let names = game.sources.compactMap { source in hosts.first { $0.uniqueID == source.pcID }?.displayName }
@@ -250,4 +272,16 @@ extension CatalogGame {
     let running = directory.playing[source.pcID] ?? 0
     launcher.play(source.app, on: directory.ref(host), running: running,
                   runningTitle: catalog.title(of: running, on: source.pcID))
+}
+
+/// Quits a running catalog game on its PC, or ends another device's session playing it; after asking.
+@MainActor func quit(_ game: CatalogGame, hosts: [SavedHost], directory: PCDirectory, catalog: GameCatalog,
+                     launcher: StreamLauncher) {
+    if let other = game.elsewhere(directory, catalog), let end = other.end,
+       let host = hosts.first(where: { $0.uniqueID == other.pcID }) {
+        return launcher.confirmEndSession(end, on: directory.ref(host))
+    }
+    guard let source = game.sources.first(where: { directory.playing[$0.pcID] == $0.app.id }),
+          let host = hosts.first(where: { $0.uniqueID == source.pcID }) else { return }
+    launcher.confirmQuit(game.title, on: directory.ref(host))
 }

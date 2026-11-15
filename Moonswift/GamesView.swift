@@ -185,8 +185,8 @@ struct GamesView: View {
     /// nor (iPhone) while the search bar is up where the guide goes.
     private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
         isSearchFocused || (isSearching && isTabBarBelow) ? []
-            : [([.a], rowIndex == nil ? (focusedGame?.isRunning(directory) == true ? "Resume" : "Play") : "Select"),
-               ([.y], "Edit")] + (focusedGame?.isRunning(directory) == true ? [([.x], "Quit")] : [])
+            : [([.a], rowIndex == nil ? (focusedGame?.isRunning(directory) == true ? focusedGame!.runningLabels(directory, catalog).resume : "Play") : "Select"),
+               ([.y], "Edit")] + (focusedGame.map { $0.isRunning(directory) ? [([.x], $0.runningLabels(directory, catalog).quit)] : [] } ?? [])
               + [([.view], "Filter"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")]
     }
 
@@ -248,12 +248,14 @@ struct GamesView: View {
     /// Starts with a tap; while running, a tap offers Resume and Quit instead.
     @ViewBuilder private func shortcutPill(_ shortcut: CatalogGame, focusIndex: Int) -> some View {
         let label = PillLabel(title: shortcut.title, systemImage: Self.symbol(for: shortcut), isFocused: focused(focusIndex),
-                              isHidden: isChoiceOpen(from: focusIndex), isRunning: shortcut.isRunning(directory))
+                              isHidden: isChoiceOpen(from: focusIndex), isRunning: shortcut.isRunning(directory),
+                              isElsewhere: shortcut.elsewhere(directory, catalog) != nil)
+        let labels = shortcut.runningLabels(directory, catalog)
         Group {
             if shortcut.isRunning(directory) {
                 Menu {
-                    Button("Resume", systemImage: "play.fill") { start(shortcut) }
-                    Button("Quit", systemImage: "xmark", role: .destructive) { quit(shortcut) }
+                    Button(labels.resume, systemImage: "play.fill") { start(shortcut) }
+                    Button(labels.quit, systemImage: "xmark", role: .destructive) { quit(shortcut) }
                 } label: { label }
                 .tint(.primary)
             } else {
@@ -310,7 +312,7 @@ struct GamesView: View {
         case let i where i < 2 + fittingShortcuts:
             let shortcut = shortcuts[i - 2]
             if shortcut.isRunning(directory) {
-                choice = ChoiceMenuSpec(source: Self.rowFocus(index), options: ["Resume", "Quit"], selected: -1, anchor: anchor,
+                choice = ChoiceMenuSpec(source: Self.rowFocus(index), options: [shortcut.runningLabels(directory, catalog).resume, shortcut.runningLabels(directory, catalog).quit], selected: -1, anchor: anchor,
                                         pick: { $0 == 0 ? start(shortcut) : quit(shortcut) }, icons: ["play.fill", "xmark"],
                                         opensRight: true)
             } else {
@@ -343,7 +345,8 @@ struct GamesView: View {
 
     private func cover(_ game: CatalogGame, isFocused: Bool) -> some View {
         return CoverTile(game: game, client: client(for: game), isRunning: game.isRunning(directory),
-                         unavailable: game.unavailable(hosts: hosts, directory: directory), isFocused: isFocused)
+                         unavailable: game.unavailable(hosts: hosts, directory: directory), isFocused: isFocused,
+                         isElsewhere: game.elsewhere(directory, catalog) != nil)
             // Two layers, so each has its own transition: the dimming fades, the button grows as it fades.
             .overlay {
                 if readied == game.id { RoundedRectangle(cornerRadius: 14).fill(.black.opacity(0.35)).transition(.opacity) }
@@ -375,11 +378,11 @@ struct GamesView: View {
     private func playButton(_ game: CatalogGame) -> some View {
         VStack(spacing: 8) {
             Button { start(game) } label: {
-                Label(game.isRunning(directory) ? "Resume" : "Play", systemImage: "play.fill").overlayButtonText()
+                Label(game.isRunning(directory) ? game.runningLabels(directory, catalog).resume : "Play", systemImage: "play.fill").overlayButtonText()
             }
             .buttonStyle(.glass) // white on glass, like Home's Play
             if game.isRunning(directory) {
-                Button { readied = nil; quit(game) } label: { Label("Quit", systemImage: "xmark").overlayButtonText() }
+                Button { readied = nil; quit(game) } label: { Label(game.runningLabels(directory, catalog).quit, systemImage: "xmark").overlayButtonText() }
                     .buttonStyle(.glassProminent)
                     .tint(.red)
             }
@@ -388,9 +391,7 @@ struct GamesView: View {
 
     /// Asks before ending it on its PC (as Home does).
     private func quit(_ game: CatalogGame) {
-        guard let source = game.sources.first(where: { directory.playing[$0.pcID] == $0.app.id }),
-              let host = hosts.first(where: { $0.uniqueID == source.pcID }) else { return }
-        launcher.confirmQuit(game.title, on: directory.ref(host))
+        Moonswift.quit(game, hosts: hosts, directory: directory, catalog: catalog, launcher: launcher)
     }
 
     private var focusedGame: CatalogGame? { shown.indices.contains(focus) ? shown[focus] : nil }
@@ -545,6 +546,8 @@ private struct PillLabel: View {
     var isHidden = false
     var isOn = false
     var isRunning = false
+    /// Running on another device: orange rather than green.
+    var isElsewhere = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -557,7 +560,7 @@ private struct PillLabel: View {
         .frame(minWidth: 36, minHeight: 36)
         .contentShape(.capsule)
         .glassEffect(isOn ? .regular.tint(.white.opacity(0.18)).interactive() : .regular.interactive(), in: .capsule)
-        .overlay { if isRunning { Capsule().stroke(.green, lineWidth: 2) } }
+        .overlay { if isRunning { Capsule().stroke(isElsewhere ? .orange : .green, lineWidth: 2) } }
         .focusRing(isFocused, cornerRadius: .infinity)
         .opacity(isHidden ? 0 : 1)
         .fixedSize()

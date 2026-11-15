@@ -78,7 +78,7 @@ import SwiftUI
         disconnectRequest += 1
     }
 
-    /// Takes over the session another device is streaming (the PC's Resume control).
+    /// Joins the session another device is streaming (the PC's Join control): both stream it.
     func join(_ control: HostApp, on pc: PCRef) {
         guard busy == nil, stream == nil else { return }
         perform("Joining the session…", on: pc, streaming: control) { [settings = Self.settings] in
@@ -87,15 +87,25 @@ import SwiftUI
         }
     }
 
+    /// Joins another device's session, after asking: both devices then see and control the same game.
+    func confirmJoin(_ control: HostApp, title: String, on pc: PCRef) {
+        menu = MenuSpec(title: "Join \(title)?", message: "It's playing on another device. Both devices will see and control it.",
+                        actions: [.init(title: "Join") { self.join(control, on: pc) }])
+    }
+
     /// Ends the session another device is streaming (the PC's Terminate control), after asking.
     func confirmEndSession(_ control: HostApp, on pc: PCRef) {
         menu = MenuSpec(title: "End the other device's session?",
                         message: "It disconnects that device and quits what it's playing. Unsaved progress may be lost.", actions: [
             .init(title: "End Session", isDestructive: true) {
                 self.perform("Ending the session…", on: pc) { [settings = Self.settings] in
-                    // The PC tears the session down and answers without a session to stream: no error to report.
-                    _ = try? await pc.client.launch(control, width: settings.width, height: settings.height, fps: settings.fps,
-                                                    videoFormats: settings.formats)
+                    let end = { try await pc.client.launch(control, width: settings.width, height: settings.height, fps: settings.fps,
+                                                           videoFormats: settings.formats) }
+                    // The host answers 410 both when it's done and, the first time, to ask "again to confirm": this
+                    // app has already asked, so it confirms at once. Anything else (no permission) is reported.
+                    do { _ = try await end() } catch ServerInfoError.hostError(410, let message) where message.contains("again") {
+                        do { _ = try await end() } catch ServerInfoError.hostError(410, _) {}
+                    } catch ServerInfoError.hostError(410, _) {}
                     return nil
                 }
             },
@@ -107,9 +117,9 @@ import SwiftUI
     func disconnectRemote(_ control: HostApp, on pc: PCRef) {
         guard busy == nil, stream == nil else { return }
         perform("Disconnecting…", on: pc) { [settings = Self.settings] in
-            // Like End: the host answers without a session to stream, which isn't an error.
-            _ = try? await pc.client.launch(control, width: settings.width, height: settings.height, fps: settings.fps,
-                                            videoFormats: settings.formats)
+            // Like End: the host answers 410 without a session to stream, which isn't an error; others are.
+            do { _ = try await pc.client.launch(control, width: settings.width, height: settings.height, fps: settings.fps,
+                                                videoFormats: settings.formats) } catch ServerInfoError.hostError(410, _) {}
             return nil
         }
     }
