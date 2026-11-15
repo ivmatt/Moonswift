@@ -50,6 +50,9 @@ nonisolated enum SettingsKey {
     static let playAudioOnPC = "playAudioOnPC" // Bool: sound also plays from the PC's speakers
     static let hdr = "hdr" // Bool: ask for HDR (10-bit HEVC) on HDR screens
     static let buttonGuide = "buttonGuide" // ButtonGuideMode
+    static let splashScreen = "splashScreen" // Bool, on by default: the game's art from Play until it's showing
+    static let splashWait = "splashWait" // Int seconds the splash stays past the first picture; missing: 3
+    static let splashEndsOnSound = "splashEndsOnSound" // Bool (beta): the splash goes once the game sounds, Splash Wait at most
     static let pictureInPicture = "pictureInPicture" // Bool, on by default: pinch or leaving the app floats the stream
 }
 

@@ -91,7 +91,7 @@ private struct ButtonGuideOverlay: View {
         let isRailOnLeft = !movesToTop && UIDevice.current.userInterfaceIdiom != .pad && center.pageLeading - center.pageTrailing >= 20
         ZStack(alignment: movesToTop || isRailOnLeft ? (isAtBottom ? .bottom : .top) : .bottomLeading) {
             Color.clear
-            if launcher.stream == nil { // not over a game
+            if launcher.stream == nil, launcher.splash == nil { // not over a game or its splash
                 ControllerHints(hints: center.current)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { if $0 > 0 { center.height = $0 } }
                     // Bottom left 36 points in, in line with the pages' content and just into the margin above the

@@ -404,6 +404,9 @@ struct HomeView: View {
         if let game = selectedGame, let art = catalog.heroArt[game.id] {
             let isDown = game.unavailable(hosts: hosts, directory: directory) != nil
             Color.clear
+                // The picture's whole area, under the rail and the status bar (the modifiers below widen it): where the
+                // launch splash grows from.
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { launcher.homeHeroFrame = $0 }
                 // Only the picture crossfades between games: the fades over it stay put, so they never thin out midway.
                 .overlay { Image(uiImage: art).resizable().scaledToFill().id(game.id).transition(.opacity) }
                 // Blurred and dimmed while its host can't be reached, under the words that say so.
@@ -510,6 +513,7 @@ struct HomeView: View {
     }
 
     private func start(_ game: CatalogGame) {
+        launcher.launchesFromHero = game.id == selectedGame?.id // its picture is the hero: the splash grows from it
         play(game, hosts: hosts, directory: directory, catalog: catalog, launcher: launcher)
     }
 

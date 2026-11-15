@@ -18,6 +18,8 @@ nonisolated struct StreamStats: Sendable {
     var videoFormat: Int32 = 0
     var fps = 60
     var videoFrames = 0
+    /// Milliseconds of audio so far that were more than near-silence: the launch splash can go once the game sounds.
+    var loudMilliseconds = 0
     var videoBytes = 0
     /// For adaptive bitrate: frames lost on the network (frame-number gaps) and the library's connection verdict.
     var lostFrames = 0

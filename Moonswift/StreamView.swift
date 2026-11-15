@@ -37,6 +37,7 @@ struct StreamView: View {
     }
 
     @Environment(StreamLauncher.self) private var launcher
+    @Environment(PCDirectory.self) private var directory
     @Environment(\.scenePhase) private var scenePhase
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage("touchMode") private var touchMode = TouchMode.touchscreen
@@ -62,6 +63,10 @@ struct StreamView: View {
     @State private var failure: StreamFailure?
     /// When this connection started: no picture 15 seconds on, it's given up.
     @State private var waitingSince = ContinuousClock.now
+    /// When the first picture arrived, for the splash's hold.
+    @State private var firstPictureAt: ContinuousClock.Instant?
+    /// The stream's loud audio when the first picture came, so only sound after it counts.
+    @State private var loudAtFirstPicture = 0
     static let pictureTimeout: Duration = .seconds(15)
     // Not @AppStorage: the once-a-second loop runs on the copy of this view from when the stream started, whose
     // @AppStorage values don't follow later changes (Stream Settings). Reading UserDefaults is always current.
@@ -77,7 +82,17 @@ struct StreamView: View {
     @State private var fpsHistory: [Double] = [] // the last minute, for the HUD's graph
 
     /// The game gets no input while a menu, Settings or Control Center is over it, or while it's the small window.
-    private var isPlaying: Bool { menu == nil && !isShowingSettings && scenePhase == .active && !launcher.isMinimized }
+    private var isPlaying: Bool {
+        menu == nil && !isShowingSettings && scenePhase == .active && !launcher.isMinimized && launcher.splash == nil
+    }
+    /// The splash's line while it's up: what the connection is doing; nil once the picture is in.
+    private var splashStatus: String? {
+        switch stats.state {
+        case .connecting: "Connecting to your game…"
+        case .connected where stats.videoFrames == 0: "Almost there…"
+        default: nil
+        }
+    }
 
     private var stats: StreamStats { session.stats }
     /// Until the first picture arrives (connected isn't enough: a game that didn't start sends none), so the stream
@@ -120,15 +135,10 @@ struct StreamView: View {
                 ZStack {
                     // The video layer keeps its last frame: blurred and darkened, a reconnect reads as a pause. With no
                     // frame (iOS may clear it in the background) this is simply black.
-                    Rectangle().fill(.ultraThinMaterial).environment(\.colorScheme, .dark)
-                    Color.black.opacity(0.55)
-                    VStack(spacing: 14) {
-                        ProgressView().controlSize(.large)
-                        Text(status).font(.headline).multilineTextAlignment(.center)
-                    }
-                    .foregroundStyle(.white)
-                    .tint(.white)
-                    .padding()
+                    DimmedBlur() // the same as the launch splash's
+                    // Like the launch splash: the game large in the middle, what's happening below.
+                    CenteredStatus(title: target.title, detail: status.replacing(" to \(target.title)", with: "")
+                        .replacing(" \(target.title)", with: ""))
                 }
                 .ignoresSafeArea()
                 .transition(.opacity)
@@ -150,6 +160,8 @@ struct StreamView: View {
             // Only full screen: as the small window, the app's screens take the controller (the newest handler wins).
             if !launcher.isMinimized {
                 Color.clear.onGamepad { command in
+                    // Over the splash, once the picture is in, any button skips the hold (and doesn't reach the game).
+                    if launcher.splash != nil { if firstPictureAt != nil { launcher.endSplash() }; return }
                     if command == .streamMenu { showMenu() } // other buttons go to the game once input is sent
                 }
             }
@@ -168,6 +180,8 @@ struct StreamView: View {
             stopInput()
         }
         .task { await run() }
+        .task { await holdSplash() }
+        .onChange(of: splashStatus, initial: true) { _, status in launcher.splashStatus = status }
         .task { await reconnectOnNetworkSwitch() }
         .onChange(of: scenePhase) { _, phase in
             // iOS freezes a backgrounded app within seconds, which would drop the stream. Disconnect cleanly instead
@@ -226,6 +240,7 @@ struct StreamView: View {
         menu = nil
         withAnimation(.spring(duration: 0.45, bounce: 0.15)) { launcher.isMinimized = false } // the page needs the room
         self.failure = failure
+        launcher.endSplash() // its page shows instead
         Task { await session.stop() } // its "ended" is ignored now the page is up
     }
 
@@ -343,20 +358,51 @@ struct StreamView: View {
         }
     }
 
-    /// Stops the connection before closing, so the next stream can't start while this one shuts down.
+    /// Stops the connection before closing, so the next stream can't start while this one shuts down. Quitting stays
+    /// on the frozen, blurred last frame until the host has ended the game, so Home shows Play straight away.
     private func leave(quitting: Bool = false, then next: @escaping () -> Void = {}) {
         guard !isLeaving else { return }
         isLeaving = true
         pictureInPicture.stopQuietly()
         stopInput() // lift held buttons and keys before the connection closes
-        status = "Disconnecting…"
+        status = quitting ? "Quitting…" : "Disconnecting…"
+        failure = nil // from its page: the words over the frozen picture take over
         Task {
-            await session.stop()
-            let quitOn = quitting ? launcher.streamedPC : nil
+            await session.stop() // the picture stops on its last frame
+            var quitError: Error?
+            if quitting {
+                do {
+                    try await client.quit()
+                    // The host can take a few seconds to close the game: wait until it says nothing's running.
+                    for _ in 0..<15 {
+                        guard let running = try? await client.serverInfo().currentGame, running != 0 else { break }
+                        try? await Task.sleep(for: .seconds(1))
+                    }
+                    launcher.forgetSession(on: client.hostID)
+                    directory.noteNothingRunning(on: client.hostID)
+                } catch {
+                    quitError = error
+                }
+            }
             launcher.streamEnded()
             next()
-            // Back on Home at once; the host can take seconds to end the game, so "Quitting…" shows there meanwhile.
-            if let quitOn { launcher.quit(target.title, on: quitOn) }
+            if let quitError { launcher.menu = .error(quitError.localizedDescription) }
+        }
+    }
+
+    /// The launch splash stays its wait past the first picture, checked often so a short wait stays short.
+    private func holdSplash() async {
+        while !Task.isCancelled, let splash = launcher.splash {
+            try? await Task.sleep(for: .milliseconds(100))
+            session.refresh()
+            let now = ContinuousClock.now
+            if stats.videoFrames > 0, firstPictureAt == nil {
+                firstPictureAt = now
+                loudAtFirstPicture = stats.loudMilliseconds
+            }
+            guard let firstPictureAt else { continue }
+            let sounds = splash.endsOnSound && stats.loudMilliseconds - loudAtFirstPicture >= 500
+            if sounds || now - firstPictureAt >= splash.wait { launcher.endSplash() }
         }
     }
 

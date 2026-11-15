@@ -30,6 +30,9 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.hdr) private var hdr = false
     @AppStorage(SettingsKey.buttonGuide) private var buttonGuide = ButtonGuideMode.automatic
     @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = true
+    @AppStorage(SettingsKey.splashScreen) private var showsSplash = true
+    @AppStorage(SettingsKey.splashWait) private var splashWait = LaunchSplash.defaultWait
+    @AppStorage(SettingsKey.splashEndsOnSound) private var splashEndsOnSound = false
     @State private var focus = 0
     @State private var liveBitrateNote: String?
     @State private var bitrateChange: Task<Void, Never>?
@@ -39,7 +42,7 @@ struct SettingsView: View {
     @State private var choice: ChoiceMenuSpec?
     @State private var rowFrames = RowFrames()
 
-    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, pictureInPicture, buttonMapping, buttonGuide, coverShape, about }
+    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, splash, splashWait, splashSound, pictureInPicture, buttonMapping, buttonGuide, coverShape, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
     private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
     @State private var page = Page.stream
@@ -49,7 +52,7 @@ struct SettingsView: View {
     }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        guard page == .stream else { return [.pictureInPicture, .buttonGuide, .buttonMapping] + (live == nil ? [.coverShape] : []) + [.about] }
+        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .buttonGuide, .buttonMapping] + (live == nil ? [.coverShape] : []) + [.about] }
         return (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
             + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .overlay]
     }
@@ -170,14 +173,27 @@ struct SettingsView: View {
                 }
                 } else {
                 Section {
+                    row(.splash) {
+                        Toggle("Splash Screen", isOn: $showsSplash)
+                    }
+                    if showsSplash {
+                        row(.splashWait) {
+                            choiceRow(.splashWait, "Splash Wait", $splashWait, LaunchSplash.waitChoices, name: Self.seconds)
+                        }
+                        row(.splashSound) { Toggle("End on Game Sound (Beta)", isOn: $splashEndsOnSound) }
+                    }
                     row(.pictureInPicture) {
                         Toggle("Picture in Picture", isOn: $allowsPictureInPicture)
                     }
                 } header: {
                     Text("Experience")
                 } footer: {
-                    Text("A pinch on the stream, or leaving the app while streaming, floats the game in a small window over "
-                         + "other apps. Off, leaving the app pauses the stream until you come back. Applies from the next stream.")
+                    Text("Splash Screen shows the game's art from Play until the game is on screen. Splash Wait keeps it up "
+                         + "that long past the first picture, so the host's desktop and launchers don't flash by; a game's "
+                         + "Edit page can set its own. End on Game Sound lifts it as soon as the game makes sound, with Splash Wait "
+                         + "the longest it stays; a launcher's or the desktop's sounds can end it early. Picture in Picture: a pinch on the stream, or "
+                         + "leaving the app while streaming, floats the game in a small window over other apps; off, leaving "
+                         + "the app pauses the stream until you come back. Applies from the next stream.")
                 }
                 Section {
                     row(.buttonGuide) {
@@ -284,6 +300,8 @@ struct SettingsView: View {
             .id(row) // outermost: under the row background a list doesn't find it, and the list didn't scroll to the focus
     }
 
+    static func seconds(_ n: Int) -> String { n == 0 ? "None" : "\(n) s" }
+
     /// Custom starts from the automatic value, so switching to it doesn't jump somewhere unexpected.
     private func setMode(_ mode: BitrateMode) {
         switch mode {
@@ -311,6 +329,9 @@ struct SettingsView: View {
         case .overlay: showsPerformance.toggle()
         case .pcAudio: playAudioOnPC.toggle()
         case .pictureInPicture: allowsPictureInPicture.toggle()
+        case .splash: showsSplash.toggle()
+        case .splashSound: splashEndsOnSound.toggle()
+        case .splashWait: choices("Splash Wait", LaunchSplash.waitChoices, current: splashWait, name: Self.seconds) { splashWait = $0 }
         case .bitrate: break // left/right move the slider
         case .buttonMapping: isShowingButtonMapping = true
         case .about: isShowingAbout = true

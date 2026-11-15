@@ -29,6 +29,8 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
     private(set) var histories: [String: GameHistory] = [:] // by PC
     /// Your own name and pictures for a game, by game ID. Only how Moonswift shows it; the PC's list is untouched.
     private(set) var nicknames: [String: String] = [:]
+    /// Seconds the launch splash stays past the first picture, for games that need more (or less) than the default.
+    private(set) var splashWaits: [String: Int] = [:]
     /// Your pictures by kind, then game ID: a hero, and a cover for each cover shape.
     private(set) var artwork: [Artwork: [String: UIImage]] = [:]
     /// The file-name part of each kind; "cover" is the 2:3 cover (the only cover there was at first).
@@ -65,6 +67,9 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
         if let data = try? Data(contentsOf: custom.appending(path: "nicknames.json")) {
             nicknames = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
         }
+        if let data = try? Data(contentsOf: custom.appending(path: "splashWaits.json")) {
+            splashWaits = (try? JSONDecoder().decode([String: Int].self, from: data)) ?? [:]
+        }
         for file in (try? FileManager.default.contentsOfDirectory(at: custom, includingPropertiesForKeys: nil)) ?? [] {
             // "<base64 game ID>.<kind>.jpg"
             let parts = file.deletingPathExtension().lastPathComponent.split(separator: ".")
@@ -94,6 +99,12 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         nicknames[game.id] = name.isEmpty || name == game.originalTitle ? nil : name
         try? JSONEncoder().encode(nicknames).write(to: Self.customFolder.appending(path: "nicknames.json"))
+    }
+
+    /// nil: the default from Settings.
+    func setSplashWait(_ seconds: Int?, for game: CatalogGame) {
+        splashWaits[game.id] = seconds
+        try? JSONEncoder().encode(splashWaits).write(to: Self.customFolder.appending(path: "splashWaits.json"))
     }
 
     /// Saves a picture you picked (scaled down to what the screen needs), or removes it with nil.

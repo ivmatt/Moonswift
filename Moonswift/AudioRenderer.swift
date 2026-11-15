@@ -1,4 +1,5 @@
 import AVFoundation
+import Accelerate
 import Synchronization
 
 /// Plays the stream's audio: Apple's built-in Opus decoder (AVAudioConverter) turns each packet into PCM, which an
@@ -67,7 +68,15 @@ nonisolated final class AudioRenderer: @unchecked Sendable { // the library call
         var error: NSError?
         let status = converter.convert(to: pcm, error: &error) { _, inputStatus in input.next(inputStatus) }
         guard status != .error, let samples = pcm.floatChannelData?[0] else { return }
-        ring.write(UnsafeBufferPointer(start: samples, count: Int(pcm.frameLength) * channels))
+        let count = Int(pcm.frameLength) * channels
+        ring.write(UnsafeBufferPointer(start: samples, count: count))
+        // Louder than near-silence (about -34 dBFS): the game, or something on the host, is making sound.
+        var peak: Float = 0
+        vDSP_maxmgv(samples, 1, &peak, vDSP_Length(count))
+        if peak > 0.02 {
+            let milliseconds = Int(pcm.frameLength) * 1000 / Int(pcm.format.sampleRate)
+            liveStats.withLock { $0.loudMilliseconds += milliseconds }
+        }
     }
 
     func stop() {

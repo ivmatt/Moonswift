@@ -28,6 +28,43 @@ import SwiftUI
 
     init(catalog: GameCatalog) { self.catalog = catalog }
 
+    // MARK: Splash
+
+    /// The game's art from Play until it's showing, over the host's desktop and launchers (Settings → Experience →
+    /// Splash Screen).
+    var splash: LaunchSplash?
+    /// "Connecting to your game…" and "Almost there…" from the stream; nil once its picture is up and it's holding.
+    var splashStatus: String?
+    /// Where Home's hero is, so the splash can grow from it.
+    @ObservationIgnored var homeHeroFrame: CGRect?
+    /// Play was pressed on Home's hero.
+    @ObservationIgnored var launchesFromHero = false
+    private var showsSplash: Bool { UserDefaults.standard.object(forKey: SettingsKey.splashScreen) as? Bool ?? true }
+
+    private func showSplash(_ title: String) {
+        defer { launchesFromHero = false }
+        guard showsSplash else { return }
+        splashStatus = nil
+        let wait = catalog.splashWaits[title.lowercased()]
+            ?? UserDefaults.standard.object(forKey: SettingsKey.splashWait) as? Int ?? LaunchSplash.defaultWait
+        var new = LaunchSplash(title: title, catalog: catalog, from: launchesFromHero ? homeHeroFrame : nil, wait: wait)
+        guard new.from != nil else { return withAnimation(.easeInOut(duration: 0.35)) { splash = new } }
+        new.isGrown = false
+        splash = new // exactly over Home's hero, then it grows to fill the screen
+        Task {
+            try? await Task.sleep(for: .milliseconds(20))
+            withAnimation(.smooth(duration: 0.55)) { splash?.isGrown = true }
+        }
+    }
+
+    /// The game is showing (or failed, and its page takes over): the splash fades away.
+    func endSplash() {
+        guard splash != nil else { return }
+        withAnimation(.easeInOut(duration: 0.6)) { splash = nil }
+    }
+
+
+
     /// `running` is the PC's running game ID (0: none) and `runningTitle` its name, for the quit question.
     func play(_ app: HostApp, on pc: PCRef, running: Int, runningTitle: String?) {
         guard busy == nil else { return }
@@ -41,11 +78,13 @@ import SwiftUI
             return disconnect { self.play(app, on: pc, running: running, runningTitle: runningTitle) }
         }
         if running == 0 {
+            showSplash(app.title)
             perform("Launching \(app.title)…", on: pc, streaming: app) { [settings = Self.settings] in
                 try await pc.client.launch(app, width: settings.width, height: settings.height, fps: settings.fps,
                                            videoFormats: settings.formats)
             }
         } else if app.id == running {
+            showSplash(app.title)
             perform("Resuming \(app.title)…", on: pc, streaming: app, isResume: true) { [settings = Self.settings] in
                 try await pc.client.resume(app, width: settings.width, height: settings.height, fps: settings.fps,
                                            videoFormats: settings.formats)
@@ -60,6 +99,7 @@ import SwiftUI
                         message: "Unsaved progress in the running game may be lost.", actions: [
             .init(title: "Quit and Launch", isDestructive: true) {
                 let launch = {
+                    self.showSplash(app.title)
                     self.perform("Launching \(app.title)…", on: pc, streaming: app) { [settings = Self.settings] in
                         try await pc.client.quit()
                         return try await pc.client.launch(app, width: settings.width, height: settings.height, fps: settings.fps,
@@ -163,10 +203,12 @@ import SwiftUI
                     catalog.notePlayed(app, on: pc.id)
                 }
             } catch where isResume {
+                endSplash()
                 forgetSession(on: pc.id)
                 menu = .error("Couldn't resume \(app?.title ?? "the game") on \(pc.name). It may have closed, or the host restarted. "
                               + error.localizedDescription)
             } catch {
+                endSplash()
                 menu = .error(error.localizedDescription)
             }
             busy = nil
@@ -183,9 +225,6 @@ import SwiftUI
         return pictureless[id] ?? 0
     }
     func notePicture() { if let id = streaming?.pc.id, pictureless[id] != nil { pictureless[id] = nil } }
-
-    /// The PC being streamed from.
-    var streamedPC: PCRef? { streaming?.pc }
 
     /// Quit & Retry is only offered for this device's own game: a joined session is another device's.
     var canRelaunch: Bool { streaming?.app.sessionControl == nil }
@@ -283,7 +322,7 @@ private struct StreamLauncherPresentation: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay {
-                if let busy = launcher.busy {
+                if let busy = launcher.busy, launcher.splash == nil { // the splash says it itself
                     ZStack {
                         Color.black.opacity(0.3).ignoresSafeArea()
                         ProgressView(busy).padding(24).background(.regularMaterial, in: .rect(cornerRadius: 16))
@@ -298,6 +337,19 @@ private struct StreamLauncherPresentation: ViewModifier {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: launcher.stream == nil)
+            .overlay {
+                if let splash = launcher.splash {
+                    // While the host starts it, then the stream's own words; once the picture is up and it's only
+                    // holding, how to skip.
+                    let working = launcher.busy.map { $0.hasPrefix("Resuming") ? "Picking up where you left off…" : "Getting your game ready…" }
+                        ?? launcher.splashStatus
+                    let canSkip = working == nil && launcher.stream != nil
+                    LaunchSplashView(splash: splash, status: working ?? "Almost there…", canSkip: canSkip) {
+                        if canSkip { launcher.endSplash() }
+                    }
+                    .transition(.opacity)
+                }
+            }
             .actionMenu($launcher.menu)
     }
 }

@@ -2,7 +2,7 @@ import PhotosUI
 import SwiftUI
 
 /// A game's page for how Moonswift shows it: a nickname, your own hero picture and a cover for each cover shape (2:3,
-/// 3:4, square; a shape without one shows the PC's art), and favourite. The PC's own name and art stay as they are,
+/// 3:4, square; a shape without one shows the PC's art), favourite, and how long its launch splash waits. The PC's own name and art stay as they are,
 /// and Reset brings them back. Controller: up/down move between rows; A types the name, picks a picture (or offers
 /// Change and Remove for one that's set), flips Favorite or presses Reset; B saves and closes.
 struct GameEditView: View {
@@ -16,9 +16,9 @@ struct GameEditView: View {
     /// The picker for each cover shape.
     @State private var coverItems: [CoverShape: PhotosPickerItem] = [:]
 
-    private enum Row: Hashable { case name, hero, cover(CoverShape), favorite, reset }
+    private enum Row: Hashable { case name, hero, cover(CoverShape), favorite, splashWait, reset }
     /// Must match the on-screen order, or up/down feel inverted.
-    private let rows: [Row] = [.name, .hero] + CoverShape.allCases.map(Row.cover) + [.favorite, .reset]
+    private let rows: [Row] = [.name, .hero] + CoverShape.allCases.map(Row.cover) + [.favorite, .splashWait, .reset]
     @State private var focus = 0
     @FocusState private var isNameFocused: Bool
     /// The controller's photo picker: which picture it's for, and what was picked.
@@ -70,6 +70,21 @@ struct GameEditView: View {
                     row(.favorite) {
                         Toggle("Favorite", isOn: Binding(get: { current.isFavorite }, set: { _ in catalog.toggleFavorite(current) }))
                     }
+                }
+                Section {
+                    row(.splashWait) {
+                        ChoiceRow(title: "Splash Wait", value: waitTitle(catalog.splashWaits[game.id]),
+                                  isValueHidden: choice?.source == AnyHashable(Row.splashWait)) {
+                            Picker("Splash Wait", selection: Binding(get: { catalog.splashWaits[game.id] },
+                                                                     set: { catalog.setSplashWait($0, for: game) })) {
+                                ForEach(waitOptions, id: \.self) { Text(waitTitle($0)).tag($0) }
+                            }
+                            .pickerStyle(.inline)
+                        }
+                    }
+                } footer: {
+                    Text("How long the splash stays once the game's picture comes in, for a game that takes longer to show "
+                         + "(or less). Default uses the Splash Wait in Settings.")
                 }
                 Section {
                     row(.reset) {
@@ -129,6 +144,12 @@ struct GameEditView: View {
         case .hero: pick(.hero, hasImage: catalog.heroArt[game.id] != nil, row: row)
         case .cover(let shape): pick(.cover(shape), hasImage: catalog.cover(for: game.id, shape) != nil, row: row)
         case .favorite: catalog.toggleFavorite(current)
+        case .splashWait:
+            let options = waitOptions
+            let spec = ChoiceMenuSpec(source: row, options: options.map(waitTitle),
+                                      selected: options.firstIndex(of: catalog.splashWaits[game.id]) ?? 0,
+                                      anchor: rowFrames.frames[row] ?? .zero) { catalog.setSplashWait(options[$0], for: game) }
+            withAnimation(.easeOut(duration: 0.12)) { choice = spec }
         case .reset: reset()
         }
     }
@@ -142,6 +163,10 @@ struct GameEditView: View {
         }
         withAnimation(.easeOut(duration: 0.12)) { choice = spec }
     }
+
+    /// Default (nil), then the seconds.
+    private var waitOptions: [Int?] { [nil] + LaunchSplash.waitChoices.map(Optional.some) }
+    private func waitTitle(_ seconds: Int?) -> String { seconds.map(SettingsView.seconds) ?? "Default" }
 
     private func reset() {
         catalog.resetCustomizations(for: game)

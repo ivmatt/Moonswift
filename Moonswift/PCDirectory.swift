@@ -56,6 +56,13 @@ nonisolated struct PCRef: Sendable {
     }
     #endif
 
+    /// This device just quit the PC's game and the PC confirmed it: Play shows at once, without waiting for two checks.
+    func noteNothingRunning(on pcID: String) {
+        reportedPlaying[pcID] = 0
+        idleReadings[pcID] = 0
+        if session?.pcID == pcID { session = nil }
+    }
+
     func isAvailable(_ id: String) -> Bool { statuses[id] == .online(paired: true) }
 
     func ref(_ host: SavedHost) -> PCRef {
