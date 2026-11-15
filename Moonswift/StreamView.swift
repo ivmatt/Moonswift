@@ -37,6 +37,7 @@ struct StreamView: View {
 
     @Environment(StreamLauncher.self) private var launcher
     @Environment(PCDirectory.self) private var directory
+    @Environment(GameCatalog.self) private var catalog
     @Environment(\.scenePhase) private var scenePhase
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage("touchMode") private var touchMode = TouchMode.touchscreen
@@ -54,6 +55,15 @@ struct StreamView: View {
     @State private var panelPull: CGFloat?
     /// A three-finger swipe right on the open panel: how far, so it goes back with the fingers.
     @State private var panelPush: CGFloat = 0
+    /// This game's on-screen controller layout: the one last used with it, else Standard; choosing one remembers it.
+    private var padLayoutID: Binding<String> {
+        Binding(get: { catalog.padLayouts[target.title.lowercased()] ?? PadLayout.standard.id },
+                set: { catalog.setPadLayout($0, forTitle: target.title) })
+    }
+
+    /// Touch: Controller draws a controller on screen, unless a real one is connected (it takes over).
+    private var showsOnScreenPad: Bool { touchMode == .controller && !gamepad.isControllerConnected && !launcher.isMinimized }
+
     /// A swipe left set to Quick Settings pulls the panel out on that tab.
     private var pullsQuickSettings: Bool {
         TouchGesture.active.contains { $0.kind == .swipeLeft && $0.action == .quickSettings }
@@ -66,6 +76,9 @@ struct StreamView: View {
     }
     @State private var isEditingShortcuts = false
     @State private var shortcuts = KeyShortcutStore()
+    @State private var padLayouts = PadLayoutStore()
+    /// Editing the on-screen controller's layout over the game (Quick Settings → Edit Layout).
+    @State private var isEditingPad = false
     @State private var rates = ""
     @State private var isLeaving = false
     @State private var isShowingSettings = false
@@ -99,7 +112,7 @@ struct StreamView: View {
 
     /// The game gets no input while a menu, Settings or Control Center is over it, or while it's the small window.
     private var isPlaying: Bool {
-        menu == nil && panel == nil && !isShowingSettings && scenePhase == .active && !launcher.isMinimized
+        menu == nil && panel == nil && !isEditingPad && !isShowingSettings && scenePhase == .active && !launcher.isMinimized
             && launcher.splash == nil
     }
     /// The splash's line while it's up: what the connection is doing; nil once the picture is in.
@@ -140,6 +153,14 @@ struct StreamView: View {
             .padding(.bottom, foldLift)
             // Safe Area mode keeps the picture (and the touches mapped onto it) clear of the cutout and home indicator.
             .ignoresSafeArea(edges: target.fitsSafeArea ? [] : .all)
+            if isEditingPad {
+                PadEditor(store: padLayouts, layoutID: padLayoutID) { isEditingPad = false }
+            } else if showsOnScreenPad {
+                // Touch: Controller, with no real controller connected: an on-screen one, inside the safe area.
+                OnScreenController(layout: padLayouts.layout(padLayoutID.wrappedValue), isPaused: !isPlaying) { pad in
+                    if isSendingInput { controllers.setOnScreen(pad) }
+                }
+            }
             if showsPerformance, let performance, !launcher.isMinimized {
                 PerformanceOverlay(readout: performance, adaptiveNote: adaptiveNote, history: fpsHistory)
             }
@@ -176,6 +197,8 @@ struct StreamView: View {
                                                .joined(separator: " · "),
                                            target: target, showsPerformance: $showsPerformance, touchMode: $touchMode,
                                            setBitrate: setLiveBitrate,
+                                           padLayouts: padLayouts, padLayoutID: padLayoutID,
+                                           editLayout: { closePanel(); isEditingPad = true },
                                            moreSettings: { isShowingSettings = true }, // the panel stays under it
                                            close: closePanel)
                     }
@@ -234,10 +257,18 @@ struct StreamView: View {
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
             stopInput()
+            pictureInPicture.detach()
         }
+        // Leaving the app floats the game only while it's actually playing.
+        .onChange(of: stats.state == .connected && stats.videoFrames > 0 && failure == nil && status == nil && !isLeaving,
+                  initial: true) { _, isLive in pictureInPicture.allowsAutomaticStart(isLive) }
         .task { await run() }
         .task { await holdSplash() }
         .onChange(of: splashStatus, initial: true) { _, status in launcher.splashStatus = status }
+        // The on-screen controller joins the host as a controller while it shows, and leaves when it goes.
+        .onChange(of: showsOnScreenPad && isSendingInput, initial: true) { _, isOn in
+            controllers.setOnScreen(isOn ? PadSnapshot() : nil)
+        }
         .task { await reconnectOnNetworkSwitch() }
         .onChange(of: scenePhase) { _, phase in
             // iOS freezes a backgrounded app within seconds, which would drop the stream. Disconnect cleanly instead
@@ -414,7 +445,7 @@ struct StreamView: View {
     private func leave(quitting: Bool = false, then next: @escaping () -> Void = {}) {
         guard !isLeaving else { return }
         isLeaving = true
-        pictureInPicture.stopQuietly()
+        pictureInPicture.detach() // closing: none of its Picture in Picture from here on
         stopInput() // lift held buttons and keys before the connection closes
         status = quitting ? "Quitting…" : "Disconnecting…"
         failure = nil // from its page: the words over the frozen picture take over

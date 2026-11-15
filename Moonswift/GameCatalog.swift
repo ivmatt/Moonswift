@@ -33,6 +33,8 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
     @ObservationIgnored private var gamesCache: [[String]: [CatalogGame]] = [:]
     /// Seconds the launch splash stays past the first picture, for games that need more (or less) than the default.
     private(set) var splashWaits: [String: Int] = [:]
+    /// The on-screen controller layout last used with each game, by game ID.
+    private(set) var padLayouts: [String: String] = [:]
     /// Your pictures by kind, then game ID: a hero, and a cover for each cover shape.
     private(set) var artwork: [Artwork: [String: UIImage]] = [:]
     /// The file-name part of each kind; "cover" is the 2:3 cover (the only cover there was at first).
@@ -72,6 +74,9 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
         if let data = try? Data(contentsOf: custom.appending(path: "splashWaits.json")) {
             splashWaits = (try? JSONDecoder().decode([String: Int].self, from: data)) ?? [:]
         }
+        if let data = try? Data(contentsOf: custom.appending(path: "padLayouts.json")) {
+            padLayouts = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+        }
         for file in (try? FileManager.default.contentsOfDirectory(at: custom, includingPropertiesForKeys: nil)) ?? [] {
             // "<base64 game ID>.<kind>.jpg"
             let parts = file.deletingPathExtension().lastPathComponent.split(separator: ".")
@@ -107,6 +112,12 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
     func setSplashWait(_ seconds: Int?, for game: CatalogGame) {
         splashWaits[game.id] = seconds
         try? JSONEncoder().encode(splashWaits).write(to: Self.customFolder.appending(path: "splashWaits.json"), options: .atomic)
+    }
+
+    /// The game (by its host's title) uses this on-screen controller layout from now on.
+    func setPadLayout(_ layoutID: String, forTitle title: String) {
+        padLayouts[title.lowercased()] = layoutID
+        try? JSONEncoder().encode(padLayouts).write(to: Self.customFolder.appending(path: "padLayouts.json"), options: .atomic)
     }
 
     /// Saves a picture you picked (scaled down to what the screen needs), or removes it with nil.

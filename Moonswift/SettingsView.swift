@@ -27,6 +27,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = false
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
     @AppStorage(SettingsKey.playAudioOnPC) private var playAudioOnPC = false
+    @AppStorage("touchMode") private var touchMode = TouchMode.touchscreen
     @AppStorage(SettingsKey.hdr) private var hdr = false
     @AppStorage(SettingsKey.buttonGuide) private var buttonGuide = ButtonGuideMode.automatic
     @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = true
@@ -43,7 +44,7 @@ struct SettingsView: View {
     @State private var choice: ChoiceMenuSpec?
     @State private var rowFrames = RowFrames()
 
-    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, splash, splashWait, splashSound, pictureInPicture, gestures, buttonMapping, buttonGuide, coverShape, about }
+    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, buttonMapping, buttonGuide, coverShape, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
     private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
     @State private var page = Page.stream
@@ -55,7 +56,7 @@ struct SettingsView: View {
     private var rows: [Row] {
         guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .gestures, .buttonGuide, .buttonMapping] + (live == nil ? [.coverShape] : []) + [.about] }
         return (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
-            + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .overlay]
+            + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .touch, .overlay]
     }
     private var videoFormats: Int32 {
         StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware, av1InHardware: ScreenInfo.av1InHardware,
@@ -156,6 +157,9 @@ struct SettingsView: View {
                     row(.pcAudio) {
                         Toggle("Play Sound on Host", isOn: $playAudioOnPC)
                     }
+                    row(.touch) {
+                        choiceRow(.touch, "Touch", $touchMode, TouchMode.allCases, name: \.title)
+                    }
                     row(.overlay) {
                         Toggle("Performance Overlay", isOn: $showsPerformance)
                     }
@@ -163,7 +167,9 @@ struct SettingsView: View {
                     Text("While Streaming")
                 } footer: {
                     Text("Sound always plays on this device; Play Sound on Host also plays it from the host's speakers, from the next "
-                         + "stream. The overlay shows live frame rate, bitrate, delay and packet loss in a corner of the stream.")
+                         + "stream. Touch: Touchscreen sends your fingers as touches, Trackpad moves the pointer, and Controller "
+                         + "puts a game controller on screen (hidden while a real one is connected). The overlay shows live "
+                         + "frame rate, bitrate, delay and packet loss in a corner of the stream.")
                 }
                 Section {} footer: { // a note under the list, not a row that looks tappable
                     if live != nil {
@@ -333,6 +339,7 @@ struct SettingsView: View {
         case .adaptive: adaptive.toggle()
         case .overlay: showsPerformance.toggle()
         case .pcAudio: playAudioOnPC.toggle()
+        case .touch: choices("Touch", TouchMode.allCases, current: touchMode, name: \.title) { touchMode = $0 }
         case .pictureInPicture: allowsPictureInPicture.toggle()
         case .gestures: isShowingGestures = true
         case .splash: showsSplash.toggle()

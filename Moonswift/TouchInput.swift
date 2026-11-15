@@ -3,11 +3,21 @@ import MoonlightCore
 import SwiftUI
 import UIKit
 
-enum TouchMode: String {
+enum TouchMode: String, CaseIterable {
     /// Each finger is a real Windows touch (or an absolute mouse on hosts without touch support).
     case touchscreen
     /// Laptop-style: one finger moves the cursor, tap clicks, two-finger tap right-clicks, two-finger drag scrolls.
     case trackpad
+    /// An on-screen game controller (OnScreenController); other touches do nothing, beyond the gestures.
+    case controller
+
+    var title: String {
+        switch self {
+        case .touchscreen: "Touchscreen"
+        case .trackpad: "Trackpad"
+        case .controller: "Controller"
+        }
+    }
 }
 
 /// Where the video sits inside the view (aspect fit) and how view points map to it.
@@ -240,6 +250,7 @@ final class TouchInputView: UIView, UIKeyInput {
             nextID &+= 1
             ids[ObjectIdentifier(touch)] = id
             switch mode {
+            case .controller: break
             case .trackpad:
                 trackpad.cursorScale = Double(streamSize.width / max(video.width, 1)) // finger across the video = cursor across the screen
                 trackpad.began(Int(id), at: touch.location(in: self), time: touch.timestamp)
@@ -257,6 +268,7 @@ final class TouchInputView: UIView, UIKeyInput {
         for touch in touches {
             guard let id = ids[ObjectIdentifier(touch)] else { continue }
             switch mode {
+            case .controller: break
             case .trackpad: perform(trackpad.moved(Int(id), to: touch.location(in: self)))
             case .touchscreen: sendTouch(touch, event: LI_TOUCH_EVENT_MOVE)
             }
@@ -328,6 +340,7 @@ final class TouchInputView: UIView, UIKeyInput {
             for touch in touches {
                 guard let id = ids[ObjectIdentifier(touch)] else { continue }
                 switch mode {
+                case .controller: break
                 case .trackpad:
                     if cancelled { trackpad.cancelAll() } else { perform(trackpad.ended(Int(id), time: touch.timestamp)) }
                 case .touchscreen:

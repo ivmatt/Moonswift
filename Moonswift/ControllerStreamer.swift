@@ -77,14 +77,55 @@ final class ControllerStreamer {
     }
 
     private var slots: [ObjectIdentifier: Slot] = [:]
+    /// The on-screen controller (Touch: Controller), as one more pad: its slot, and what it last sent.
+    private var onScreenIndex: Int?
+    private var onScreenLast: PadState?
     private var observers: [any NSObjectProtocol] = []
     private var batteryTimer: Timer?
     /// While the stream menu is open, the controller drives the menu instead of the game.
     var isPaused = false {
-        didSet { if isPaused { slots.values.forEach(sendNeutral) } }
+        didSet {
+            guard isPaused else { return }
+            slots.values.forEach(sendNeutral)
+            if let onScreenIndex { onScreenLast = nil; send(onScreen: onScreenIndex, .init()) }
+        }
     }
 
-    private var activeMask: Int16 { slots.values.reduce(0) { $0 | Int16(1 << $1.index) } }
+    private var activeMask: Int16 {
+        slots.values.reduce(onScreenIndex.map { Int16(1 << $0) } ?? 0) { $0 | Int16(1 << $1.index) }
+    }
+
+    /// The on-screen controller's buttons and sticks now; nil takes it away (a real controller connected, or Touch
+    /// changed). It joins as an Xbox controller in the first free slot, like a real one.
+    func setOnScreen(_ pad: PadSnapshot?) {
+        guard let pad else {
+            guard let index = onScreenIndex else { return }
+            onScreenIndex = nil
+            onScreenLast = nil
+            LiSendMultiControllerEvent(Int16(index), activeMask, 0, 0, 0, 0, 0, 0, 0) // its bit cleared: gone
+            return
+        }
+        if onScreenIndex == nil {
+            guard let index = (0..<16).first(where: { index in !slots.values.contains { $0.index == index } }) else { return }
+            onScreenIndex = index
+            let everything = PadSnapshot(a: true, b: true, x: true, y: true, up: true, down: true, left: true, right: true,
+                                         leftShoulder: true, rightShoulder: true, leftStickClick: true, rightStickClick: true,
+                                         menu: true, options: true)
+            LiSendControllerArrivalEvent(UInt8(index), UInt16(bitPattern: activeMask), UInt8(LI_CTYPE_XBOX),
+                                         UInt32(bitPattern: ControllerMapping.state(everything).buttons), UInt16(LI_CCAP_ANALOG_TRIGGERS))
+        }
+        guard !isPaused, let index = onScreenIndex else { return }
+        send(onScreen: index, pad)
+    }
+
+    private func send(onScreen index: Int, _ pad: PadSnapshot) {
+        var state = ControllerMapping.state(pad)
+        state.buttons = ButtonRemap.current.apply(state.buttons)
+        guard state != onScreenLast else { return }
+        onScreenLast = state
+        LiSendMultiControllerEvent(Int16(index), activeMask, state.buttons, state.leftTrigger, state.rightTrigger,
+                                   state.leftX, state.leftY, state.rightX, state.rightY)
+    }
 
     func start() {
         for (name, connected) in [(Notification.Name.GCControllerDidConnect, true), (.GCControllerDidDisconnect, false)] {
@@ -104,6 +145,8 @@ final class ControllerStreamer {
         batteryTimer?.invalidate()
         for slot in slots.values { release(slot) }
         slots = [:]
+        onScreenIndex = nil
+        onScreenLast = nil
     }
 
     // MARK: Host requests (from the library's callbacks, delivered on the main thread)
@@ -170,7 +213,9 @@ final class ControllerStreamer {
     private func attachAll() {
         for controller in GCController.controllers() where slots[ObjectIdentifier(controller)] == nil {
             guard let pad = controller.extendedGamepad,
-                  let index = (0..<16).first(where: { index in !slots.values.contains { $0.index == index } }) else { continue }
+                  let index = (0..<16).first(where: { index in
+                      index != onScreenIndex && !slots.values.contains { $0.index == index }
+                  }) else { continue }
             let slot = Slot(index: index, controller: controller)
             slots[ObjectIdentifier(controller)] = slot
             controller.playerIndex = GCControllerPlayerIndex(rawValue: index) ?? .indexUnset

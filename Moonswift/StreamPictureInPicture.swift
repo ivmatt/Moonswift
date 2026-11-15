@@ -18,11 +18,24 @@ final class StreamPictureInPicture: NSObject {
         let controller = AVPictureInPictureController(contentSource: .init(sampleBufferDisplayLayer: layer, playbackDelegate: self))
         controller.delegate = self
         controller.requiresLinearPlayback = true // live: no skip buttons
-        controller.canStartPictureInPictureAutomaticallyFromInline = true // leaving the app keeps streaming
+        controller.canStartPictureInPictureAutomaticallyFromInline = false // the stream turns it on once it's playing
         self.controller = controller
     }
 
     var isActive: Bool { controller?.isPictureInPictureActive == true }
+
+    /// Leaving the app floats the stream only while it's playing: not over a failure page, "Quitting…" or a reconnect.
+    func allowsAutomaticStart(_ allowed: Bool) { controller?.canStartPictureInPictureAutomaticallyFromInline = allowed }
+
+    /// The stream is closing: no more Picture in Picture from it. Let go explicitly, as AVKit can keep the controller
+    /// (and its readiness to start on leaving the app) alive after the stream screen has gone: swiping home on Home
+    /// then floated an empty black window.
+    func detach() {
+        stopQuietly()
+        controller?.canStartPictureInPictureAutomaticallyFromInline = false
+        controller?.contentSource = nil
+        controller = nil
+    }
 
 
     /// Closes the window without counting as its close button: for coming back full screen, or leaving the stream.

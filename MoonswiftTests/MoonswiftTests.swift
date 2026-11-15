@@ -989,3 +989,46 @@ struct GameListCacheTests {
         #expect(catalog.games(on: ["cache-test-pc"]).isEmpty)
     }
 }
+
+struct OnScreenControllerTests {
+    @Test func stickAndDPadReadTheThumb() {
+        let center = CGPoint(x: 100, y: 100)
+        #expect(PadTouchView.stickVector(from: center, to: CGPoint(x: 105, y: 100), radius: 60) == .zero) // dead zone
+        #expect(PadTouchView.stickVector(from: center, to: CGPoint(x: 400, y: 100), radius: 60) == CGPoint(x: 1, y: 0)) // edge
+        let right = PadTouchView.dpadDirections(from: center, to: CGPoint(x: 150, y: 100), radius: 50)
+        #expect(right == (false, false, false, true))
+        let upLeft = PadTouchView.dpadDirections(from: center, to: CGPoint(x: 60, y: 60), radius: 50)
+        #expect(upLeft == (true, false, true, false)) // a diagonal presses two
+        #expect(PadTouchView.dpadDirections(from: center, to: CGPoint(x: 103, y: 100), radius: 50) == (false, false, false, false))
+    }
+
+    @MainActor @Test func pressesBecomeTheHostsPad() {
+        let presses = PadPresses()
+        presses.buttons = [.a, .lt, .view]
+        presses.leftStick = CGPoint(x: 0, y: -1) // pushed up on screen
+        let pad = presses.snapshot
+        #expect(pad.a && !pad.b && pad.options && pad.leftTrigger == 1 && pad.rightTrigger == 0)
+        #expect(pad.leftStick.y == 1) // up is positive for the host
+    }
+}
+
+struct PadLayoutStoreTests {
+    @MainActor @Test func layoutsSaveAndFallBackToStandard() {
+        let saved = UserDefaults.standard.data(forKey: "padLayouts")
+        defer { UserDefaults.standard.set(saved, forKey: "padLayouts") }
+        UserDefaults.standard.removeObject(forKey: "padLayouts")
+
+        let store = PadLayoutStore()
+        #expect(store.layouts.map(\.id) == [PadLayout.standard.id])
+        let shooter = store.add(name: "Shooter")
+        var bigger = shooter
+        bigger.items[0].size = 200
+        store.save(bigger)
+        #expect(PadLayoutStore().layout(shooter.id).items[0].size == 200) // kept on this device
+        store.delete(shooter.id)
+        #expect(store.layout(shooter.id).id == PadLayout.standard.id) // a deleted layout means Standard
+        store.delete(PadLayout.standard.id)
+        #expect(store.layouts.contains { $0.id == PadLayout.standard.id }) // Standard stays
+        #expect(PadEditor.clamped(10) == 32 && PadEditor.clamped(500) == 240)
+    }
+}

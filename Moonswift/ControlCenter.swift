@@ -183,12 +183,20 @@ struct QuickSettingsPanel: View {
     @Binding var touchMode: TouchMode
     /// Changes the running stream's bitrate; returns what happened, to show under the slider.
     let setBitrate: (Int) async -> String
+    /// The on-screen controller's layouts, and the one this game uses (shown while Touch is Controller).
+    let padLayouts: PadLayoutStore
+    @Binding var padLayoutID: String
+    let editLayout: () -> Void
     let moreSettings: () -> Void
     let close: () -> Void
 
     @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic
     @Environment(GamepadInput.self) private var gamepad
-    @State private var focus = 0
+    @State private var focusIndex = 0
+
+    private enum Row: Hashable { case bitrate, overlay, touch, layout, editLayout, more }
+    private var rows: [Row] { [.bitrate, .overlay, .touch] + (touchMode == .controller ? [.layout, .editLayout] : []) + [.more] }
+    private var focus: Row { rows[min(focusIndex, rows.count - 1)] }
     @State private var bitrateNote: String?
     @State private var bitrateChange: Task<Void, Never>?
 
@@ -209,10 +217,44 @@ struct QuickSettingsPanel: View {
                            in: Double(StreamSettings.bitrateRange.lowerBound)...Double(StreamSettings.bitrateRange.upperBound))
                     if let bitrateNote { Text(bitrateNote).font(.caption).foregroundStyle(.secondary) }
                 }
-                .panelRow(isFocused(0))
-                Toggle("Performance Overlay", isOn: $showsPerformance).panelRow(isFocused(1))
-                Toggle("Trackpad", isOn: Binding(get: { touchMode == .trackpad }, set: { touchMode = $0 ? .trackpad : .touchscreen }))
-                    .panelRow(isFocused(2))
+                .panelRow(isFocused(.bitrate))
+                Toggle("Performance Overlay", isOn: $showsPerformance).panelRow(isFocused(.overlay))
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Touch")
+                    Picker("Touch", selection: $touchMode) {
+                        ForEach(TouchMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                .panelRow(isFocused(.touch))
+                if touchMode == .controller {
+                    HStack {
+                        Text("Layout")
+                        Spacer()
+                        Menu {
+                            Picker("Layout", selection: $padLayoutID) {
+                                ForEach(padLayouts.layouts) { Text($0.name).tag($0.id) }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(padLayouts.layout(padLayoutID).name)
+                                Image(systemName: "chevron.up.chevron.down").font(.footnote.weight(.medium))
+                            }
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .panelRow(isFocused(.layout))
+                    Button(action: editLayout) {
+                        HStack {
+                            Text("Edit Layout")
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                        }
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .panelRow(isFocused(.editLayout))
+                }
                 Button(action: moreSettings) {
                     HStack {
                         Text("More Settings")
@@ -222,7 +264,7 @@ struct QuickSettingsPanel: View {
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .panelRow(isFocused(3))
+                .panelRow(isFocused(.more))
             }
             .padding(.horizontal, 18).padding(.vertical, 16) // room for the focus ring and its 5% grow, clear of the fades
         }
@@ -231,7 +273,18 @@ struct QuickSettingsPanel: View {
         .onGamepad(handle)
     }
 
-    private func isFocused(_ index: Int) -> Bool { gamepad.isActive && focus == index }
+    private func isFocused(_ row: Row) -> Bool { gamepad.isActive && focus == row }
+
+    /// The next layout (or the one before), for the controller's left and right on the Layout row.
+    private func cycledLayout(by step: Int) {
+        let all = padLayouts.layouts, index = all.firstIndex { $0.id == padLayoutID } ?? 0
+        padLayoutID = all[(index + step + all.count) % all.count].id
+    }
+
+    private func cycled(_ mode: TouchMode, by step: Int) -> TouchMode {
+        let all = TouchMode.allCases, index = all.firstIndex(of: mode) ?? 0
+        return all[(index + step + all.count) % all.count]
+    }
 
     /// Sends the new bitrate once the slider or controller has rested for a moment.
     private func applyBitrate() {
@@ -243,15 +296,23 @@ struct QuickSettingsPanel: View {
         switch command {
         case .back, .streamMenu: close()
         case .previousTab, .nextTab: tab = .actions
-        case .up, .down: focus = FocusMove.next(focus, count: 4, columns: 1, command)
+        case .up, .down: focusIndex = FocusMove.next(min(focusIndex, rows.count - 1), count: rows.count, columns: 1, command)
         case .left, .right:
-            if focus == 0 { bitrate = StreamSettings.steppedBitrate(shown, by: command == .right ? 1 : -1) }
+            let step = command == .right ? 1 : -1
+            switch focus {
+            case .bitrate: bitrate = StreamSettings.steppedBitrate(shown, by: step)
+            case .touch: touchMode = cycled(touchMode, by: step)
+            case .layout: cycledLayout(by: step)
+            default: break
+            }
         case .select:
             switch focus {
-            case 1: showsPerformance.toggle()
-            case 2: touchMode = touchMode == .touchscreen ? .trackpad : .touchscreen
-            case 3: moreSettings()
-            default: break
+            case .overlay: showsPerformance.toggle()
+            case .touch: touchMode = cycled(touchMode, by: 1)
+            case .layout: cycledLayout(by: 1)
+            case .editLayout: editLayout()
+            case .more: moreSettings()
+            case .bitrate: break
             }
         default: break
         }
