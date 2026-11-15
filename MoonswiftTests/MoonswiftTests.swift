@@ -922,3 +922,17 @@ struct StreamFailureTests {
         #expect(ended.problem == "The host ended the stream." && ended.solutions.last!.contains("logs"))
     }
 }
+
+struct KeyShortcutTests {
+    @Test func modifiersWrapTheKeyAndLetGoInReverse() {
+        let taskManager = KeyShortcut.builtIns.first { $0.id == "taskmanager" }!
+        #expect(taskManager.keys == "Ctrl+Shift+Esc")
+        let presses = taskManager.presses
+        #expect(presses.map(\.usage) == [0xE0, 0xE1, 0x29, 0x29, 0xE1, 0xE0])
+        #expect(presses.map(\.down) == [true, true, true, false, false, false])
+        #expect(presses[2].modifiers == KeyMap.modifier(hidUsage: 0xE0) | KeyMap.modifier(hidUsage: 0xE1))
+        #expect(presses.last?.modifiers == 0)
+        let start = KeyShortcut.builtIns.first { $0.id == "win" }!
+        #expect(start.keys == "Win" && start.presses.count == 2)
+    }
+}

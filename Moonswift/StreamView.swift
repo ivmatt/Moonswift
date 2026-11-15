@@ -16,11 +16,10 @@ struct StreamTarget: Hashable, Identifiable {
 }
 
 /// The game, full screen with sound, played with controllers, touch, keyboard and mouse. Three-finger gestures:
-/// swipe up for the keyboard, down for the performance overlay, sideways for the menu; a four-finger pinch (or leaving
-/// the app) moves it into the system's Picture in Picture window, still streaming, while the app takes the input. Start +
-/// Select on a controller, or
-/// holding Menu + View on the controller opens a menu: switch touch mode, disconnect (the game keeps running) or
-/// quit the game. The screen stays awake while streaming. Leaving the app, switching networks and Apply & Reconnect
+/// swipe up for the keyboard, down for the performance overlay, left for Actions and right for Quick Settings; a four-finger pinch (or
+/// leaving the app) moves it into the system's Picture in Picture window, still streaming, while the app takes the input.
+/// Menu + View on a controller opens the control panel (ControlCenter): Actions (key shortcuts for the host, the
+/// clipboard, Disconnect, Quit) and, a bumper away, Quick Settings (bitrate, overlay, trackpad, More Settings). The screen stays awake while streaming. Leaving the app, switching networks and Apply & Reconnect
 /// reconnect in place: the last frame stays up, blurred, with the status in the middle.
 struct StreamView: View {
     /// Both change on a reconnect: the PC may answer at another address, and the new session has its own keys.
@@ -50,6 +49,20 @@ struct StreamView: View {
     @State private var pictureInPicture = StreamPictureInPicture()
     @State private var isStartingPictureInPicture = false
     @State private var menu: MenuSpec?
+    /// The control panel, in from the right, on its Actions or Quick Settings tab; and the shortcut editor over it.
+    @State private var panel: StreamPanel?
+    /// A three-finger swipe left in progress: how far, so the panel comes out with the fingers.
+    @State private var panelPull: CGFloat?
+    /// A three-finger swipe right on the open panel: how far, so it goes back with the fingers.
+    @State private var panelPush: CGFloat = 0
+    /// 0 to 1: how far out the panel is.
+    private var panelShown: CGFloat {
+        let travel = ControlPanel<EmptyView>.travel
+        let shown = panel != nil ? 1 - panelPush / travel : (panelPull ?? 0) / travel
+        return min(max(shown, 0), 1)
+    }
+    @State private var isEditingShortcuts = false
+    @State private var shortcuts = KeyShortcutStore()
     @State private var rates = ""
     @State private var isLeaving = false
     @State private var isShowingSettings = false
@@ -83,7 +96,8 @@ struct StreamView: View {
 
     /// The game gets no input while a menu, Settings or Control Center is over it, or while it's the small window.
     private var isPlaying: Bool {
-        menu == nil && !isShowingSettings && scenePhase == .active && !launcher.isMinimized && launcher.splash == nil
+        menu == nil && panel == nil && !isShowingSettings && scenePhase == .active && !launcher.isMinimized
+            && launcher.splash == nil
     }
     /// The splash's line while it's up: what the connection is doing; nil once the picture is in.
     private var splashStatus: String? {
@@ -112,7 +126,8 @@ struct StreamView: View {
             ZStack {
                 VideoLayerView(renderer: renderer)
                 TouchInputLayer(mode: touchMode, streamSize: CGSize(width: target.width, height: target.height),
-                                isPaused: !isPlaying || !isSendingInput, onGesture: gesture, onPinchProgress: followPinch)
+                                isPaused: !isPlaying || !isSendingInput, onGesture: gesture, onPinchProgress: followPinch,
+                                onSwipeProgress: followSwipe)
             }
             .padding(.bottom, foldLift)
             // Safe Area mode keeps the picture (and the touches mapped onto it) clear of the cutout and home indicator.
@@ -130,6 +145,38 @@ struct StreamView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
                     .allowsHitTesting(false)
+            }
+            if panel != nil || panelPull != nil {
+                // The game stays in view; a tap on it closes the panel.
+                Color.black.opacity(0.25 * panelShown).ignoresSafeArea()
+                    .onTapGesture { closePanel() }
+                    .gesture(ThreeFingerSwipe(moved: pushPanel, ended: endPush))
+                    .transition(.opacity)
+                    .zIndex(1) // above the video's layer as it goes, or it vanishes rather than fading
+                ControlPanel(tab: panelTab) {
+                    switch panel ?? .actions {
+                    case .actions:
+                        ActionsPanel(tab: panelTab, shortcuts: shortcuts,
+                                     copyFromHost: copyFromPC, sendClipboard: sendClipboardToPC,
+                                     editShortcuts: { isEditingShortcuts = true },
+                                     disconnect: { closePanel(); leave() },
+                                     quit: { closePanel(); leave(quitting: true) },
+                                     close: closePanel)
+                    case .settings:
+                        QuickSettingsPanel(tab: panelTab,
+                                           stats: [stats.videoLabel, rates].compactMap { $0 }.filter { !$0.isEmpty }
+                                               .joined(separator: " · "),
+                                           target: target, showsPerformance: $showsPerformance, touchMode: $touchMode,
+                                           setBitrate: setLiveBitrate,
+                                           moreSettings: { isShowingSettings = true }, // the panel stays under it
+                                           close: closePanel)
+                    }
+                }
+                .gesture(ThreeFingerSwipe(moved: pushPanel, ended: endPush))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                .offset(x: panel == nil && panelPull == nil ? 0 : ControlPanel<EmptyView>.travel * (1 - panelShown))
+                .transition(.move(edge: .trailing))
+                .zIndex(2) // above the video's layer as it slides away, or it vanishes rather than sliding
             }
             if let status = shownStatus {
                 ZStack {
@@ -162,7 +209,7 @@ struct StreamView: View {
                 Color.clear.onGamepad { command in
                     // Over the splash, once the picture is in, any button skips the hold (and doesn't reach the game).
                     if launcher.splash != nil { if firstPictureAt != nil { launcher.endSplash() }; return }
-                    if command == .streamMenu { showMenu() } // other buttons go to the game once input is sent
+                    if command == .streamMenu { showMenu(.actions) } // other buttons go to the game once input is sent
                 }
             }
         }
@@ -171,6 +218,7 @@ struct StreamView: View {
             if !isMinimized { pictureInPicture.stopQuietly() } // Resume from the app: back full screen
         }
         .actionMenu($menu)
+        .sheet(isPresented: $isEditingShortcuts) { ShortcutsEditView(store: shortcuts) }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView(live: LiveStream(target: target, setBitrate: setLiveBitrate, reconnect: { reconnect("Applying settings…") }))
         }
@@ -240,6 +288,7 @@ struct StreamView: View {
         menu = nil
         withAnimation(.spring(duration: 0.45, bounce: 0.15)) { launcher.isMinimized = false } // the page needs the room
         self.failure = failure
+        panel = nil
         launcher.endSplash() // its page shows instead
         Task { await session.stop() } // its "ended" is ignored now the page is up
     }
@@ -250,7 +299,7 @@ struct StreamView: View {
         reconnect(fresh ? "Quitting \(target.title)…" : "Reconnecting to \(target.title)…", fresh: fresh)
     }
 
-    private func showMenu() {
+    private func showMenu(_ which: StreamPanel) {
         guard failure == nil, status == nil else { return } // the page or a reconnect is in charge
         switch stats.state {
         case .failed(let message), .ended(let message):
@@ -260,29 +309,47 @@ struct StreamView: View {
                 .init(title: "Close") { leave() },
             ], closable: false)
         case .connecting, .connected:
-            menu = MenuSpec(title: target.title,
-                            message: ([stats.videoLabel, rates].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
-                                + (adaptiveNote.map { "\n" + $0 } ?? ""),
-                            actions: [
-                                .init(title: touchMode == .touchscreen ? "Switch to Trackpad" : "Switch to Touchscreen") {
-                                    touchMode = touchMode == .touchscreen ? .trackpad : .touchscreen
-                                },
-                                .init(title: "Stream Settings") { isShowingSettings = true },
-                                .init(title: "Copy from Host") { copyFromPC() },
-                                .init(title: "Send Clipboard to Host") { sendClipboardToPC() },
-                                .init(title: showsPerformance ? "Hide Performance Overlay" : "Show Performance Overlay") {
-                                    showsPerformance.toggle()
-                                },
-                                .init(title: "Disconnect") { leave() },
-                                .init(title: "Quit Game", isDestructive: true) { leave(quitting: true) },
-                            ])
+            withAnimation(.spring(duration: 0.35, bounce: 0.1)) {
+                panel = which
+                panelPull = nil
+            }
+        }
+    }
+
+    private var panelTab: Binding<StreamPanel> {
+        Binding(get: { panel ?? .actions }, set: { tab in withAnimation(.snappy(duration: 0.2)) { panel = tab } })
+    }
+
+    /// The panel follows a three-finger swipe left out of the right edge; let go short of a swipe and it slides back.
+    private func followSwipe(_ pull: CGFloat?) {
+        guard panel == nil else { return }
+        if pull == nil {
+            withAnimation(.spring(duration: 0.3, bounce: 0)) { panelPull = nil }
+        } else {
+            panelPull = pull
+        }
+    }
+
+    /// Three fingers on the open panel (or the game beside it) moving right push it back towards the edge.
+    private func pushPanel(_ dx: CGFloat) { panelPush = max(dx, 0) }
+
+    /// Far enough (60 points, like opening) and it closes; short of that it springs back out.
+    private func endPush(_ dx: CGFloat) {
+        if dx >= 60 { closePanel() } else { withAnimation(.spring(duration: 0.3, bounce: 0)) { panelPush = 0 } }
+    }
+
+    private func closePanel() {
+        withAnimation(.spring(duration: 0.3, bounce: 0)) {
+            panel = nil
+            panelPush = 0
         }
     }
 
     /// The three-finger shortcuts the touch layer doesn't handle itself (the keyboard's swipes up and down).
     private func gesture(_ gesture: StreamGesture) {
         switch gesture {
-        case .swipeLeft, .swipeRight: showMenu()
+        case .swipeLeft: showMenu(.actions)
+        case .swipeRight: break
         case .swipeDown:
             showsPerformance.toggle()
             show(showsPerformance ? "Performance overlay on" : "Performance overlay off")

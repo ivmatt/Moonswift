@@ -108,6 +108,18 @@ nonisolated enum StreamGesture: Equatable {
     /// finger together. A quick flick counts sooner (see `TouchInputView`).
     static let pinchClosed: CGFloat = 0.7
 
+    /// How far three fingers have moved left together, as it happens (nil: not a leftward swipe): the control panel
+    /// follows them out of the right edge.
+    static func leftPull(start: [CGPoint], now: [CGPoint]) -> CGFloat? {
+        guard start.count == 3, now.count == 3 else { return nil }
+        func centre(_ points: [CGPoint]) -> CGPoint {
+            CGPoint(x: points.map(\.x).reduce(0, +) / 3, y: points.map(\.y).reduce(0, +) / 3)
+        }
+        let (from, to) = (centre(start), centre(now))
+        let dx: CGFloat = to.x - from.x, dy: CGFloat = to.y - from.y
+        return dx < 0 && abs(dx) > abs(dy) ? -dx : nil
+    }
+
     /// A four-finger pinch's spread now ÷ at the start, as it happens: the stream shrinks with it.
     static func pinchProgress(start: [CGPoint], now: [CGPoint]) -> CGFloat? {
         guard start.count >= 4, start.count == now.count else { return nil }
@@ -154,6 +166,8 @@ final class TouchInputView: UIView, UIKeyInput {
     var onGesture: (StreamGesture) -> Void = { _ in }
     /// A four-finger pinch's progress while the fingers are down (1 = as they started); nil once they lift.
     var onPinchProgress: (CGFloat?) -> Void = { _ in }
+    /// A three-finger swipe left's distance while the fingers are down; nil once they lift (or it isn't one).
+    var onSwipeProgress: (CGFloat?) -> Void = { _ in }
 
     private var ids: [ObjectIdentifier: UInt32] = [:]
     private var nextID: UInt32 = 0
@@ -276,6 +290,7 @@ final class TouchInputView: UIView, UIKeyInput {
             pinchSamples.removeAll { now - $0.time > 0.12 }
             onPinchProgress(progress)
         }
+        onSwipeProgress(StreamGesture.leftPull(start: keys.compactMap { shortcutStart[$0] }, now: keys.compactMap { shortcutLast[$0] }))
     }
 
     private func finish(_ touches: Set<UITouch>, event: UIEvent?, cancelled: Bool) {
@@ -296,6 +311,7 @@ final class TouchInputView: UIView, UIKeyInput {
         guard activeTouches == 0, isShortcutGesture else { return }
         defer { // whatever it was, the fingers are up: after the gesture, so a pinch can hand over first
             onPinchProgress(nil)
+            onSwipeProgress(nil)
             pinchSamples = []
         }
         guard !cancelled, !isPaused else { return }
@@ -436,6 +452,7 @@ struct TouchInputLayer: UIViewRepresentable {
     let isPaused: Bool
     let onGesture: (StreamGesture) -> Void
     var onPinchProgress: (CGFloat?) -> Void = { _ in }
+    var onSwipeProgress: (CGFloat?) -> Void = { _ in }
 
     func makeUIView(context: Context) -> TouchInputView { TouchInputView(frame: .zero) }
 
@@ -445,6 +462,7 @@ struct TouchInputLayer: UIViewRepresentable {
         view.isPaused = isPaused
         view.onGesture = onGesture
         view.onPinchProgress = onPinchProgress
+        view.onSwipeProgress = onSwipeProgress
     }
 }
 
