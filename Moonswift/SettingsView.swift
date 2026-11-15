@@ -9,8 +9,8 @@ struct LiveStream {
     let reconnect: () -> Void
 }
 
-/// Settings, a sheet over any tab (its toolbar gear, or the controller's Menu button) or over a stream. Stream
-/// settings apply from the next Launch or Resume; opened from a stream (`live`), bitrate applies right away and other
+/// Settings, a sheet over any tab (its toolbar gear, or the controller's Menu button) or over a stream. Two pages,
+/// Stream and Interface, switched at the top (or LB/RB); from a stream only Stream shows. Stream settings apply from the next Launch or Resume; opened from a stream (`live`), bitrate applies right away and other
 /// changes offer Apply & Reconnect. Touch uses the native controls. A controller moves between rows with up/down; A
 /// shows a setting's choices to pick from (or flips a switch, or opens a page), left/right move the bitrate slider,
 /// and B or Menu closes.
@@ -39,15 +39,18 @@ struct SettingsView: View {
     @State private var rowFrames = RowFrames()
 
     private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, buttonMapping, buttonGuide, coverShape, about }
+    /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
+    private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
+    @State private var page = Page.stream
     private enum BitrateMode: String, CaseIterable { case automatic = "Automatic", custom = "Custom" }
     private var bitrateMode: BitrateMode {
         bitrate == 0 ? .automatic : .custom
     }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
-            + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .overlay, .buttonGuide, .buttonMapping]
-            + (live == nil ? [.coverShape] : []) + [.about]
+        guard page == .stream else { return [.buttonGuide, .buttonMapping] + (live == nil ? [.coverShape] : []) + [.about] }
+        return (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
+            + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .overlay]
     }
     private var videoFormats: Int32 {
         StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware, av1InHardware: ScreenInfo.av1InHardware,
@@ -72,9 +75,7 @@ struct SettingsView: View {
 
     #if DEBUG
     @AppStorage(PCDirectory.debugOfflineKey) private var debugOffline = false
-    #if DEBUG
     @AppStorage(FakeStreamFailure.key) private var fakeFailure = FakeStreamFailure.off
-    #endif
     @Environment(PCDirectory.self) private var directory
     #endif
 
@@ -82,6 +83,7 @@ struct SettingsView: View {
         NavigationStack {
             ScrollViewReader { scroller in
             List {
+                if page == .stream {
                 if needsReconnect, let live {
                     Section {
                         row(.reconnect) {
@@ -158,6 +160,14 @@ struct SettingsView: View {
                     Text("Sound always plays on this device; Play Sound on Host also plays it from the host's speakers, from the next "
                          + "stream. The overlay shows live frame rate, bitrate, delay and packet loss in a corner of the stream.")
                 }
+                Section {} footer: { // a note under the list, not a row that looks tappable
+                    if live != nil {
+                        Text(liveBitrateNote ?? "Bitrate changes apply to this stream right away.")
+                    } else {
+                        Text("Changes apply the next time you launch or resume a game.")
+                    }
+                }
+                } else {
                 Section {
                     row(.buttonGuide) {
                         choiceRow(.buttonGuide, "Button Guide", $buttonGuide, ButtonGuideMode.allCases, name: \.rawValue)
@@ -199,12 +209,6 @@ struct SettingsView: View {
                     }
                 }
                 #endif
-                Section {
-                    if live != nil {
-                        Text(liveBitrateNote ?? "Bitrate changes apply to this stream right away.").foregroundStyle(.secondary)
-                    } else {
-                        Text("Changes apply the next time you launch or resume a game.").foregroundStyle(.secondary)
-                    }
                 }
             }
             // The focused row stays in view as the controller moves down the list.
@@ -214,7 +218,18 @@ struct SettingsView: View {
             }
             .navigationTitle(live == nil ? "Settings" : "Stream Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .buttonGuide([([.a], "Select"), ([.b], "Close")], reportsLayout: false)
+            .toolbar {
+                if live == nil {
+                    ToolbarItem(placement: .principal) {
+                        Picker("Settings", selection: $page) { ForEach(Page.allCases, id: \.self) { Text($0.rawValue) } }
+                            .pickerStyle(.segmented)
+                            .frame(width: 260) // room around each word; a segmented picker ignores its labels' padding
+                    }
+                }
+            }
+            .onChange(of: page) { focus = 0 }
+            .buttonGuide(live == nil ? [([.a], "Select"), ([.l1, .r1], "Stream / Interface"), ([.b], "Close")] : [([.a], "Select"), ([.b], "Close")],
+                         reportsLayout: false)
             .choiceMenu($choice)
             .navigationDestination(isPresented: $isShowingAbout) { AboutView() }
             .navigationDestination(isPresented: $isShowingButtonMapping) { ButtonMappingView() }
@@ -235,6 +250,8 @@ struct SettingsView: View {
                 case .left where current == .bitrate: bitrate = StreamSettings.steppedBitrate(bitrate, by: -1)
                 case .right where current == .bitrate: bitrate = StreamSettings.steppedBitrate(bitrate, by: 1)
                 case .back, .settings: dismiss() // B, or Menu again: Menu opened it
+                case .previousTab where live == nil: page = .stream
+                case .nextTab where live == nil: page = .interface
                 case .left, .right, .menu, .alternate, .streamMenu, .options, .previousTab, .nextTab: break
                 }
             }
