@@ -342,11 +342,8 @@ struct GamesView: View {
     }
 
     private func cover(_ game: CatalogGame, isFocused: Bool) -> some View {
-        // Only once every PC with it is known to be down, not while the first check is still out.
-        let offline = game.sources.allSatisfy { directory.statuses[$0.pcID] == .offline }
-        let pcName = game.sources.lazy.compactMap { s in hosts.first { $0.uniqueID == s.pcID }?.displayName }.first ?? "Its host"
         return CoverTile(game: game, client: client(for: game), isRunning: game.isRunning(directory),
-                         offlinePC: offline ? pcName : nil, isFocused: isFocused)
+                         unavailable: game.unavailable(hosts: hosts, directory: directory), isFocused: isFocused)
             // Two layers, so each has its own transition: the dimming fades, the button grows as it fades.
             .overlay {
                 if readied == game.id { RoundedRectangle(cornerRadius: 14).fill(.black.opacity(0.35)).transition(.opacity) }

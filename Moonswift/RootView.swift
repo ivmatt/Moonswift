@@ -92,9 +92,10 @@ struct RootView: View {
             }
         }
         .onChange(of: directory.statuses) { routePending() }
-        // Checks every 2 s while Home shows the status, every 10 s on other tabs, none in the background or while a
-        // stream is open; and at once on coming back to Home or the app, or when this device's network changes.
-        .onChange(of: tab, initial: true) { updatePolling(checkNow: tab == .home) }
+        // Checks every 2 s (every tab shows the PCs' status), every 10 s under Settings, none in the background or while
+        // a stream is open; and at once on changing tab, coming back to the app, or when this device's network changes.
+        .onChange(of: tab, initial: true) { updatePolling(checkNow: true) }
+        .onChange(of: showsSettings) { updatePolling(checkNow: !showsSettings) }
         .onChange(of: scenePhase) { updatePolling(checkNow: scenePhase == .active) }
         .onChange(of: launcher.stream == nil) { updatePolling(checkNow: launcher.stream == nil) }
         .task {
@@ -131,7 +132,7 @@ struct RootView: View {
     }
 
     private func updatePolling(checkNow shouldCheck: Bool) {
-        directory.interval = tab == .home ? .seconds(2) : .seconds(10)
+        directory.interval = showsSettings ? .seconds(10) : .seconds(2)
         directory.isPaused = scenePhase != .active || launcher.stream != nil
         if shouldCheck { checkNow() }
     }
@@ -221,6 +222,15 @@ extension CatalogGame {
                 let dateB = catalog.histories[b.pcID]?.lastPlayed[GameHistory.key(b.app)] ?? .distantPast
                 return dateA < dateB
             }
+    }
+
+    /// Why it can't be played, once every PC with it is known to be down or not paired (not while the first check is
+    /// still out): the first one's name, and what's wrong with them.
+    @MainActor func unavailable(hosts: [SavedHost], directory: PCDirectory) -> (pc: String, reason: String)? {
+        let statuses = sources.map { directory.statuses[$0.pcID] }
+        guard statuses.allSatisfy({ $0 == .offline || $0 == .online(paired: false) }) else { return nil }
+        let name = sources.lazy.compactMap { s in hosts.first { $0.uniqueID == s.pcID }?.displayName }.first ?? "Its host"
+        return (name, statuses.allSatisfy { $0 == .offline } ? "is offline" : "isn't paired")
     }
 
     @MainActor func isRunning(_ directory: PCDirectory) -> Bool {

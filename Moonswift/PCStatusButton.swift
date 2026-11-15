@@ -13,6 +13,8 @@ nonisolated struct PCStatusLine: Equatable {
     let health: Health
     /// A missed answer: still counted as it was, but worth a word in the details.
     var isWaiting = false
+    /// Without the details: "Not paired", for a Hosts row.
+    var short: String { text.components(separatedBy: " · ")[0] }
 
     /// `checkedAgo` is the seconds since it last answered (nil: not known, as in demo mode).
     static func make(status: HostStatus?, isNotResponding: Bool, isFetching: Bool, fetchFailed: Bool,

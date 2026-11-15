@@ -60,6 +60,7 @@ struct PCsView: View {
                             let active = activeAddresses[host.uniqueID] ?? host.address
                             row(.saved(host)) {
                                 HostRow(name: host.displayName, address: active, status: statuses[host.uniqueID],
+                                        line: PCStatusButton.line(host, directory: directory, catalog: catalog, now: nil),
                                         wasPaired: !host.serverCert.isEmpty, playing: playingTitle(host))
                             }
                             .contextMenu { // touch's way to the PC menu (a controller uses Y)
@@ -208,6 +209,8 @@ private struct HostRow: View {
     let name: String
     let address: String
     let status: HostStatus?
+    /// The same words and dot as Home's status menu.
+    let line: PCStatusLine
     /// Paired the last time it was, for while it's offline and can't say.
     let wasPaired: Bool
     let playing: String?
@@ -215,17 +218,19 @@ private struct HostRow: View {
     /// Online answers say; offline, it's as it was.
     private var isPaired: Bool { status == .online(paired: false) ? false : wasPaired }
 
+    private var isFine: Bool { line.health == .fine && !line.isWaiting }
+
     var body: some View {
         HStack(spacing: 12) {
-            // Status at a glance: green online, red offline, grey while the first check is out.
             Circle()
-                .fill(status == nil ? Color.secondary : status == .offline ? .red : .green)
+                .fill(PCStatusButton.color(line))
                 .frame(width: 10, height: 10)
             VStack(alignment: .leading) {
                 Text(name)
                 if let playing {
                     Text("\(Image(systemName: "play.fill")) Streaming \(playing)").font(.caption).foregroundStyle(.green)
                 }
+                if !isFine { Text(line.short).font(.caption).foregroundStyle(.secondary) }
                 Text(address).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -235,7 +240,7 @@ private struct HostRow: View {
             Image(systemName: "chevron.right").foregroundStyle(.tertiary) // opens its Edit page, or pairing
         }
         .accessibilityElement(children: .combine)
-        .accessibilityValue([status == nil ? "Checking" : status == .offline ? "Offline" : "Online",
+        .accessibilityValue([isFine ? "Online" : line.short,
                              isPaired ? "Paired" : "Needs pairing"].joined(separator: ", "))
     }
 }

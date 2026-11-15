@@ -10,7 +10,7 @@ nonisolated struct PCRef: Sendable {
     let remoteAddress: String?
 }
 
-/// Every saved PC's live state, checked every 3 seconds for the whole app (any tab can read it): online or not,
+/// Every saved PC's live state, checked every 2 seconds for the whole app (any tab can read it): online or not,
 /// which address answers, which game it's running, whether it can be put to sleep.
 @Observable final class PCDirectory {
     private(set) var statuses: [String: HostStatus] = [:] // by uniqueID; missing = not checked yet
@@ -32,7 +32,7 @@ nonisolated struct PCRef: Sendable {
     /// PCs that missed one check: they keep their status (one miss isn't enough), and Home's status says "Not
     /// responding…".
     private(set) var notResponding: Set<String> = []
-    /// The wait between checks: short while Home shows the status, longer on other tabs (RootView sets it).
+    /// The wait between checks: short while a tab shows, longer under Settings (RootView sets it).
     @ObservationIgnored var interval: Duration = .seconds(2)
     /// No checks while the app's in the background or a stream is open: its own link knows whether the PC is there.
     @ObservationIgnored var isPaused = false

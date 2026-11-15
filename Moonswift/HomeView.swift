@@ -224,7 +224,24 @@ struct HomeView: View {
                 TabTitle(text: "", topInset: topInset, beside: titlePill) { if isRailOnLeft, let statusPill { statusPill } }
                     .padding(.horizontal, 36)
                     .padding(.top, -max(0, topInset - Self.windowTopInset))
-                if let game = selectedGame {
+                if let game = selectedGame, let down = game.unavailable(hosts: hosts, directory: directory) {
+                    // Its host can't be reached: what's wrong and what to do, over its blurred picture; in the middle
+                    // of the screen (not of the room beside the Duo's rail), or of the hero's part beside a fold.
+                    VStack(spacing: 6) {
+                        Image(systemName: "pc").font(.system(size: 44)).padding(.bottom, 4)
+                        Text("\(down.pc) \(down.reason)").font(.title3.weight(.semibold))
+                        Text(down.reason == "is offline" ? "Turn it on or wake it, and check it's on the same network as this device."
+                             : "It no longer knows this device. Pair it again from Hosts.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 36)
+                    .frame(maxWidth: heroFold.maxWidth ?? .infinity, maxHeight: .infinity)
+                    .padding(.leading, heroFold.maxWidth == nil ? -railInsets.leading : 0)
+                    .padding(.trailing, heroFold.maxWidth == nil ? -railInsets.trailing : 0)
+                    .accessibilityElement(children: .combine)
+                    .transition(.opacity)
+                } else if let game = selectedGame {
                     HeroCard(game: game, subtitle: heroSubtitle(game), isShort: isShort,
                              isRunning: game.isRunning(directory), focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
                              play: { start(game) }, quit: { quit(game) }, isPressingPlay: isPressingPlay)
@@ -306,9 +323,14 @@ struct HomeView: View {
     /// background without.
     @ViewBuilder private var heroArt: some View {
         if let game = selectedGame, let art = catalog.heroArt[game.id] {
+            let isDown = game.unavailable(hosts: hosts, directory: directory) != nil
             Color.clear
                 // Only the picture crossfades between games: the fades over it stay put, so they never thin out midway.
                 .overlay { Image(uiImage: art).resizable().scaledToFill().id(game.id).transition(.opacity) }
+                // Blurred and dimmed while its host can't be reached, under the words that say so.
+                .blur(radius: isDown ? 24 : 0, opaque: true)
+                .overlay { Color.black.opacity(isDown ? 0.45 : 0) }
+                .animation(.easeInOut(duration: 0.5), value: isDown)
                 .overlay {
                     LinearGradient(stops: [.init(color: .clear, location: 0.55), .init(color: Color(.systemBackground), location: 1)],
                                    startPoint: .top, endPoint: .bottom)
@@ -409,7 +431,7 @@ struct HomeView: View {
                     LazyHStack(spacing: 14) {
                         ForEach(games) { game in
                             CoverTile(game: game, client: client(for: game), isRunning: game.isRunning(directory),
-                                      offlinePC: offlinePC(game), isFocused: focusRow == 1 && game.id == selectedGame?.id)
+                                      unavailable: game.unavailable(hosts: hosts, directory: directory), isFocused: focusRow == 1 && game.id == selectedGame?.id)
                                 .frame(width: coverWidth)
                                 .onTapGesture { // selects only: Play starts it, so a stray second tap can't
                                     withAnimation(.snappy) { selectedID = game.id }
@@ -436,12 +458,6 @@ struct HomeView: View {
 
     private func client(for game: CatalogGame) -> HostClient? {
         game.sources.lazy.compactMap { source in self.hosts.first { $0.uniqueID == source.pcID } }.first.map { directory.ref($0).client }
-    }
-
-    /// Only once every PC with it is known to be down (not while the first check is still out): the first one's name.
-    private func offlinePC(_ game: CatalogGame) -> String? {
-        guard game.sources.allSatisfy({ directory.statuses[$0.pcID] == .offline }) else { return nil }
-        return game.sources.lazy.compactMap { s in hosts.first { $0.uniqueID == s.pcID }?.displayName }.first ?? "Its host"
     }
 
     private func start(_ game: CatalogGame) {
@@ -580,7 +596,8 @@ struct CoverTile: View {
     let client: HostClient?
     let isRunning: Bool
     /// The name of its PC while that's offline (nil: it can be played).
-    let offlinePC: String?
+    /// Its PC and what's wrong with it ("is offline"), when it can't be played.
+    let unavailable: (pc: String, reason: String)?
     let isFocused: Bool
     @Environment(GameCatalog.self) private var catalog
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
@@ -590,14 +607,14 @@ struct CoverTile: View {
             .aspectRatio(coverShape.ratio, contentMode: .fit)
             .overlay {
                 CoverArt(app: game.sources[0].app, client: client, custom: catalog.cover(for: game.id, coverShape), title: game.title)
-                    .blur(radius: offlinePC == nil ? 0 : 8, opaque: true) // no see-through fringe at the edges
+                    .blur(radius: unavailable == nil ? 0 : 8, opaque: true) // no see-through fringe at the edges
                     .overlay {
-                        if let offlinePC {
+                        if let unavailable {
                             ZStack {
                                 Color.black.opacity(0.5)
                                 VStack(spacing: 2) {
-                                    Text(offlinePC).font(.subheadline.weight(.semibold))
-                                    Text("is offline").font(.caption)
+                                    Text(unavailable.pc).font(.subheadline.weight(.semibold))
+                                    Text(unavailable.reason).font(.caption)
                                 }
                                 .foregroundStyle(.white)
                                 .multilineTextAlignment(.center)
@@ -607,7 +624,7 @@ struct CoverTile: View {
                             }
                         }
                     }
-                    .animation(.easeInOut(duration: 0.5), value: offlinePC != nil) // blur and label fade together
+                    .animation(.easeInOut(duration: 0.5), value: unavailable != nil) // blur and label fade together
             }
             .clipShape(.rect(cornerRadius: 14))
             .overlay {
@@ -623,7 +640,7 @@ struct CoverTile: View {
             .contentShape(.rect)
             .accessibilityElement()
             .accessibilityLabel(game.title)
-            .accessibilityValue([isRunning ? "Running" : nil, game.isFavorite ? "Favorite" : nil, offlinePC.map { "\($0) is offline" }]
+            .accessibilityValue([isRunning ? "Running" : nil, game.isFavorite ? "Favorite" : nil, unavailable.map { "\($0.pc) \($0.reason)" }]
                 .compactMap { $0 }.joined(separator: ", "))
             .accessibilityAddTraits(.isButton)
     }

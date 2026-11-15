@@ -811,6 +811,7 @@ struct PCStatusLineTests {
         #expect(line(.online(paired: true), ago: nil).text == "Up to date")
         #expect(line(.online(paired: true), fetching: true).text == "Getting games…")
         #expect(line(.online(paired: true), failed: true).health == .problem)
+        #expect(line(.online(paired: false)).short == "Not paired" && line(.offline).short == "Offline")
     }
 
     @Test func oneMissedAnswerDoesntChangeTheButton() {
