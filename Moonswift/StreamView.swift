@@ -71,6 +71,8 @@ struct StreamView: View {
     @State private var adaptiveNote: String?
     @State private var adaptiveUnsupported = false
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
+    /// Off: no floating window; leaving the app pauses the stream, and a pinch does nothing.
+    @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = true
     @State private var performance: PerformanceOverlay.Readout?
     @State private var fpsHistory: [Double] = [] // the last minute, for the HUD's graph
 
@@ -270,6 +272,7 @@ struct StreamView: View {
             showsPerformance.toggle()
             show(showsPerformance ? "Performance overlay on" : "Performance overlay off")
         case .pinch:
+            guard allowsPictureInPicture else { return }
             if pictureInPicture.isPossible {
                 isStartingPictureInPicture = true
                 pictureInPicture.start() // flies from where the pinch left it
@@ -281,6 +284,7 @@ struct StreamView: View {
     }
 
     private func setUpPictureInPicture() {
+        guard allowsPictureInPicture else { return } // never attached: leaving the app pauses instead
         pictureInPicture.attach(renderer.layer)
         pictureInPicture.onActiveChange = { isActive in
             isStartingPictureInPicture = false
@@ -298,6 +302,7 @@ struct StreamView: View {
     /// The stream shrinks with the fingers. Once they lift it springs back, unless Picture in Picture is taking it
     /// from there (it resets the size itself once the window is up, or if it can't start).
     private func followPinch(_ progress: CGFloat?) {
+        guard allowsPictureInPicture else { return } // the stream doesn't shrink for a window that won't come
         if progress == nil {
             guard !isStartingPictureInPicture else { return }
             withAnimation(.spring(duration: 0.35, bounce: 0.2)) { launcher.pinchProgress = nil }

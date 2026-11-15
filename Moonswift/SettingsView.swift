@@ -29,6 +29,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.playAudioOnPC) private var playAudioOnPC = false
     @AppStorage(SettingsKey.hdr) private var hdr = false
     @AppStorage(SettingsKey.buttonGuide) private var buttonGuide = ButtonGuideMode.automatic
+    @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = true
     @State private var focus = 0
     @State private var liveBitrateNote: String?
     @State private var bitrateChange: Task<Void, Never>?
@@ -38,7 +39,7 @@ struct SettingsView: View {
     @State private var choice: ChoiceMenuSpec?
     @State private var rowFrames = RowFrames()
 
-    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, buttonMapping, buttonGuide, coverShape, about }
+    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, pictureInPicture, buttonMapping, buttonGuide, coverShape, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
     private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
     @State private var page = Page.stream
@@ -48,7 +49,7 @@ struct SettingsView: View {
     }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        guard page == .stream else { return [.buttonGuide, .buttonMapping] + (live == nil ? [.coverShape] : []) + [.about] }
+        guard page == .stream else { return [.pictureInPicture, .buttonGuide, .buttonMapping] + (live == nil ? [.coverShape] : []) + [.about] }
         return (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
             + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .overlay]
     }
@@ -168,6 +169,16 @@ struct SettingsView: View {
                     }
                 }
                 } else {
+                Section {
+                    row(.pictureInPicture) {
+                        Toggle("Picture in Picture", isOn: $allowsPictureInPicture)
+                    }
+                } header: {
+                    Text("Experience")
+                } footer: {
+                    Text("A pinch on the stream, or leaving the app while streaming, floats the game in a small window over "
+                         + "other apps. Off, leaving the app pauses the stream until you come back. Applies from the next stream.")
+                }
                 Section {
                     row(.buttonGuide) {
                         choiceRow(.buttonGuide, "Button Guide", $buttonGuide, ButtonGuideMode.allCases, name: \.rawValue)
@@ -299,6 +310,7 @@ struct SettingsView: View {
         case .adaptive: adaptive.toggle()
         case .overlay: showsPerformance.toggle()
         case .pcAudio: playAudioOnPC.toggle()
+        case .pictureInPicture: allowsPictureInPicture.toggle()
         case .bitrate: break // left/right move the slider
         case .buttonMapping: isShowingButtonMapping = true
         case .about: isShowingAbout = true

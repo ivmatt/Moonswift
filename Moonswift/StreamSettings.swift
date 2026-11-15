@@ -50,6 +50,7 @@ nonisolated enum SettingsKey {
     static let playAudioOnPC = "playAudioOnPC" // Bool: sound also plays from the PC's speakers
     static let hdr = "hdr" // Bool: ask for HDR (10-bit HEVC) on HDR screens
     static let buttonGuide = "buttonGuide" // ButtonGuideMode
+    static let pictureInPicture = "pictureInPicture" // Bool, on by default: pinch or leaving the app floats the stream
 }
 
 /// The stream size, frame rate, codecs and bitrate to ask for. Pure functions, so they can be tested.
