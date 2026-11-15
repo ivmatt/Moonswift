@@ -125,16 +125,20 @@ import SwiftUI
     }
 
     /// Quitting can lose unsaved progress, so it asks once.
+    /// Quits the game on a PC behind "Quitting X…", so nothing else starts (or quits again) until the host answers,
+    /// which can take several seconds.
+    func quit(_ title: String, on pc: PCRef) {
+        perform("Quitting \(title)…", on: pc, onSuccess: { self.forgetSession(on: pc.id) }) {
+            try await pc.client.quit()
+            return nil
+        }
+    }
+
     func confirmQuit(_ title: String?, on pc: PCRef) {
         let title = title ?? "the running game"
         menu = MenuSpec(title: "Quit \(title)?", message: "Unsaved progress may be lost.", actions: [
             .init(title: "Quit", isDestructive: true) {
-                let quit = {
-                    self.perform("Quitting \(title)…", on: pc, onSuccess: { self.forgetSession(on: pc.id) }) {
-                        try await pc.client.quit()
-                        return nil
-                    }
-                }
+                let quit = { self.quit(title, on: pc) }
                 // Streaming from that PC (in the small window): close the stream first, so it doesn't end in an error.
                 if self.streaming?.pc.id == pc.id, self.stream != nil { self.disconnect(then: quit) } else { quit() }
             },
@@ -170,9 +174,6 @@ import SwiftUI
         }
     }
 
-    /// The stream screen's reconnect (after the background, a network switch, Apply & Reconnect): find the PC at
-    /// whichever address answers now, and resume with the current settings.
-    /// Quit & Retry is only offered for this device's own game: a joined session is another device's.
     /// Starts in a row, per host, that connected but never got a picture: from the second, its display is likely stuck
     /// (the host can't tell clients that itself).
     @ObservationIgnored private var pictureless: [String: Int] = [:]
@@ -183,8 +184,14 @@ import SwiftUI
     }
     func notePicture() { if let id = streaming?.pc.id, pictureless[id] != nil { pictureless[id] = nil } }
 
+    /// The PC being streamed from.
+    var streamedPC: PCRef? { streaming?.pc }
+
+    /// Quit & Retry is only offered for this device's own game: a joined session is another device's.
     var canRelaunch: Bool { streaming?.app.sessionControl == nil }
 
+    /// The stream screen's reconnect (after the background, a network switch, Apply & Reconnect): find the PC at
+    /// whichever address answers now, and resume with the current settings.
     /// `fresh`: quits the game first and launches it again (Quit & Retry), rather than resuming it.
     func reconnect(fresh: Bool = false) async throws -> (HostClient, StreamTarget) {
         guard var (app, pc) = streaming, let address = await Self.answeringAddress(pc) else {

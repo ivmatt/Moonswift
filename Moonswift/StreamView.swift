@@ -133,7 +133,7 @@ struct StreamView: View {
             }
             if let failure {
                 StreamFailurePage(failure: failure, title: target.title, canRelaunch: launcher.canRelaunch,
-                                  quitAndRetry: { retry(fresh: true) }, reconnect: { retry(fresh: false) }, close: { leave() })
+                                  quitAndRetry: { retry(fresh: true) }, reconnect: { retry(fresh: false) }, close: { leave(quitting: launcher.canRelaunch) })
                     .transition(.opacity)
             }
         }
@@ -347,9 +347,11 @@ struct StreamView: View {
         status = "Disconnecting…"
         Task {
             await session.stop()
-            if quitting, (try? await client.quit()) != nil { launcher.forgetSession(on: client.hostID) }
+            let quitOn = quitting ? launcher.streamedPC : nil
             launcher.streamEnded()
             next()
+            // Back on Home at once; the host can take seconds to end the game, so "Quitting…" shows there meanwhile.
+            if let quitOn { launcher.quit(target.title, on: quitOn) }
         }
     }
 
@@ -598,7 +600,7 @@ enum FakeStreamFailure: String, CaseIterable {
 #endif
 
 /// Full screen over the stream when it couldn't start or ended on its own: what happened, what usually fixes it, and
-/// Quit & Retry, Reconnect and Close. Works by touch and with a controller.
+/// Quit & Retry, Reconnect and Close and Quit. Works by touch and with a controller.
 private struct StreamFailurePage: View {
     let failure: StreamFailure
     let title: String
@@ -614,7 +616,8 @@ private struct StreamFailurePage: View {
     private var buttons: [(title: String, isPrimary: Bool, run: () -> Void)] {
         let retry = (title: "Quit & Retry", run: quitAndRetry), rejoin = (title: "Reconnect", run: reconnect)
         let order = !canRelaunch ? [rejoin] : failure.hadPicture ? [rejoin, retry] : [retry, rejoin]
-        return order.enumerated().map { ($1.title, $0 == 0, $1.run) } + [("Close", false, close)]
+        // Closing quits the game too (it failed or ended, so nothing's worth keeping), except another device's session.
+        return order.enumerated().map { ($1.title, $0 == 0, $1.run) } + [(canRelaunch ? "Close and Quit" : "Close", false, close)]
     }
 
     private func section(_ heading: String, _ lines: [String], icon: String) -> some View {
