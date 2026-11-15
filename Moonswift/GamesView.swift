@@ -46,7 +46,6 @@ struct GamesView: View {
     @AppStorage("libraryOrder") private var order = Order.recent
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
     @AppStorage("libraryFavoritesOnly") private var favoritesOnly = false
-    @AppStorage("libraryShowsApps") private var showsApps = true
     /// What the search field filters the wall by (Library is where search lives; there's no Search tab).
     @State private var query = ""
     /// Search is on: the bar shows its close button and stays put at the top as the wall scrolls. Separate from the
@@ -61,9 +60,18 @@ struct GamesView: View {
     /// Where the page starts: below the status bar, under the top bar that only holds the filter button; on iPad,
     /// below the tab bar across the top too.
     private var contentTop: CGFloat { UIDevice.current.userInterfaceIdiom == .pad ? topInset : HomeView.windowTopInset }
-    /// The controller's focus: a cover's index, or `searchFocus` for the search bar.
+    /// The controller's focus: a cover's index, `searchFocus` for the search bar, or a pill in the row above the covers
+    /// (`rowFocus(_:)`).
     @State private var focus = 0
     private static let searchFocus = -1, closeFocus = -2 // the search bar, and its close button while searching
+    /// The row's pills, left to right: Sort, Filter, the shortcuts that fit, then More if some don't.
+    private static func rowFocus(_ index: Int) -> Int { -100 - index }
+    private var rowIndex: Int? { focus <= -100 ? -100 - focus : nil }
+    /// How many shortcuts fit beside Sort and Filter; the rest are in More.
+    @State private var fittingShortcuts = 0
+    /// The controller's menu for a pill (Sort, Filter, More), opening from it.
+    @State private var choice: ChoiceMenuSpec?
+    @State private var pillFrames = RowFrames()
     @State private var topInset: CGFloat = 0
     @State private var insets = EdgeInsets()
     @State private var menu: MenuSpec?
@@ -73,9 +81,13 @@ struct GamesView: View {
     @State private var readied: String?
 
     private var all: [CatalogGame] { catalog.games(on: hosts.map(\.uniqueID)) }
+    /// Desktop, Steam Big Picture and the like: not games but ways into the PC, in the row above the covers.
+    private var shortcuts: [CatalogGame] {
+        all.filter(\.isApp).sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
     private var shown: [CatalogGame] {
         let query = query.trimmingCharacters(in: .whitespaces)
-        let games = all.filter { (!favoritesOnly || $0.isFavorite) && (showsApps || !$0.isApp)
+        let games = all.filter { !$0.isApp && (!favoritesOnly || $0.isFavorite)
                                  && (query.isEmpty || $0.title.localizedStandardContains(query)) }
         return order == .recent ? games : games.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
@@ -93,6 +105,7 @@ struct GamesView: View {
                 .scrollDismissesKeyboard(.immediately) // the keyboard goes, the search stays on until its close button
                 .tracksTabBarMinimize()
                 .overlay(alignment: .top) { header }
+                .choiceMenu($choice)
                 .buttonGuide(guideHints)
                 .onChange(of: focus) { old, new in
                     // The first row, or the search bar: the top, so the bar shows whole. Further down, only as far as it
@@ -118,7 +131,7 @@ struct GamesView: View {
             .toolbar {
                 // Not while searching on iPhone: the bar goes up beside it.
                 if !(isSearching && isTabBarBelow) {
-                    TabToolbar(hasTopBar: TabToolbar<EmptyView>.hasTopBar(insets: insets), openSettings: openSettings) { filterButton }
+                    TabToolbar(hasTopBar: TabToolbar<EmptyView>.hasTopBar(insets: insets), openSettings: openSettings) { EmptyView() }
                 }
             }
             .onChange(of: query) { if focus != Self.searchFocus { focus = 0 } }
@@ -145,6 +158,8 @@ struct GamesView: View {
                     .id("top")
                     // How far the wall has moved up from where it rests (its top padding below).
                     .onGeometryChange(for: CGFloat.self) { contentTop - $0.frame(in: .scrollView).minY } action: { scroll.offset = $0 }
+                // Part of the wall, so it scrolls away with it; not while searching, which is about the games.
+                if !isSearching { pillRow }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: columns), spacing: 18) {
                     ForEach(Array(shown.enumerated()), id: \.element.id) { index, game in
                         cover(game, isFocused: gamepad.isActive && !isSearchFocused && index == focus)
@@ -170,41 +185,123 @@ struct GamesView: View {
     /// nor (iPhone) while the search bar is up where the guide goes.
     private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
         isSearchFocused || (isSearching && isTabBarBelow) ? []
-            : [([.a], "Play"), ([.y], "Edit"), ([.view], "Filter and Sort"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")]
+            : [([.a], rowIndex == nil ? "Play" : "Select"), ([.y], "Edit"), ([.view], "Filter"), ([.l1, .r1], "Tabs"),
+               ([.menu], "Settings")]
     }
 
     private var header: some View {
         LibraryHeader(scroll: scroll, topInset: topInset, contentTop: contentTop, query: $query,
                       isSearching: isSearching, isSearchFocused: $isSearchFocused, dictation: dictation,
-                      focused: gamepad.isActive && !isSearchFocused && focus < 0 ? (focus == Self.closeFocus ? .close : .bar) : nil,
+                      focused: gamepad.isActive && !isSearchFocused && (focus == Self.searchFocus || focus == Self.closeFocus)
+                          ? (focus == Self.closeFocus ? .close : .bar) : nil,
                       close: closeSearch, dictate: toggleDictation)
     }
 
     /// The toolbar's filter and sort menu; filled while a filter narrows the wall (sort order isn't a filter).
-    private var filterButton: some View {
+    // MARK: Sort, filter and shortcuts
+
+    /// Above the covers: Sort and Filter on the left, the shortcuts on the right (those that don't fit under More).
+    private var pillRow: some View {
+        ViewThatFits(in: .horizontal) {
+            ForEach(Array(stride(from: shortcuts.count, through: 0, by: -1)), id: \.self) { fit in
+                HStack(spacing: 10) {
+                    sortPill
+                    filterPill
+                    Spacer(minLength: 24)
+                    ForEach(Array(shortcuts.prefix(fit).enumerated()), id: \.element.id) { index, shortcut in
+                        shortcutPill(shortcut, focusIndex: 2 + index)
+                    }
+                    if fit < shortcuts.count { morePill(after: fit) }
+                }
+                .onGeometryChange(for: Int.self) { _ in fit } action: { fittingShortcuts = $0 } // the one that's shown
+            }
+        }
+    }
+
+    private var sortPill: some View {
         Menu {
-            // A row of its own that opens the choices (a menu's first section shows no heading).
-            Menu {
-                Picker("Sort By", selection: $order) {
-                    ForEach(Order.allCases, id: \.self) { Label($0.rawValue, systemImage: $0.symbol) }
-                }
-                .pickerStyle(.inline)
-            } label: {
-                Label("Sort By", systemImage: "arrow.up.arrow.down")
+            Picker("Sort By", selection: $order) {
+                ForEach(Order.allCases, id: \.self) { Label($0.rawValue, systemImage: $0.symbol) }
             }
-            Section("Show") {
-                Toggle("Favorites Only", systemImage: "star", isOn: $favoritesOnly)
-                Toggle("Apps", systemImage: "macwindow", isOn: $showsApps)
-            }
-            .menuActionDismissBehavior(.disabled) // several can be flipped in one go
-            if favoritesOnly || !showsApps {
-                Section {
-                    Button("Show Everything", systemImage: "arrow.counterclockwise") { favoritesOnly = false; showsApps = true }
-                }
+            .pickerStyle(.inline)
+        } label: {
+            PillLabel(title: order == .recent ? "Recent" : "Name", systemImage: "arrow.up.arrow.down",
+                      isFocused: focused(0), isHidden: isChoiceOpen(from: 0))
+        }
+        .tint(.primary) // white, not the accent colour a menu gives its label
+        .recordsFrame(Self.rowFocus(0), in: pillFrames)
+    }
+
+    private var filterPill: some View {
+        Menu {
+            Toggle("Favorites Only", systemImage: "star", isOn: $favoritesOnly)
+        } label: {
+            PillLabel(title: favoritesOnly ? "Favorites" : "Filter",
+                      systemImage: favoritesOnly ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease",
+                      isFocused: focused(1), isHidden: isChoiceOpen(from: 1), isOn: favoritesOnly)
+        }
+        .tint(.primary) // white, not the accent colour a menu gives its label
+        .recordsFrame(Self.rowFocus(1), in: pillFrames)
+    }
+
+    private func shortcutPill(_ shortcut: CatalogGame, focusIndex: Int) -> some View {
+        Button { start(shortcut) } label: {
+            PillLabel(title: shortcut.title, systemImage: Self.symbol(for: shortcut), isFocused: focused(focusIndex),
+                      isRunning: shortcut.isRunning(directory))
+        }
+        .buttonStyle(.plain)
+        .contextMenu { Button("Edit", systemImage: "pencil") { editing = shortcut } }
+    }
+
+    private func morePill(after fit: Int) -> some View {
+        let rest = Array(shortcuts.dropFirst(fit))
+        return Menu {
+            ForEach(rest) { shortcut in
+                Button(shortcut.title, systemImage: Self.symbol(for: shortcut)) { start(shortcut) }
             }
         } label: {
-            Label("Filter and Sort", systemImage: favoritesOnly || !showsApps
-                  ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
+            PillLabel(title: nil, systemImage: "ellipsis", isFocused: focused(2 + fit), isHidden: isChoiceOpen(from: 2 + fit))
+        }
+        .tint(.primary) // white, not the accent colour a menu gives its label
+        .recordsFrame(Self.rowFocus(2 + fit), in: pillFrames)
+    }
+
+    private func focused(_ index: Int) -> Bool { gamepad.isActive && !isSearchFocused && rowIndex == index }
+    private func isChoiceOpen(from index: Int) -> Bool { choice?.source == AnyHashable(Self.rowFocus(index)) }
+
+    /// A shortcut's symbol, by its usual name; a generic one otherwise.
+    static func symbol(for shortcut: CatalogGame) -> String {
+        let title = shortcut.originalTitle.lowercased()
+        if title.contains("desktop") { return "desktopcomputer" }
+        if title.contains("big picture") { return "tv" }
+        if title.contains("steam") { return "gamecontroller" }
+        if title.contains("playnite") { return "square.grid.3x3" }
+        if title.contains("monitor") { return "display" }
+        if title.contains("input") { return "keyboard" }
+        return "app"
+    }
+
+    /// The pills in the row: Sort, Filter, the shortcuts shown, More.
+    private var rowCount: Int { 2 + fittingShortcuts + (fittingShortcuts < shortcuts.count ? 1 : 0) }
+
+    /// A on a pill: Sort's and Filter's choices, or More's shortcuts, in the controller's menu; a shortcut starts.
+    private func pressPill(_ index: Int) {
+        let anchor = pillFrames.frames[Self.rowFocus(index)] ?? .zero
+        switch index {
+        case 0:
+            choice = ChoiceMenuSpec(source: Self.rowFocus(0), options: Order.allCases.map(\.rawValue),
+                                    selected: Order.allCases.firstIndex(of: order) ?? 0, anchor: anchor,
+                                    pick: { order = Order.allCases[$0] }, opensRight: true)
+        case 1:
+            choice = ChoiceMenuSpec(source: Self.rowFocus(1), options: ["All Games", "Favorites Only"],
+                                    selected: favoritesOnly ? 1 : 0, anchor: anchor,
+                                    pick: { favoritesOnly = $0 == 1 }, opensRight: true)
+        case let i where i < 2 + fittingShortcuts:
+            start(shortcuts[i - 2])
+        default:
+            let rest = Array(shortcuts.dropFirst(fittingShortcuts))
+            choice = ChoiceMenuSpec(source: Self.rowFocus(index), options: rest.map(\.title), selected: -1, anchor: anchor,
+                                    pick: { start(rest[$0]) }, icons: rest.map(Self.symbol(for:)), opensRight: true)
         }
     }
 
@@ -251,14 +348,6 @@ struct GamesView: View {
     }
 
     /// The controller's way to the filter button (View): what to show and in which order.
-    private func filterMenu() -> MenuSpec {
-        func check(_ on: Bool) -> String { on ? " ✓" : "" }
-        return MenuSpec(title: "Filter and Sort", actions: [
-            .init(title: "All Games" + check(!favoritesOnly)) { favoritesOnly = false },
-            .init(title: "Favorites Only" + check(favoritesOnly)) { favoritesOnly = true },
-        ] + Order.allCases.map { option in .init(title: "Sort by \(option.rawValue)" + check(order == option)) { order = option } }
-          + [.init(title: showsApps ? "Hide Apps" : "Show Apps") { showsApps.toggle() }])
-    }
 
     // MARK: Actions
 
@@ -292,17 +381,24 @@ struct GamesView: View {
         if [.up, .down, .left, .right].contains(command), isSearchFocused { isSearchFocused = false }
         switch command {
         case .back where isSearching: closeSearch()
+        // The row: left and right along it, down to the covers, up to the search bar.
+        case .left where rowIndex != nil: focus = Self.rowFocus(max(rowIndex! - 1, 0))
+        case .right where rowIndex != nil: focus = Self.rowFocus(min(rowIndex! + 1, rowCount - 1))
+        case .up where rowIndex != nil: focus = Self.searchFocus
+        case .down where rowIndex != nil: focus = 0
+        case .select where rowIndex != nil: pressPill(rowIndex!)
+        case .down where focus == Self.searchFocus && !isSearching: focus = Self.rowFocus(0)
         case .down where focus < 0: focus = 0
         case .right where focus == Self.searchFocus && isSearching: focus = Self.closeFocus
         case .left where focus == Self.closeFocus: focus = Self.searchFocus
         case .left where focus < 0, .right where focus < 0, .up where focus < 0: break
-        case .up where focus < columns: focus = Self.searchFocus // the first row's up: the search bar
+        case .up where focus < columns: focus = isSearching ? Self.searchFocus : Self.rowFocus(0) // the row, or the bar
         case .up, .down, .left, .right: focus = FocusMove.next(focus, count: games.count, columns: columns, command)
         case .select where focus == Self.searchFocus: isSearchFocused = true // the keyboard; highlights hide while typing
         case .select where focus == Self.closeFocus: closeSearch()
         case .select: if games.indices.contains(focus) { start(games[focus]) }
         case .menu: if games.indices.contains(focus) { editing = games[focus] }
-        case .options: menu = filterMenu()
+        case .options: if !isSearching { focus = Self.rowFocus(1); pressPill(1) }
         case .previousTab: switchTab(-1)
         case .nextTab: switchTab(1)
         case .settings: openSettings()
@@ -409,5 +505,34 @@ private struct LibraryHeader: View {
             }
         }
         .tint(.primary)
+    }
+}
+
+/// A pill in Library's row: glass, an icon and an optional title; lit while on (a filter) and outlined in green while
+/// running (a shortcut).
+private struct PillLabel: View {
+    let title: String?
+    let systemImage: String
+    var isFocused = false
+    /// Its controller menu is open over it.
+    var isHidden = false
+    var isOn = false
+    var isRunning = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+            if let title { Text(title).lineLimit(1) }
+        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.primary)
+        .padding(.horizontal, title == nil ? 0 : 14)
+        .frame(minWidth: 36, minHeight: 36)
+        .contentShape(.capsule)
+        .glassEffect(isOn ? .regular.tint(.white.opacity(0.18)).interactive() : .regular.interactive(), in: .capsule)
+        .overlay { if isRunning { Capsule().stroke(.green, lineWidth: 2) } }
+        .focusRing(isFocused, cornerRadius: .infinity)
+        .opacity(isHidden ? 0 : 1)
+        .fixedSize()
     }
 }

@@ -63,15 +63,11 @@ struct HomeView: View {
     @State private var homeHeight: CGFloat = 0
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
 
-    private var games: [CatalogGame] { catalog.games(on: hosts.map(\.uniqueID)) }
+    /// Games only: the shortcuts (Desktop, Steam Big Picture…) are in Library's row of their own.
+    private var games: [CatalogGame] { catalog.games(on: hosts.map(\.uniqueID)).filter { !$0.isApp } }
 
-    /// The one row of covers: every game, most recently played first (the catalog's order). Apps (Desktop, Steam)
-    /// only when a PC lists no games, so playing one doesn't push the games out.
-    private var row: (title: String, games: [CatalogGame])? {
-        let all = games
-        let onlyGames = all.filter { !$0.isApp }
-        return onlyGames.isEmpty ? (all.isEmpty ? nil : ("Apps", all)) : ("Games", onlyGames)
-    }
+    /// The one row of covers: every game, most recently played first (the catalog's order).
+    private var row: (title: String, games: [CatalogGame])? { games.isEmpty ? nil : ("Games", games) }
 
     private var hasRemoteSession: Bool {
         hosts.contains { directory.isAvailable($0.uniqueID) && catalog.remoteSession(on: $0.uniqueID) != nil }
