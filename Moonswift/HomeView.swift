@@ -73,9 +73,15 @@ struct HomeView: View {
         hosts.contains { directory.isAvailable($0.uniqueID) && catalog.remoteSession(on: $0.uniqueID) != nil }
     }
 
+    /// What the hero can show: the row's games, and ahead of them a running shortcut (Desktop), which isn't in the row
+    /// but needs its Resume and Quit as much as a game does, above all right after leaving its stream.
+    private var heroChoices: [CatalogGame] {
+        catalog.games(on: hosts.map(\.uniqueID)).filter { $0.isApp && $0.isRunning(directory) } + (row?.games ?? [])
+    }
+
     private var selectedGame: CatalogGame? {
-        let games = row?.games ?? []
-        return games.first { $0.id == selectedID } ?? games.first
+        let choices = heroChoices
+        return choices.first { $0.id == selectedID } ?? choices.first
     }
 
     /// The host status, in place of the title: tap for each host's status and Refresh.
@@ -177,7 +183,7 @@ struct HomeView: View {
             // controller on Resume, to carry on or quit.
             .onChange(of: launcher.stream == nil || launcher.isMinimized) { _, isBack in
                 guard isBack, let session = launcher.session,
-                      let game = games.first(where: { $0.sources.contains { $0.pcID == session.pcID && $0.app.id == session.appID } })
+                      let game = heroChoices.first(where: { $0.sources.contains { $0.pcID == session.pcID && $0.app.id == session.appID } })
                 else { return }
                 withAnimation(.snappy) { selectedID = game.id }
                 focusRow = 0

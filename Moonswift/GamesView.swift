@@ -185,8 +185,9 @@ struct GamesView: View {
     /// nor (iPhone) while the search bar is up where the guide goes.
     private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
         isSearchFocused || (isSearching && isTabBarBelow) ? []
-            : [([.a], rowIndex == nil ? "Play" : "Select"), ([.y], "Edit"), ([.view], "Filter"), ([.l1, .r1], "Tabs"),
-               ([.menu], "Settings")]
+            : [([.a], rowIndex == nil ? (focusedGame?.isRunning(directory) == true ? "Resume" : "Play") : "Select"),
+               ([.y], "Edit")] + (focusedGame?.isRunning(directory) == true ? [([.x], "Quit")] : [])
+              + [([.view], "Filter"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")]
     }
 
     private var header: some View {
@@ -244,12 +245,22 @@ struct GamesView: View {
         .recordsFrame(Self.rowFocus(1), in: pillFrames)
     }
 
-    private func shortcutPill(_ shortcut: CatalogGame, focusIndex: Int) -> some View {
-        Button { start(shortcut) } label: {
-            PillLabel(title: shortcut.title, systemImage: Self.symbol(for: shortcut), isFocused: focused(focusIndex),
-                      isRunning: shortcut.isRunning(directory))
+    /// Starts with a tap; while running, a tap offers Resume and Quit instead.
+    @ViewBuilder private func shortcutPill(_ shortcut: CatalogGame, focusIndex: Int) -> some View {
+        let label = PillLabel(title: shortcut.title, systemImage: Self.symbol(for: shortcut), isFocused: focused(focusIndex),
+                              isHidden: isChoiceOpen(from: focusIndex), isRunning: shortcut.isRunning(directory))
+        Group {
+            if shortcut.isRunning(directory) {
+                Menu {
+                    Button("Resume", systemImage: "play.fill") { start(shortcut) }
+                    Button("Quit", systemImage: "xmark", role: .destructive) { quit(shortcut) }
+                } label: { label }
+                .tint(.primary)
+            } else {
+                Button { start(shortcut) } label: { label }.buttonStyle(.plain)
+            }
         }
-        .buttonStyle(.plain)
+        .recordsFrame(Self.rowFocus(focusIndex), in: pillFrames)
         .contextMenu { Button("Edit", systemImage: "pencil") { editing = shortcut } }
     }
 
@@ -297,7 +308,14 @@ struct GamesView: View {
                                     selected: favoritesOnly ? 1 : 0, anchor: anchor,
                                     pick: { favoritesOnly = $0 == 1 }, opensRight: true)
         case let i where i < 2 + fittingShortcuts:
-            start(shortcuts[i - 2])
+            let shortcut = shortcuts[i - 2]
+            if shortcut.isRunning(directory) {
+                choice = ChoiceMenuSpec(source: Self.rowFocus(index), options: ["Resume", "Quit"], selected: -1, anchor: anchor,
+                                        pick: { $0 == 0 ? start(shortcut) : quit(shortcut) }, icons: ["play.fill", "xmark"],
+                                        opensRight: true)
+            } else {
+                start(shortcut)
+            }
         default:
             let rest = Array(shortcuts.dropFirst(fittingShortcuts))
             choice = ChoiceMenuSpec(source: Self.rowFocus(index), options: rest.map(\.title), selected: -1, anchor: anchor,
@@ -356,17 +374,29 @@ struct GamesView: View {
     }
 
     /// Over a readied cover: a Play (or Resume) button that starts it.
+    /// Play; or, while it's running, Resume and Quit (as Home's hero offers).
     private func playButton(_ game: CatalogGame) -> some View {
-        Button { start(game) } label: {
-            Label(game.isRunning(directory) ? "Resume" : "Play", systemImage: "play.fill")
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, 4)
-                .frame(height: 30)
+        VStack(spacing: 8) {
+            Button { start(game) } label: {
+                Label(game.isRunning(directory) ? "Resume" : "Play", systemImage: "play.fill").overlayButtonText()
+            }
+            .buttonStyle(.glass) // white on glass, like Home's Play
+            if game.isRunning(directory) {
+                Button { readied = nil; quit(game) } label: { Label("Quit", systemImage: "xmark").overlayButtonText() }
+                    .buttonStyle(.glassProminent)
+                    .tint(.red)
+            }
         }
-        .buttonStyle(.glass) // white on glass, like Home's Play
     }
+
+    /// Asks before ending it on its PC (as Home does).
+    private func quit(_ game: CatalogGame) {
+        guard let source = game.sources.first(where: { directory.playing[$0.pcID] == $0.app.id }),
+              let host = hosts.first(where: { $0.uniqueID == source.pcID }) else { return }
+        launcher.confirmQuit(game.title, on: directory.ref(host))
+    }
+
+    private var focusedGame: CatalogGame? { shown.indices.contains(focus) ? shown[focus] : nil }
 
     private func start(_ game: CatalogGame) {
         readied = nil
@@ -398,6 +428,7 @@ struct GamesView: View {
         case .select where focus == Self.closeFocus: closeSearch()
         case .select: if games.indices.contains(focus) { start(games[focus]) }
         case .menu: if games.indices.contains(focus) { editing = games[focus] }
+        case .alternate: if let game = focusedGame, game.isRunning(directory) { quit(game) }
         case .options: if !isSearching { focus = Self.rowFocus(1); pressPill(1) }
         case .previousTab: switchTab(-1)
         case .nextTab: switchTab(1)
@@ -485,14 +516,13 @@ private struct LibraryHeader: View {
             }
             .labelStyle(.iconOnly)
             .padding(.horizontal, 16)
-            .opacity(max(0, shown * 2 - 1)) // its contents fade over the first half of the squish
+            .opacity(min(max((shown - 0.65) / 0.35, 0), 1)) // its contents gone within the first third of the squish
             .frame(height: height)
             .clipShape(.capsule)
             .contentShape(.capsule)
             .onTapGesture { isSearchFocused.wrappedValue = true }
-            .glassEffect(.regular.interactive(), in: .capsule)
-            .focusRing(focused == .bar, cornerRadius: .infinity)
-            .opacity(height < 6 ? 0 : 1) // not a sliver of glass
+            .background(Color(.tertiarySystemFill), in: .capsule) // flat, like a system search field
+            .focusRing(focused == .bar, cornerRadius: .infinity) // the bar itself squishes all the way to nothing
             if isSearching {
                 Button("Close Search", systemImage: "xmark", action: close)
                     .labelStyle(.iconOnly)
@@ -534,5 +564,12 @@ private struct PillLabel: View {
         .focusRing(isFocused, cornerRadius: .infinity)
         .opacity(isHidden ? 0 : 1)
         .fixedSize()
+    }
+}
+
+private extension View {
+    /// The text of a button over a readied cover: small enough for a cover's width, on one line.
+    func overlayButtonText() -> some View {
+        font(.footnote.weight(.semibold)).lineLimit(1).fixedSize().frame(minWidth: 72).frame(height: 28)
     }
 }
