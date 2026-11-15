@@ -20,7 +20,7 @@ struct TabToolbar<Other: View>: ToolbarContent {
     }
 
     private var gear: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) { Button("Settings", systemImage: "gearshape", action: openSettings) }
+        ToolbarItem(placement: .topBarTrailing) { Button("Settings", systemImage: "gear", action: openSettings) }
     }
 }
 

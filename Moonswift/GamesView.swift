@@ -68,6 +68,9 @@ struct GamesView: View {
     @State private var insets = EdgeInsets()
     @State private var menu: MenuSpec?
     @State private var editing: CatalogGame?
+    /// The cover a tap has readied: it shows a Play button, and a second tap there starts the game. A stray touch only
+    /// readies one, so it can't start anything by itself; scrolling, or tapping elsewhere, puts it away.
+    @State private var readied: String?
 
     private var all: [CatalogGame] { catalog.games(on: hosts.map(\.uniqueID)) }
     private var shown: [CatalogGame] {
@@ -124,6 +127,8 @@ struct GamesView: View {
             .onDisappear { dictation.stop() }
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
             .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets = $0 }
+            // Any touch (a tap, a scroll) is touch mode: the controller's highlight goes until the next press.
+            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in gamepad.touched() })
             .onGamepad(handle)
             .actionMenu($menu)
             .sheet(item: $editing) { GameEditView(game: $0) }
@@ -148,10 +153,13 @@ struct GamesView: View {
                 .padding(.leading, max(0, 2 * foldShift)) // the title and header stay put
                 .padding(.trailing, max(0, -2 * foldShift))
             }
+            // A tap between the covers puts the readied one away.
+            .background { Color.clear.contentShape(.rect).onTapGesture { withAnimation(.snappy) { readied = nil } } }
             .padding(.horizontal, 36)
             .padding(.top, contentTop) // the status bar's room, as the bar's is ignored below
             .padding(.bottom, 24)
         }
+        .onScrollPhaseChange { _, phase in if phase != .idle, readied != nil { withAnimation(.snappy) { readied = nil } } }
     }
 
     /// iPhone: the tab bar goes while searching, and while the controller is below the first row (back at the top row,
@@ -224,7 +232,16 @@ struct GamesView: View {
         let pcName = game.sources.lazy.compactMap { s in hosts.first { $0.uniqueID == s.pcID }?.displayName }.first ?? "Its host"
         return CoverTile(game: game, client: client(for: game), isRunning: game.isRunning(directory),
                          offlinePC: offline ? pcName : nil, isFocused: isFocused)
-            .onTapGesture { start(game) }
+            // Two layers, so each has its own transition: the dimming fades, the button grows as it fades.
+            .overlay {
+                if readied == game.id { RoundedRectangle(cornerRadius: 14).fill(.black.opacity(0.35)).transition(.opacity) }
+            }
+            .overlay { if readied == game.id { playButton(game).transition(.opacity.combined(with: .scale(scale: 0.9))) } }
+            .scaleEffect(readied == game.id ? 1.04 : 1)
+            .zIndex(readied == game.id ? 1 : 0)
+            .onTapGesture {
+                if readied == game.id { start(game) } else { withAnimation(.snappy) { readied = game.id } }
+            }
             .contextMenu {
                 Button("Edit Game", systemImage: "pencil") { editing = game }
                 Button(game.isFavorite ? "Remove from Favorites" : "Add to Favorites", systemImage: game.isFavorite ? "star.slash" : "star") {
@@ -249,11 +266,26 @@ struct GamesView: View {
         game.sources.lazy.compactMap { source in self.hosts.first { $0.uniqueID == source.pcID } }.first.map { directory.ref($0).client }
     }
 
+    /// Over a readied cover: a Play (or Resume) button that starts it.
+    private func playButton(_ game: CatalogGame) -> some View {
+        Button { start(game) } label: {
+            Label(game.isRunning(directory) ? "Resume" : "Play", systemImage: "play.fill")
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 4)
+                .frame(height: 30)
+        }
+        .buttonStyle(.glass) // white on glass, like Home's Play
+    }
+
     private func start(_ game: CatalogGame) {
+        readied = nil
         play(game, hosts: hosts, directory: directory, catalog: catalog, launcher: launcher)
     }
 
     private func handle(_ command: GamepadCommand) {
+        if readied != nil { withAnimation(.snappy) { readied = nil } } // the controller has its own highlight
         guard launcher.busy == nil else { return }
         let games = shown
         // Moving off the search bar puts the keyboard away, so the highlight shows where it went.

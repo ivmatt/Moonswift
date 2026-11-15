@@ -199,6 +199,11 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
         }
     }
 
+    /// The screen was touched: back to touch mode, so no controller highlight lingers (it returns with the next press).
+    func touched() {
+        if isActive { isActive = false }
+    }
+
     private func send(_ command: GamepadCommand) {
         isActive = true
         handlers.last?.handle(command)

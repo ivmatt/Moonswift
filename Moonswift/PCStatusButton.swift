@@ -42,6 +42,8 @@ struct PCStatusButton: View {
     var isFocused = false
     /// Its controller menu is open over it: shrunk and faded into it, as the menu grows out of it.
     var isHidden = false
+    /// Next to the floating tab bar (iPhone in landscape): its icon and text at the bar's size, so it doesn't loom.
+    var isCompact = false
 
     @Environment(PCDirectory.self) private var directory
     @Environment(GameCatalog.self) private var catalog
@@ -98,11 +100,12 @@ struct PCStatusButton: View {
         } label: {
             // A pill in place of Home's title: the PC with its traffic-light dot (or the arc while it checks), and
             // the status in a word, so the dot's colour comes with its meaning.
-            HStack(spacing: 10) {
+            HStack(spacing: isCompact ? 8 : 10) {
                 Image(systemName: "desktopcomputer")
+                    .font(isCompact ? .system(size: 15, weight: .medium) : nil)
                     .overlay(alignment: .bottomTrailing) {
                         Circle().fill(dot)
-                            .frame(width: 9, height: 9)
+                            .frame(width: isCompact ? 8 : 9, height: isCompact ? 8 : 9)
                             .overlay { Circle().stroke(.black.opacity(0.35), lineWidth: 1) } // shows on light and dark glass
                             .offset(x: 3, y: 1)
                     }
@@ -113,10 +116,11 @@ struct PCStatusButton: View {
                         if isSpinning { ArcSpinner().transition(.opacity.combined(with: .scale(scale: 0.5))) }
                     }
                 Text(word).contentTransition(.opacity)
+                    .font(isCompact ? .system(size: 13, weight: .semibold) : nil)
             }
             .font(.body.weight(.semibold))
             .foregroundStyle(.primary)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, isCompact ? 14 : 16)
             .frame(height: 44) // the standard button height, like the gear's
             .glassEffect(.regular.interactive(), in: .capsule)
             .tint(.primary) // white words, not the accent colour a menu gives its label

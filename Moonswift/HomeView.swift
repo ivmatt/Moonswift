@@ -85,7 +85,8 @@ struct HomeView: View {
     /// The host status, in place of the title: tap for each host's status and Refresh.
     private var statusPill: AnyView? {
         hosts.isEmpty ? nil : AnyView(PCStatusButton(refresh: refresh, isRefreshing: isRefreshing,
-                                                     isFocused: gamepad.isActive && focusRow == -1, isHidden: statusMenu != nil)
+                                                     isFocused: gamepad.isActive && focusRow == -1, isHidden: statusMenu != nil,
+                                                     isCompact: floatsTabBar)
             // Floating tab bar: in line with its shrunk button below, rather than the top bar's inner margin in.
             .offset(x: floatsTabBar ? -10 : 0)
             // In the page's own coordinates for its menu, wherever the pill is: the top bar sits outside the page.
@@ -197,7 +198,7 @@ struct HomeView: View {
     /// The button guide's buttons: the selected game's, then the page's.
     private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
         guard !games.isEmpty else { return [] }
-        let a = focusRow == -1 ? "Open" : focusRow == 1 ? "Select" : heroButton == 1 ? "Quit"
+        let a = focusRow == -1 ? "Open" : focusRow == 0 && heroButton == 1 ? "Quit"
             : selectedGame?.isRunning(directory) == true ? "Resume" : "Play"
         return [([.a], a), ([.y], "Edit")] + (selectedGame?.isRunning(directory) == true ? [([.x], "Quit")] : [])
             + [([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")]
@@ -498,9 +499,7 @@ struct HomeView: View {
             }
         case .select:
             if focusRow == -1 { openStatusMenu() }
-            // On a cover, A only goes up to its Play (or Resume): a second press starts it, so a stray press can't.
-            else if focusRow == 1 { focusRow = 0; heroButton = 0 }
-            else if heroButton == 1, isRunning { quit(game) } else { pressPlay(game) }
+            else if focusRow == 0, heroButton == 1, isRunning { quit(game) } else { pressPlay(game) }
         case .alternate: if isRunning { quit(game) }
         case .menu: editing = game
         case .options: refresh()
