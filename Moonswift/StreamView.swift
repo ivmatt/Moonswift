@@ -84,9 +84,8 @@ struct StreamView: View {
     @State private var padRouter = PadTouchRouter()
     #if DEBUG
     /// Hosts Online's test stream: what the on-screen controller last sent, shown on its picture.
-    @State private var testPad = PadSnapshot()
     #endif
-    @State private var rates = ""
+    @State private var readout = StreamReadout()
     @State private var isLeaving = false
     @State private var isShowingSettings = false
     /// A short confirmation at the top of the stream, like "Copied from PC".
@@ -109,13 +108,10 @@ struct StreamView: View {
     private var adaptive: Bool { UserDefaults.standard.bool(forKey: SettingsKey.adaptiveBitrate) }
     private var savedBitrate: Int { UserDefaults.standard.integer(forKey: SettingsKey.bitrate) }
     @State private var adaptiveController: BitrateController?
-    @State private var adaptiveNote: String?
     @State private var adaptiveUnsupported = false
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
     /// Off: no floating window; leaving the app pauses the stream.
     @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = true
-    @State private var performance: PerformanceOverlay.Readout?
-    @State private var fpsHistory: [Double] = [] // the last minute, for the HUD's graph
 
     /// The game gets no input while a menu, Settings or Control Center is over it, or while it's the small window.
     private var isPlaying: Bool {
@@ -124,9 +120,9 @@ struct StreamView: View {
     }
     /// The splash's line while it's up: what the connection is doing; nil once the picture is in.
     private var splashStatus: String? {
-        switch stats.state {
+        switch session.state {
         case .connecting: "Connecting to your game…"
-        case .connected where stats.videoFrames == 0: "Almost there…"
+        case .connected where !session.hasPicture: "Almost there…"
         default: nil
         }
     }
@@ -137,8 +133,8 @@ struct StreamView: View {
     private var shownStatus: String? {
         if let status { return status }
         guard failure == nil else { return nil }
-        if stats.state == .connecting { return "Connecting to \(target.title)…" }
-        return stats.state == .connected && stats.videoFrames == 0 ? "Starting \(target.title)…" : nil
+        if session.state == .connecting { return "Connecting to \(target.title)…" }
+        return session.state == .connected && !session.hasPicture ? "Starting \(target.title)…" : nil
     }
 
     var body: some View {
@@ -149,7 +145,7 @@ struct StreamView: View {
             ZStack {
                 VideoLayerView(renderer: renderer)
                 #if DEBUG
-                if PCDirectory.fakeOnline { TestStreamPicture(title: target.title, pad: testPad) }
+                if PCDirectory.fakeOnline { TestStreamPicture(title: target.title, source: readout) }
                 #endif
                 TouchInputLayer(mode: touchMode, streamSize: CGSize(width: target.width, height: target.height),
                                 isPaused: !isPlaying || !isSendingInput, onGesture: gesture,
@@ -172,13 +168,11 @@ struct StreamView: View {
                                    router: padRouter, shortcuts: shortcuts.all, perform: perform) { pad in
                     if isSendingInput { controllers.setOnScreen(pad) }
                     #if DEBUG
-                    if PCDirectory.fakeOnline { testPad = pad }
+                    if PCDirectory.fakeOnline { readout.testPad = pad }
                     #endif
                 }
             }
-            if showsPerformance, let performance, !launcher.isMinimized, !isEditingPad {
-                PerformanceOverlay(readout: performance, adaptiveNote: adaptiveNote, history: fpsHistory)
-            }
+            if showsPerformance, !launcher.isMinimized, !isEditingPad { LivePerformance(readout: readout) }
             if let toast {
                 Text(toast)
                     .font(.subheadline.weight(.medium))
@@ -209,8 +203,7 @@ struct StreamView: View {
                                      close: closePanel)
                     case .settings:
                         QuickSettingsPanel(tab: panelTab,
-                                           stats: [stats.videoLabel, rates].compactMap { $0 }.filter { !$0.isEmpty }
-                                               .joined(separator: " · "),
+                                           stats: { [readout] in readout.statsLine },
                                            target: target, showsPerformance: $showsPerformance, touchMode: $touchMode,
                                            setBitrate: setLiveBitrate,
                                            padLayouts: padLayouts, padLayoutID: padLayoutID,
@@ -277,7 +270,7 @@ struct StreamView: View {
             pictureInPicture.detach()
         }
         // Leaving the app floats the game only while it's actually playing.
-        .onChange(of: stats.state == .connected && stats.videoFrames > 0 && failure == nil && status == nil && !isLeaving,
+        .onChange(of: session.state == .connected && session.hasPicture && failure == nil && status == nil && !isLeaving,
                   initial: true) { _, isLive in pictureInPicture.allowsAutomaticStart(isLive) }
         .task { await run() }
         .task { await holdSplash() }
@@ -294,7 +287,7 @@ struct StreamView: View {
             if phase == .background, !launcher.isMinimized, !pictureInPicture.isActive,
                stats.state == .connected || stats.state == .connecting { reconnect("Paused") }
         }
-        .onChange(of: stats.state) { _, state in
+        .onChange(of: session.state) { _, state in
             switch state {
             case .connected:
                 status = nil
@@ -607,13 +600,14 @@ struct StreamView: View {
             let window = PerformanceWindow(from: previous.counters, to: counters, seconds: (now - previous.time) / .seconds(1))
             previous = (counters, now)
 
-            rates = "\(window.fps.formatted(.number.precision(.fractionLength(0)))) fps, "
+            readout.videoLabel = stats.videoLabel
+            readout.rates = "\(window.fps.formatted(.number.precision(.fractionLength(0)))) fps, "
                 + "\(window.mbps.formatted(.number.precision(.fractionLength(1)))) Mbps"
-            performance = PerformanceOverlay.Readout(window: window, targetFPS: target.fps, video: stats.videoLabel,
+            readout.performance = PerformanceOverlay.Readout(window: window, targetFPS: target.fps, video: stats.videoLabel,
                                                      rtt: hasRTT ? (Int(rtt), Int(rttVariance)) : nil,
                                                      isRemote: !isHomeNetworkHost(hostAddress(client.address)))
             if isLive {
-                fpsHistory = Array((fpsHistory + [window.fps]).suffix(60))
+                readout.fpsHistory = Array((readout.fpsHistory + [window.fps]).suffix(60))
                 adaptStep(window.sample(rttMs: hasRTT ? Int(rtt) : nil, isPoor: stats.isPoor), now: (now - started) / .seconds(1))
             }
         }
@@ -628,7 +622,7 @@ struct StreamView: View {
         guard adaptive else {
             if adaptiveController != nil { // switched off mid-stream: back to your setting
                 adaptiveController = nil
-                adaptiveNote = nil
+                readout.adaptiveNote = nil
                 sendBitrate(ceiling)
             }
             return
@@ -638,13 +632,13 @@ struct StreamView: View {
             let controller = BitrateController(ceiling: ceiling, start: target.bitrate)
             adaptiveController = controller
             if controller.target != target.bitrate { sendBitrate(controller.target) }
-            adaptiveNote = "Adaptive: \(controller.target / 1000) of \(ceiling / 1000) Mbps\(capNote) · starting"
+            readout.adaptiveNote = "Adaptive: \(controller.target / 1000) of \(ceiling / 1000) Mbps\(capNote) · starting"
             return
         }
         if let changed = adaptiveController?.setCeiling(ceiling) { sendBitrate(changed) } // the setting changed in Stream Settings
         if let changed = adaptiveController?.update(sample, now: now) { sendBitrate(changed) }
         if let controller = adaptiveController {
-            adaptiveNote = "Adaptive: \(controller.target / 1000) of \(controller.ceiling / 1000) Mbps\(capNote) · \(controller.reason)"
+            readout.adaptiveNote = "Adaptive: \(controller.target / 1000) of \(controller.ceiling / 1000) Mbps\(capNote) · \(controller.reason)"
         }
     }
 
@@ -654,7 +648,7 @@ struct StreamView: View {
                 _ = try await client.setBitrate(kbps)
             } catch {
                 adaptiveUnsupported = true
-                adaptiveNote = "Adaptive bitrate is off: this host can't change bitrate during a stream."
+                readout.adaptiveNote = "Adaptive bitrate is off: this host can't change bitrate during a stream."
             }
         }
     }
@@ -834,7 +828,8 @@ private struct StreamFailurePage: View {
 /// sending, so streams and touch controls can be tried with no host.
 private struct TestStreamPicture: View {
     let title: String
-    let pad: PadSnapshot
+    let source: StreamReadout
+    private var pad: PadSnapshot { source.testPad }
 
     var body: some View {
         TimelineView(.animation) { context in
@@ -846,7 +841,7 @@ private struct TestStreamPicture: View {
                 VStack(spacing: 10) {
                     Text(title).font(.largeTitle.weight(.bold))
                     Text("Test stream · no host").font(.headline).foregroundStyle(.white.opacity(0.7))
-                    Text(readout).font(.system(.body, design: .monospaced)).multilineTextAlignment(.center)
+                    Text(padText).font(.system(.body, design: .monospaced)).multilineTextAlignment(.center)
                         .padding(12).background(.black.opacity(0.35), in: .rect(cornerRadius: 12))
                 }
                 .foregroundStyle(.white)
@@ -857,7 +852,7 @@ private struct TestStreamPicture: View {
     }
 
     /// The buttons held and where the sticks and triggers are.
-    private var readout: String {
+    private var padText: String {
         let buttons = [("A", pad.a), ("B", pad.b), ("X", pad.x), ("Y", pad.y), ("Up", pad.up), ("Down", pad.down),
                        ("Left", pad.left), ("Right", pad.right), ("LB", pad.leftShoulder), ("RB", pad.rightShoulder),
                        ("L3", pad.leftStickClick), ("R3", pad.rightStickClick), ("View", pad.options), ("Menu", pad.menu)]
@@ -869,3 +864,29 @@ private struct TestStreamPicture: View {
     }
 }
 #endif
+
+/// The stream's once-a-second numbers. Kept out of the stream screen's own state and read only by the views that
+/// show them, so the screen (and any menu open over it) doesn't redraw every second.
+@Observable final class StreamReadout {
+    var videoLabel: String?
+    var rates = ""
+    var performance: PerformanceOverlay.Readout?
+    var adaptiveNote: String?
+    var fpsHistory: [Double] = [] // the last minute, for the HUD's graph
+    #if DEBUG
+    var testPad = PadSnapshot()
+    #endif
+
+    var statsLine: String { [videoLabel, rates].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ") }
+}
+
+/// The performance overlay, reading the readout itself so only it redraws as the numbers change.
+private struct LivePerformance: View {
+    let readout: StreamReadout
+
+    var body: some View {
+        if let performance = readout.performance {
+            PerformanceOverlay(readout: performance, adaptiveNote: readout.adaptiveNote, history: readout.fpsHistory)
+        }
+    }
+}

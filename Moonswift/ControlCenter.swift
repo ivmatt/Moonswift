@@ -177,7 +177,8 @@ struct ActionsPanel: View {
 struct QuickSettingsPanel: View {
     @Binding var tab: StreamPanel
     /// Resolution, codec, frame rate and bitrate now.
-    let stats: String
+    /// Read by its own line, so only that line redraws as the numbers change (not the panel and its menus).
+    let stats: () -> String
     let target: StreamTarget
     @Binding var showsPerformance: Bool
     @Binding var touchMode: TouchMode
@@ -206,7 +207,7 @@ struct QuickSettingsPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 6) {
-                if !stats.isEmpty { Text(stats).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 14) }
+                StatsLine(text: stats)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("Bitrate")
@@ -349,5 +350,14 @@ struct ThreeFingerSwipe: UIGestureRecognizerRepresentable {
         case .cancelled, .failed: ended(0)
         default: break
         }
+    }
+}
+
+private struct StatsLine: View {
+    let text: () -> String
+
+    var body: some View {
+        let text = text()
+        if !text.isEmpty { Text(text).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 14) }
     }
 }

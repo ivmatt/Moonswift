@@ -53,7 +53,11 @@ nonisolated private let audioRenderer = AudioRenderer()
 
 /// One streaming connection: starts moonlight-common-c after a successful /launch or /resume.
 @Observable final class StreamSession {
-    private(set) var stats = StreamStats()
+    /// A fresh copy every refresh, so not observed: a view that read it would redraw every second (and an open menu
+    /// over the stream would flash and jump to its top). Views read `state` and `hasPicture`, which change rarely.
+    @ObservationIgnored private(set) var stats = StreamStats()
+    private(set) var state = StreamStats.State.connecting
+    private(set) var hasPicture = false
 
     /// Its result keeps the C strings alive for as long as the library may read them.
     @ObservationIgnored private var startTask: Task<(result: Int32, strings: CStrings?), Never>?
@@ -91,6 +95,8 @@ nonisolated private let audioRenderer = AudioRenderer()
     /// Copies what the library's threads wrote, for the UI to show.
     func refresh() {
         stats = liveStats.withLock { $0 }
+        if state != stats.state { state = stats.state }
+        if hasPicture != (stats.videoFrames > 0) { hasPicture = stats.videoFrames > 0 }
     }
 
     /// Disconnects; the game keeps running on the host, like Moonlight's "disconnect".
