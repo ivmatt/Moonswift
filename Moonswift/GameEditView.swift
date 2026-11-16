@@ -16,9 +16,18 @@ struct GameEditView: View {
     /// The picker for each cover shape.
     @State private var coverItems: [CoverShape: PhotosPickerItem] = [:]
 
-    private enum Row: Hashable { case name, hero, cover(CoverShape), favorite, hidden, showAs, splashWait, reset }
+    private enum Row: Hashable { case name, hero, cover(CoverShape), onlineArt, chooseArt, favorite, hidden, showAs, splashWait, reset }
     /// Must match the on-screen order, or up/down feel inverted.
-    private let rows: [Row] = [.name, .hero] + CoverShape.allCases.map(Row.cover) + [.favorite, .hidden, .showAs, .splashWait, .reset]
+    private var rows: [Row] {
+        [.name] + (match != nil ? [.onlineArt] : []) + (hasArtworkKey && !current.isApp ? [.chooseArt] : [])
+            + [.hero, .cover(coverShape)]
+            + [.favorite, .hidden, .showAs, .splashWait, .reset]
+    }
+    /// A SteamGridDB key is set: art can be chosen there. Read once: it's in the Keychain.
+    @State private var hasArtworkKey = SteamGridDB.savedKey != nil
+    @State private var isChoosingArt = false
+    /// What SteamGridDB matched it to, once it's been looked up.
+    private var match: GameCatalog.FoundMatch? { catalog.foundMatches[game.id] }
     @State private var focus = 0
     @FocusState private var isNameFocused: Bool
     /// The controller's photo picker: which picture it's for, and what was picked.
@@ -48,23 +57,41 @@ struct GameEditView: View {
                 } footer: {
                     Text("Your host calls it \(game.originalTitle). The new name only shows in Moonswift.")
                 }
-                Section("Artwork") {
-                    row(.hero) { artworkRow("Hero Image", catalog.heroArt[game.id], aspect: 16 / 9, item: $heroItem, kind: .hero) }
+                if match != nil || (hasArtworkKey && !current.isApp) {
+                    Section {
+                        if let match {
+                            row(.onlineArt) {
+                                Toggle("Use Online Artwork", isOn: Binding(get: { !catalog.onlineArtOff.contains(game.id) },
+                                                                           set: { catalog.setOnlineArt($0, for: game) }))
+                                    .disabled(match.gameID == nil)
+                            }
+                        }
+                        if hasArtworkKey && !current.isApp {
+                            row(.chooseArt) {
+                                Button("Choose Artwork…") { isChoosingArt = true }.foregroundStyle(.primary)
+                            }
+                        }
+                    } header: {
+                        Text("Online Artwork and Covers")
+                    } footer: {
+                        Text(match?.name.map { "Found on SteamGridDB as \($0). Choose Artwork picks other art, or the right game." }
+                             ?? (match != nil ? "Nothing found on SteamGridDB under this name; Choose Artwork can search for it."
+                                 : "Not looked up on SteamGridDB yet."))
+                    }
                 }
                 Section {
-                    ForEach(CoverShape.allCases, id: \.self) { shape in
-                        row(.cover(shape)) {
-                            artworkRow(shape == .square ? "Square Cover" : "\(shape.rawValue) Cover",
-                                       catalog.cover(for: game.id, shape), aspect: shape.ratio,
-                                       item: Binding(get: { coverItems[shape] }, set: { coverItems[shape] = $0 }),
-                                       kind: .cover(shape), isInUse: shape == coverShape)
-                        }
+                    row(.hero) { artworkRow("Hero", catalog.heroArt[game.id], aspect: 16 / 9, item: $heroItem, kind: .hero) }
+                    // The cover for the shape chosen in Settings: the other shapes' don't show anywhere.
+                    row(.cover(coverShape)) {
+                        artworkRow("Cover", catalog.cover(for: game.id, coverShape), aspect: coverShape.ratio,
+                                   item: Binding(get: { coverItems[coverShape] }, set: { coverItems[coverShape] = $0 }),
+                                   kind: .cover(coverShape))
                     }
                 } header: {
-                    Text("Covers")
+                    Text("Artwork and Covers")
                 } footer: {
-                    Text("One for each cover shape. The shape chosen in Settings (\(coverShape.rawValue)) shows yours if you've "
-                         + "added one, otherwise the art from your host.")
+                    Text("Your own pictures: the hero goes behind the game on Home, and the cover is in the shape chosen in "
+                         + "Settings (\(coverShape.rawValue)). Yours show first, then art found online, then your host's.")
                 }
                 Section {
                     row(.favorite) {
@@ -128,6 +155,7 @@ struct GameEditView: View {
                 pickedItem = nil
             }
             .choiceMenu($choice)
+            .sheet(isPresented: $isChoosingArt) { ArtworkPicker(game: game) }
             .buttonGuide([([.a], "Select"), ([.b], "Done")], reportsLayout: false)
             .onGamepad(handle)
         }
@@ -160,6 +188,8 @@ struct GameEditView: View {
         case .hero: pick(.hero, hasImage: catalog.heroArt[game.id] != nil, row: row)
         case .cover(let shape): pick(.cover(shape), hasImage: catalog.cover(for: game.id, shape) != nil, row: row)
         case .favorite: catalog.toggleFavorite(current)
+        case .chooseArt: isChoosingArt = true
+        case .onlineArt: if match?.gameID != nil { catalog.setOnlineArt(catalog.onlineArtOff.contains(game.id), for: game) }
         case .hidden: catalog.setHidden(!current.isHidden, for: game)
         case .showAs:
             let options = showAsOptions

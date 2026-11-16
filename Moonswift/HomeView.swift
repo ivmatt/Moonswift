@@ -401,7 +401,7 @@ struct HomeView: View {
     /// The selected game's own hero picture, behind the title and hero and fading out just above the covers; plain
     /// background without.
     @ViewBuilder private var heroArt: some View {
-        if let game = selectedGame, let art = catalog.heroArt[game.id] {
+        if let game = selectedGame, let art = catalog.shownHero(for: game.id) {
             let isDown = game.unavailable(hosts: hosts, directory: directory) != nil
             Color.clear
                 // The picture's whole area, under the rail and the status bar (the modifiers below widen it): where the
@@ -668,7 +668,7 @@ struct CoverTile: View {
         Color.clear
             .aspectRatio(coverShape.ratio, contentMode: .fit)
             .overlay {
-                CoverArt(app: game.sources[0].app, client: client, custom: catalog.cover(for: game.id, coverShape), title: game.title)
+                CoverArt(app: game.sources[0].app, client: client, custom: catalog.shownCover(for: game.id, coverShape), title: game.title)
                     .blur(radius: unavailable == nil ? 0 : 8, opaque: true) // no see-through fringe at the edges
                     .overlay {
                         if let unavailable {

@@ -23,6 +23,11 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.fps) private var fps = 60
     @AppStorage(SettingsKey.codec) private var codec = CodecOption.automatic
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
+    @AppStorage(SettingsKey.onlineArtwork) private var findsArtwork = true
+    @AppStorage(SettingsKey.artworkKeyVersion) private var artworkKeyVersion = 0
+    /// SteamGridDB's key as typed; saved to the Keychain when the field is left or submitted.
+    @State private var artworkKey = SteamGridDB.savedKey ?? ""
+    @FocusState private var isKeyFocused: Bool
     @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic
     @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = false
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
@@ -44,17 +49,29 @@ struct SettingsView: View {
     @State private var choice: ChoiceMenuSpec?
     @State private var rowFrames = RowFrames()
 
-    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, buttonMapping, buttonGuide, coverShape, about }
+    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, buttonMapping, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
     private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
-    @State private var page = Page.stream
+    @State private var page = Self.rememberedPage
+    /// The page last shown, for a while after Settings closes (Interface needn't be picked again each time).
+    private static var rememberedPage: Page {
+        let defaults = UserDefaults.standard
+        guard let page = defaults.string(forKey: "settingsPage").flatMap(Page.init(rawValue:)),
+              Date.now.timeIntervalSince1970 - defaults.double(forKey: "settingsPageAt") < 10 * 60 else { return .stream }
+        return page
+    }
+    private func rememberPage() {
+        guard live == nil else { return } // from a stream only Stream shows: that's no choice to remember
+        UserDefaults.standard.set(page.rawValue, forKey: "settingsPage")
+        UserDefaults.standard.set(Date.now.timeIntervalSince1970, forKey: "settingsPageAt")
+    }
     private enum BitrateMode: String, CaseIterable { case automatic = "Automatic", custom = "Custom" }
     private var bitrateMode: BitrateMode {
         bitrate == 0 ? .automatic : .custom
     }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .gestures, .buttonGuide, .buttonMapping] + (live == nil ? [.coverShape] : []) + [.about] }
+        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .gestures, .buttonGuide, .buttonMapping] + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
         return (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
             + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .touch, .overlay]
     }
@@ -223,11 +240,25 @@ struct SettingsView: View {
                         row(.coverShape) {
                             choiceRow(.coverShape, "Cover Shape", $coverShape, CoverShape.allCases, name: \.rawValue)
                         }
+                        row(.onlineArtwork) { Toggle("Online Artwork", isOn: $findsArtwork) }
+                        if findsArtwork {
+                            row(.artworkKey) {
+                                SecureField("SteamGridDB API Key", text: $artworkKey)
+                                    .focused($isKeyFocused)
+                                    .autocorrectionDisabled()
+                                    .textInputAutocapitalization(.never)
+                                    .onSubmit(saveArtworkKey)
+                            }
+                        }
                     } header: {
                         Text("Library")
                     } footer: {
-                        Text("The shape of game covers, to suit your art: 2:3 for Steam's, 3:4 for most hosts', or square.")
+                        Text("The shape of game covers, to suit your art: 2:3 for Steam's, 3:4 for most hosts', or square. Online "
+                             + "Artwork finds covers and hero pictures on SteamGridDB, sending it your games' names; get a free API "
+                             + "key from your profile on steamgriddb.com. Pictures you add yourself always show first.")
                     }
+                    .onChange(of: isKeyFocused) { if !isKeyFocused { saveArtworkKey() } }
+                    .onDisappear(perform: saveArtworkKey)
                 }
                 Section {
                     row(.about) { Button("About Moonswift") { isShowingAbout = true }.foregroundStyle(.primary) }
@@ -271,7 +302,9 @@ struct SettingsView: View {
                     }
                 }
             }
-            .onChange(of: page) { focus = 0 }
+            .onChange(of: page) { focus = 0; rememberPage() }
+            .onAppear { if live != nil { page = .stream } }
+            .onDisappear(perform: rememberPage) // ten minutes from closing, not from picking
             .buttonGuide(live == nil ? [([.a], "Select"), ([.l1, .r1], "Stream / Interface"), ([.b], "Close")] : [([.a], "Select"), ([.b], "Close")],
                          reportsLayout: false)
             .choiceMenu($choice)
@@ -318,6 +351,13 @@ struct SettingsView: View {
             .id(row) // outermost: under the row background a list doesn't find it, and the list didn't scroll to the focus
     }
 
+    /// A changed key goes to the Keychain, and the library is looked up again with it.
+    private func saveArtworkKey() {
+        guard artworkKey.trimmingCharacters(in: .whitespacesAndNewlines) != (SteamGridDB.savedKey ?? "") else { return }
+        SteamGridDB.save(key: artworkKey)
+        artworkKeyVersion += 1
+    }
+
     static func seconds(_ n: Int) -> String { n == 0 ? "None" : "\(n) s" }
 
     /// Custom starts from the automatic value, so switching to it doesn't jump somewhere unexpected.
@@ -355,6 +395,8 @@ struct SettingsView: View {
         case .bitrate: break // left/right move the slider
         case .buttonMapping: isShowingButtonMapping = true
         case .about: isShowingAbout = true
+        case .onlineArtwork: findsArtwork.toggle()
+        case .artworkKey: isKeyFocused = true
         case .reconnect:
             dismiss()
             live?.reconnect()

@@ -57,7 +57,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     /// Your pictures by kind, then game ID: a hero, and a cover for each cover shape.
     private(set) var artwork: [Artwork: [String: UIImage]] = [:]
     /// The file-name part of each kind; "cover" is the 2:3 cover (the only cover there was at first).
-    enum Artwork: String, CaseIterable {
+    enum Artwork: String, CaseIterable, Codable {
         case hero, cover, cover34, coverSquare
 
         static func cover(_ shape: CoverShape) -> Artwork {
@@ -70,6 +70,129 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     }
 
     var heroArt: [String: UIImage] { artwork[.hero] ?? [:] }
+
+    /// What a cover or Home's hero shows: your picture, else one found online (else, for a cover, the host's art).
+    func shownCover(for gameID: String, _ shape: CoverShape) -> UIImage? {
+        cover(for: gameID, shape) ?? found(.cover(shape), for: gameID)
+    }
+    func shownHero(for gameID: String) -> UIImage? { heroArt[gameID] ?? found(.hero, for: gameID) }
+
+    // MARK: Art found online
+
+    /// What SteamGridDB matched for a game, or when it found nothing (tried again after a week).
+    struct FoundMatch: Codable {
+        var gameID: Int?
+        var name: String?
+        var checked: Date
+    }
+    private(set) var foundMatches: [String: FoundMatch] = [:]
+    /// Games whose found art you turned off (a wrong match).
+    private(set) var onlineArtOff: Set<String> = []
+    /// Which kinds of found art each game has on disk. Observed, so art appears as it arrives; the pictures themselves
+    /// load on first look (a whole library's heroes in memory at once would be far too much).
+    private(set) var foundKinds: [String: Set<Artwork>] = [:]
+    @ObservationIgnored private let foundCache = NSCache<NSString, UIImage>()
+    /// Bumped when found art is replaced by another of the same kind, which `foundKinds` doesn't show.
+    private(set) var foundVersion = 0
+
+    func found(_ kind: Artwork, for gameID: String) -> UIImage? {
+        _ = foundVersion
+        guard !onlineArtOff.contains(gameID), foundKinds[gameID]?.contains(kind) == true else { return nil }
+        let file = foundFile(gameID, kind)
+        if let image = foundCache.object(forKey: file.path as NSString) { return image }
+        guard let image = UIImage(contentsOfFile: file.path) else { return nil }
+        foundCache.setObject(image, forKey: file.path as NSString)
+        return image
+    }
+
+    func setOnlineArt(_ isOn: Bool, for game: CatalogGame) {
+        if isOn { onlineArtOff.remove(game.id) } else { onlineArtOff.insert(game.id) }
+        try? JSONEncoder().encode(onlineArtOff).write(to: Self.foundFolder.appending(path: "off.json"), options: .atomic)
+    }
+
+    /// Looks up art for each game that hasn't been, one at a time. Stops at a rejected key; a network error leaves the
+    /// game to try again next time.
+    func findArtwork(for games: [CatalogGame], key: String) async {
+        let api = SteamGridDB(key: key)
+        for game in games where !game.isApp {
+            if let match = foundMatches[game.id], match.gameID != nil || match.checked.timeIntervalSinceNow > -7 * 86_400 { continue }
+            guard !Task.isCancelled else { return }
+            do {
+                guard let match = try await api.search(SteamGridDB.cleaned(game.originalTitle)) else {
+                    saveMatch(FoundMatch(checked: .now), for: game.id)
+                    continue
+                }
+                try await fetchFound(game.id, match: match, api: api)
+            } catch SteamGridDB.Failure.unauthorized {
+                return // a wrong key: nothing will work until it's changed
+            } catch {
+                continue
+            }
+        }
+    }
+
+    /// Each kind's picture for a match, saved as the game's found art; then the match itself. Steam's own store
+    /// picture where there is one (a Steam game's 2:3 cover and hero), else SteamGridDB's top rated.
+    private func fetchFound(_ gameID: String, match: SteamGridDB.Match, api: SteamGridDB) async throws {
+        let steamAppID = try? await api.steamAppID(game: match.id)
+        for kind in Artwork.allCases {
+            if let appID = steamAppID, let url = SteamGridDB.steamPicture(kind, appID: appID),
+               (try? await setFound(from: url, kind, for: gameID)) != nil { continue } // Steam may have none: a 404
+            guard let url = try await api.imageURL(kind, game: match.id) else { continue }
+            try? await setFound(from: url, kind, for: gameID)
+        }
+        saveMatch(FoundMatch(gameID: match.id, name: match.name, checked: .now), for: gameID)
+    }
+
+    /// The picker's "this is the right game": its art replaces what the wrong one brought.
+    func rematch(_ game: CatalogGame, to match: SteamGridDB.Match, key: String) async throws {
+        for kind in foundKinds[game.id] ?? [] {
+            try? FileManager.default.removeItem(at: foundFile(game.id, kind))
+            foundCache.removeObject(forKey: foundFile(game.id, kind).path as NSString)
+        }
+        foundKinds[game.id] = nil
+        onlineArtOff.remove(game.id)
+        try await fetchFound(game.id, match: match, api: SteamGridDB(key: key))
+    }
+
+    /// A picture picked (or the top-rated one), downloaded and saved as the game's found art of that kind.
+    func setFound(from url: URL, _ kind: Artwork, for gameID: String) async throws {
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard (response as? HTTPURLResponse)?.statusCode == 200, let image = UIImage(data: data), let jpeg = Self.scaled(image, kind).jpegData(compressionQuality: 0.85) else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        let file = foundFile(gameID, kind)
+        try jpeg.write(to: file)
+        foundCache.removeObject(forKey: file.path as NSString)
+        foundKinds[gameID, default: []].insert(kind)
+        foundVersion += 1 // the same kind replaced: views showing it look again
+        if onlineArtOff.contains(gameID) {
+            onlineArtOff.remove(gameID)
+            try? JSONEncoder().encode(onlineArtOff).write(to: Self.foundFolder.appending(path: "off.json"), options: .atomic)
+        }
+    }
+
+    private func foundFile(_ gameID: String, _ kind: Artwork) -> URL {
+        Self.foundFolder.appending(path: "\(Self.fileKey(gameID: gameID)).\(kind.rawValue).jpg")
+    }
+
+    private func saveMatch(_ match: FoundMatch, for gameID: String) {
+        foundMatches[gameID] = match
+        try? JSONEncoder().encode(foundMatches).write(to: Self.foundFolder.appending(path: "matches.json"), options: .atomic)
+    }
+
+    private static var foundFolder: URL {
+        let url = URL.applicationSupportDirectory.appending(path: "FoundArt", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// Scaled down to what the screen needs: a hero fills it, a cover is at most about a third of it.
+    private static func scaled(_ image: UIImage, _ kind: Artwork) -> UIImage {
+        let longest: CGFloat = kind == .hero ? 2400 : 900
+        let scale = min(1, longest / max(image.size.width, image.size.height))
+        return image.preparingThumbnail(of: CGSize(width: image.size.width * scale, height: image.size.height * scale)) ?? image
+    }
 
     /// Your cover for this shape; nil falls back to the PC's art.
     func cover(for gameID: String, _ shape: CoverShape) -> UIImage? { artwork[.cover(shape)]?[gameID] }
@@ -101,6 +224,19 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         }
         if let data = try? Data(contentsOf: custom.appending(path: "padLayouts.json")) {
             padLayouts = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+        }
+        let found = Self.foundFolder
+        if let data = try? Data(contentsOf: found.appending(path: "matches.json")) {
+            foundMatches = (try? JSONDecoder().decode([String: FoundMatch].self, from: data)) ?? [:]
+        }
+        if let data = try? Data(contentsOf: found.appending(path: "off.json")) {
+            onlineArtOff = (try? JSONDecoder().decode(Set<String>.self, from: data)) ?? []
+        }
+        for file in (try? FileManager.default.contentsOfDirectory(at: found, includingPropertiesForKeys: nil)) ?? [] {
+            let parts = file.deletingPathExtension().lastPathComponent.split(separator: ".")
+            guard parts.count == 2, let kind = Artwork(rawValue: String(parts[1])), let id = Self.gameID(fromFileKey: String(parts[0]))
+            else { continue }
+            foundKinds[id, default: []].insert(kind) // just which exist: the pictures load when first shown
         }
         for file in (try? FileManager.default.contentsOfDirectory(at: custom, includingPropertiesForKeys: nil)) ?? [] {
             // "<base64 game ID>.<kind>.jpg"
@@ -159,11 +295,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     /// Saves a picture you picked (scaled down to what the screen needs), or removes it with nil.
     func setArtwork(_ image: UIImage?, _ kind: Artwork, for game: CatalogGame) {
         let file = Self.customFolder.appending(path: "\(Self.fileKey(gameID: game.id)).\(kind.rawValue).jpg")
-        let longest: CGFloat = kind == .hero ? 2400 : 900
-        let scaled = image.map { image in
-            let scale = min(1, longest / max(image.size.width, image.size.height))
-            return image.preparingThumbnail(of: CGSize(width: image.size.width * scale, height: image.size.height * scale)) ?? image
-        }
+        let scaled = image.map { Self.scaled($0, kind) }
         if let scaled, let data = scaled.jpegData(compressionQuality: 0.85) {
             try? data.write(to: file)
         } else {

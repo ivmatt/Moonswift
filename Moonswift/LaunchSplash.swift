@@ -20,9 +20,9 @@ struct LaunchSplash: Equatable {
 
     @MainActor init(title: String, catalog: GameCatalog, from: CGRect?, wait: Int) {
         let id = title.lowercased()
-        let hero = catalog.heroArt[id]
+        let hero = catalog.shownHero(for: id)
         self.title = title
-        art = hero ?? CoverShape.allCases.lazy.compactMap { catalog.cover(for: id, $0) }.first
+        art = hero ?? CoverShape.allCases.lazy.compactMap { catalog.shownCover(for: id, $0) }.first
         self.from = hero == nil ? nil : from
         self.wait = .seconds(wait)
         endsOnSound = UserDefaults.standard.bool(forKey: SettingsKey.splashEndsOnSound)

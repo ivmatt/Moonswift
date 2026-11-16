@@ -418,7 +418,7 @@ struct GamesView: View {
         let shape = RoundedRectangle(cornerRadius: 14)
         let isRunning = game.isRunning(directory)
         return HStack(spacing: 14) {
-            CoverArt(app: game.sources[0].app, client: client(for: game), custom: catalog.cover(for: game.id, coverShape),
+            CoverArt(app: game.sources[0].app, client: client(for: game), custom: catalog.shownCover(for: game.id, coverShape),
                      title: game.title)
                 .frame(width: 64 * coverShape.ratio, height: 64)
                 .clipShape(.rect(cornerRadius: 8))

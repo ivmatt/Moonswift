@@ -21,6 +21,8 @@ struct RootView: View {
     @Environment(StreamLauncher.self) private var launcher
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
     @State private var tab: TabID
+    @AppStorage(SettingsKey.onlineArtwork) private var findsArtwork = true
+    @AppStorage(SettingsKey.artworkKeyVersion) private var artworkKeyVersion = 0
 
     /// `startingTab` is for previews; the app starts on Home (or a debug launch argument's tab).
     init(startingTab: TabID? = nil) {
@@ -109,6 +111,12 @@ struct RootView: View {
             }
         }
         .onChange(of: launcher.session, initial: true) { directory.session = launcher.session }
+        // Art from SteamGridDB for games that have none looked up yet: as games appear, or the key or switch changes.
+        // Not during a stream, whose network it would share.
+        .task(id: "\(findsArtwork)|\(artworkKeyVersion)|\(launcher.stream == nil)|\(catalog.games(on: hosts.map(\.uniqueID)).count)") {
+            guard findsArtwork, launcher.stream == nil, !DemoMode.isOn, let key = SteamGridDB.savedKey else { return }
+            await catalog.findArtwork(for: catalog.games(on: hosts.map(\.uniqueID)), key: key)
+        }
         // The PC says it's gone (PCDirectory): no Resume for it here either.
         .onChange(of: directory.session) { if directory.session == nil, let session = launcher.session { launcher.forgetSession(on: session.pcID) } }
         .onOpenURL { url in if let request = LaunchRequest(url: url) { LaunchRouter.shared.pending = request } }

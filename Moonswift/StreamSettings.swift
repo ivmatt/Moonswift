@@ -41,6 +41,8 @@ enum CodecOption: String, CaseIterable {
 /// Where each setting is saved (UserDefaults, through @AppStorage).
 nonisolated enum SettingsKey {
     static let coverShape = "coverShape"
+    static let onlineArtwork = "onlineArtwork" // Bool, on by default: art from SteamGridDB, once its key is set
+    static let artworkKeyVersion = "artworkKeyVersion" // Int, bumped as the SteamGridDB key changes: looks up again
     static let resolution = "resolution"
     static let fps = "fps"
     static let codec = "codec"

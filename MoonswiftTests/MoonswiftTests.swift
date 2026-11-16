@@ -1099,3 +1099,14 @@ struct ShowAsTests {
         #expect(!CatalogGame.isShortcut(.game, title: "Remote Monitor", isSessionControl: true))
     }
 }
+
+struct SteamGridDBTests {
+    @Test func namesAreCleanedForSearch() {
+        #expect(SteamGridDB.cleaned("DOOM™ Eternal") == "DOOM Eternal")
+        #expect(SteamGridDB.cleaned("Control - Ultimate Edition") == "Control")
+        #expect(SteamGridDB.cleaned("The Witcher 3: Wild Hunt – Game of the Year Edition") == "The Witcher 3: Wild Hunt")
+        #expect(SteamGridDB.cleaned("Celeste (2018)") == "Celeste")
+        #expect(SteamGridDB.cleaned("Hollow Knight: Silksong") == "Hollow Knight: Silksong")
+        #expect(SteamGridDB.cleaned("Assassin's Creed Black Flag Resynced") == "Assassin's Creed Black Flag Resynced")
+    }
+}
