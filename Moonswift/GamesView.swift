@@ -513,8 +513,8 @@ private struct LibraryHeader<Pills: View>: View {
     private func searchBar(height: CGFloat) -> some View {
         let shown = height / Self.barHeight
         // The field, its close button (only while searching) and Sort and Filter, each with its own gap before it,
-        // so the hidden close button leaves none.
-        return HStack(spacing: 0) {
+        // so the hidden close button leaves none. Top-aligned: the bar squishes up towards its top edge, which stays put.
+        return HStack(alignment: .top, spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search Games", text: $query)
