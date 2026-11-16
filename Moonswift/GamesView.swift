@@ -10,13 +10,13 @@ struct GamesView: View {
 
     /// Covers per row: as many of at least `minCoverWidth` as fit, rounded down to an even number so a half-folded
     /// Duo's fold falls between two columns rather than across one (Apple's guidance for iPhone Duo). Six on the Duo's
-    /// open screen, four on its outer one.
+    /// open screen (half-folded too: the covers shrink to make room for the fold's shift), four on its outer one.
     /// The wall's size, as measured; the columns follow from it, the fold offset and the cover shape whenever any
     /// of them changes.
     @State private var wallSize = CGSize.zero
     private var columns: Int {
         wallSize.width > 0
-            ? Self.columns(forWidth: wallSize.width - 2 * abs(foldShift), height: wallSize.height, ratio: coverShape.ratio) : 6
+            ? Self.columns(forWidth: wallSize.width, height: wallSize.height, ratio: coverShape.ratio) : 6
     }
     /// How far a half-open Duo's fold sits right of the wall's middle (left, if negative): the wall moves over so the
     /// fold falls in the gap between its middle columns, which the rail beside the content would otherwise put it off.
@@ -33,6 +33,12 @@ struct GamesView: View {
         return max(2, fit - fit % 2)
     }
 
+    /// Hidden shows only what you hid (games and shortcuts), so you can unhide it.
+    private enum Filter: String, CaseIterable {
+        case all = "All Games", favorites = "Favorites", hidden = "Hidden"
+        var symbol: String { [.all: "square.grid.2x2", .favorites: "star", .hidden: "eye.slash"][self]! }
+    }
+
     private enum Order: String, CaseIterable {
         case recent = "Recently Played", name = "Name"
         var symbol: String { self == .recent ? "clock" : "textformat" }
@@ -45,7 +51,7 @@ struct GamesView: View {
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
     @AppStorage("libraryOrder") private var order = Order.recent
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
-    @AppStorage("libraryFavoritesOnly") private var favoritesOnly = false
+    @AppStorage("libraryFilter") private var filter = Filter.all
     /// What the search field filters the wall by (Library is where search lives; there's no Search tab).
     @State private var query = ""
     /// Search is on: the bar shows its close button and stays put at the top as the wall scrolls. Separate from the
@@ -64,12 +70,11 @@ struct GamesView: View {
     /// (`rowFocus(_:)`).
     @State private var focus = 0
     private static let searchFocus = -1, closeFocus = -2 // the search bar, and its close button while searching
-    /// The row's pills, left to right: Sort, Filter, the shortcuts that fit, then More if some don't.
+    /// 0: Sort and Filter, beside the search bar (1 is unused); from 2: the shortcuts, in their own row above the covers.
     private static func rowFocus(_ index: Int) -> Int { -100 - index }
     private var rowIndex: Int? { focus <= -100 ? -100 - focus : nil }
-    /// How many shortcuts fit beside Sort and Filter; the rest are in More.
-    @State private var fittingShortcuts = 0
-    /// The controller's menu for a pill (Sort, Filter, More), opening from it.
+    private var hasShortcutRow: Bool { !isSearching && !shortcuts.isEmpty }
+    /// The controller's menu for a pill or shortcut (Sort, Filter, a running shortcut's Resume and Quit), opening from it.
     @State private var choice: ChoiceMenuSpec?
     @State private var pillFrames = RowFrames()
     @State private var topInset: CGFloat = 0
@@ -83,11 +88,12 @@ struct GamesView: View {
     private var all: [CatalogGame] { catalog.games(on: hosts.map(\.uniqueID)) }
     /// Desktop, Steam Big Picture and the like: not games but ways into the PC, in the row above the covers.
     private var shortcuts: [CatalogGame] {
-        all.filter(\.isApp).sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        all.filter { $0.isApp && !$0.isHidden }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
     private var shown: [CatalogGame] {
         let query = query.trimmingCharacters(in: .whitespaces)
-        let games = all.filter { !$0.isApp && (!favoritesOnly || $0.isFavorite)
+        let games = all.filter { (filter == .hidden ? $0.isHidden : !$0.isApp && !$0.isHidden
+                                      && (filter == .all || $0.isFavorite))
                                  && (query.isEmpty || $0.title.localizedStandardContains(query)) }
         return order == .recent ? games : games.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
@@ -117,7 +123,13 @@ struct GamesView: View {
                         withAnimation { scroller.scrollTo(shown[new].id, anchor: new < old ? .center : nil) }
                     }
                 }
-                .overlay { if !query.isEmpty, shown.isEmpty { ContentUnavailableView.search(text: query) } }
+                .overlay {
+                    if !query.isEmpty, shown.isEmpty { ContentUnavailableView.search(text: query) }
+                    else if filter == .hidden, shown.isEmpty {
+                        ContentUnavailableView("No Hidden Games", systemImage: "eye.slash",
+                                               description: Text("Games you hide leave Home and Library and show up here."))
+                    }
+                }
                 // One measurement for both: the columns used to be worked out in their own, from the fold offset as last
                 // stored, so closing a half-open Duo kept the half-open count (two huge columns) until something resized.
                 .onGeometryChange(for: CGSize.self) { CGSize(width: $0.size.width, height: $0.size.height + $0.safeAreaInsets.bottom) } action: { wallSize = $0 } // down to the screen's edge: the bar's search makes the bottom inset taller
@@ -154,12 +166,12 @@ struct GamesView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 // The header's room: the title and search bar, or while searching just the bar at the top.
-                Color.clear.frame(height: LibraryHeader.room(titleHeight: scroll.titleHeight, isSearching: isSearching))
+                Color.clear.frame(height: LibraryHeader<EmptyView>.room(titleHeight: scroll.titleHeight, isSearching: isSearching))
                     .id("top")
                     // How far the wall has moved up from where it rests (its top padding below).
                     .onGeometryChange(for: CGFloat.self) { contentTop - $0.frame(in: .scrollView).minY } action: { scroll.offset = $0 }
                 // Part of the wall, so it scrolls away with it; not while searching, which is about the games.
-                if !isSearching { pillRow }
+                if hasShortcutRow { shortcutRow }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: columns), spacing: 18) {
                     ForEach(Array(shown.enumerated()), id: \.element.id) { index, game in
                         cover(game, isFocused: gamepad.isActive && !isSearchFocused && index == focus)
@@ -195,88 +207,88 @@ struct GamesView: View {
                       isSearching: isSearching, isSearchFocused: $isSearchFocused, dictation: dictation,
                       focused: gamepad.isActive && !isSearchFocused && (focus == Self.searchFocus || focus == Self.closeFocus)
                           ? (focus == Self.closeFocus ? .close : .bar) : nil,
-                      close: closeSearch, dictate: toggleDictation)
+                      close: closeSearch, dictate: toggleDictation) {
+            sortAndFilter
+        }
     }
 
     /// The toolbar's filter and sort menu; filled while a filter narrows the wall (sort order isn't a filter).
     // MARK: Sort, filter and shortcuts
 
-    /// Above the covers: Sort and Filter on the left, the shortcuts on the right (those that don't fit under More).
-    private var pillRow: some View {
-        ViewThatFits(in: .horizontal) {
-            ForEach(Array(stride(from: shortcuts.count, through: 0, by: -1)), id: \.self) { fit in
+    /// Above the covers: the shortcuts, scrolling sideways when there are more than fit.
+    private var shortcutRow: some View {
+        ScrollViewReader { row in
+            ScrollView(.horizontal) {
                 HStack(spacing: 10) {
-                    sortPill
-                    filterPill
-                    Spacer(minLength: 24)
-                    ForEach(Array(shortcuts.prefix(fit).enumerated()), id: \.element.id) { index, shortcut in
-                        shortcutPill(shortcut, focusIndex: 2 + index)
+                    ForEach(Array(shortcuts.enumerated()), id: \.element.id) { index, shortcut in
+                        shortcutTile(shortcut, focusIndex: 2 + index).id(shortcut.id)
                     }
-                    if fit < shortcuts.count { morePill(after: fit) }
                 }
-                .onGeometryChange(for: Int.self) { _ in fit } action: { fittingShortcuts = $0 } // the one that's shown
+                .padding(12) // room for the focus ring, grown 5% and outset
+            }
+            .scrollIndicators(.hidden)
+            // Ends with the covers' grid, fading out at its right edge where more scroll in.
+            .mask {
+                HStack(spacing: 0) {
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 56)
+                }
+            }
+            .padding(-12) // the ring's room aside: in line with the covers, the row's gaps unchanged
+            .padding(.vertical, -6) // closer to the bar above and the covers below than the wall's usual gap
+            .onChange(of: rowIndex) { _, index in
+                guard let index, index >= 2, shortcuts.indices.contains(index - 2) else { return }
+                withAnimation { row.scrollTo(shortcuts[index - 2].id, anchor: .center) }
             }
         }
     }
 
-    private var sortPill: some View {
+    /// Sort and Filter in one button: the sort order, a line, then what to show. Lit while a filter narrows the wall.
+    private var sortAndFilter: some View {
         Menu {
             Picker("Sort By", selection: $order) {
                 ForEach(Order.allCases, id: \.self) { Label($0.rawValue, systemImage: $0.symbol) }
             }
             .pickerStyle(.inline)
+            Picker("Filter", selection: $filter) {
+                ForEach(Filter.allCases, id: \.self) { Label($0.rawValue, systemImage: $0.symbol).tag($0) }
+            }
+            .pickerStyle(.inline)
         } label: {
-            PillLabel(title: order == .recent ? "Recent" : "Name", systemImage: "arrow.up.arrow.down",
-                      isFocused: focused(0), isHidden: isChoiceOpen(from: 0))
+            PillLabel(title: nil, systemImage: filter == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill",
+                      isFocused: focused(0), isHidden: isChoiceOpen(from: 0), isOn: filter != .all)
         }
         .tint(.primary) // white, not the accent colour a menu gives its label
         .recordsFrame(Self.rowFocus(0), in: pillFrames)
     }
 
-    private var filterPill: some View {
-        Menu {
-            Toggle("Favorites Only", systemImage: "star", isOn: $favoritesOnly)
-        } label: {
-            PillLabel(title: favoritesOnly ? "Favorites" : "Filter",
-                      systemImage: favoritesOnly ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease",
-                      isFocused: focused(1), isHidden: isChoiceOpen(from: 1), isOn: favoritesOnly)
-        }
-        .tint(.primary) // white, not the accent colour a menu gives its label
-        .recordsFrame(Self.rowFocus(1), in: pillFrames)
-    }
-
-    /// Starts with a tap; while running, a tap offers Resume and Quit instead.
-    @ViewBuilder private func shortcutPill(_ shortcut: CatalogGame, focusIndex: Int) -> some View {
-        let label = PillLabel(title: shortcut.title, systemImage: Self.symbol(for: shortcut), isFocused: focused(focusIndex),
-                              isHidden: isChoiceOpen(from: focusIndex), isRunning: shortcut.isRunning(directory),
-                              isElsewhere: shortcut.elsewhere(directory, catalog) != nil)
-        let labels = shortcut.runningLabels(directory, catalog)
-        Group {
-            if shortcut.isRunning(directory) {
-                Menu {
-                    Button(labels.resume, systemImage: "play.fill") { start(shortcut) }
-                    Button(labels.quit, systemImage: "xmark", role: .destructive) { quit(shortcut) }
-                } label: { label }
-                .tint(.primary)
-            } else {
-                Button { start(shortcut) } label: { label }.buttonStyle(.plain)
-            }
-        }
-        .recordsFrame(Self.rowFocus(focusIndex), in: pillFrames)
-        .contextMenu { Button("Edit", systemImage: "pencil") { editing = shortcut } }
-    }
-
-    private func morePill(after fit: Int) -> some View {
-        let rest = Array(shortcuts.dropFirst(fit))
+    /// Starts with a tap; while running, a tap offers Resume and Quit instead. A long press opens its menu only: a
+    /// menu with a primary action keeps the two apart (a button or tap gesture with a context menu also fired on
+    /// letting go).
+    private func shortcutTile(_ shortcut: CatalogGame, focusIndex: Int) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 9)
         return Menu {
-            ForEach(rest) { shortcut in
-                Button(shortcut.title, systemImage: Self.symbol(for: shortcut)) { start(shortcut) }
-            }
+            Button("Edit", systemImage: "pencil") { editing = shortcut }
+            Button("Hide", systemImage: "eye.slash") { catalog.setHidden(true, for: shortcut) }
         } label: {
-            PillLabel(title: nil, systemImage: "ellipsis", isFocused: focused(2 + fit), isHidden: isChoiceOpen(from: 2 + fit))
+            HStack(spacing: 8) {
+                Image(systemName: Self.symbol(for: shortcut))
+                Text(shortcut.title).lineLimit(1)
+            }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 16)
+                .frame(height: 38)
+                .background(.white.opacity(0.12), in: shape) // translucent, like the App Store's category buttons
+                .contentShape(shape)
+            .overlay { if shortcut.isRunning(directory) { shape.stroke(shortcut.elsewhere(directory, catalog) != nil ? .orange : .green, lineWidth: 2) } }
+        } primaryAction: {
+            pressPill(focusIndex)
         }
         .tint(.primary) // white, not the accent colour a menu gives its label
-        .recordsFrame(Self.rowFocus(2 + fit), in: pillFrames)
+        .focusRing(focused(focusIndex), cornerRadius: 9)
+        .opacity(isChoiceOpen(from: focusIndex) ? 0 : 1)
+        .recordsFrame(Self.rowFocus(focusIndex), in: pillFrames)
     }
 
     private func focused(_ index: Int) -> Bool { gamepad.isActive && !isSearchFocused && rowIndex == index }
@@ -294,23 +306,20 @@ struct GamesView: View {
         return "app"
     }
 
-    /// The pills in the row: Sort, Filter, the shortcuts shown, More.
-    private var rowCount: Int { 2 + fittingShortcuts + (fittingShortcuts < shortcuts.count ? 1 : 0) }
-
     /// A on a pill: Sort's and Filter's choices, or More's shortcuts, in the controller's menu; a shortcut starts.
     private func pressPill(_ index: Int) {
         let anchor = pillFrames.frames[Self.rowFocus(index)] ?? .zero
         switch index {
         case 0:
-            choice = ChoiceMenuSpec(source: Self.rowFocus(0), options: Order.allCases.map(\.rawValue),
+            let sorts = Order.allCases.count
+            choice = ChoiceMenuSpec(source: Self.rowFocus(0), options: Order.allCases.map(\.rawValue) + Filter.allCases.map(\.rawValue),
                                     selected: Order.allCases.firstIndex(of: order) ?? 0, anchor: anchor,
-                                    pick: { order = Order.allCases[$0] }, opensRight: true)
-        case 1:
-            choice = ChoiceMenuSpec(source: Self.rowFocus(1), options: ["All Games", "Favorites Only"],
-                                    selected: favoritesOnly ? 1 : 0, anchor: anchor,
-                                    pick: { favoritesOnly = $0 == 1 }, opensRight: true)
-        case let i where i < 2 + fittingShortcuts:
-            let shortcut = shortcuts[i - 2]
+                                    pick: { $0 < sorts ? (order = Order.allCases[$0]) : (filter = Filter.allCases[$0 - sorts]) },
+                                    groupStarts: [sorts], alsoTicked: [sorts + (Filter.allCases.firstIndex(of: filter) ?? 0)],
+                                    opensRight: true)
+        default:
+            guard shortcuts.indices.contains(index - 2) else { return }
+            let shortcut = shortcuts[index - 2]
             if shortcut.isRunning(directory) {
                 choice = ChoiceMenuSpec(source: Self.rowFocus(index), options: [shortcut.runningLabels(directory, catalog).resume, shortcut.runningLabels(directory, catalog).quit], selected: -1, anchor: anchor,
                                         pick: { $0 == 0 ? start(shortcut) : quit(shortcut) }, icons: ["play.fill", "xmark"],
@@ -318,10 +327,6 @@ struct GamesView: View {
             } else {
                 start(shortcut)
             }
-        default:
-            let rest = Array(shortcuts.dropFirst(fittingShortcuts))
-            choice = ChoiceMenuSpec(source: Self.rowFocus(index), options: rest.map(\.title), selected: -1, anchor: anchor,
-                                    pick: { start(rest[$0]) }, icons: rest.map(Self.symbol(for:)), opensRight: true)
         }
     }
 
@@ -361,6 +366,9 @@ struct GamesView: View {
                 Button("Edit Game", systemImage: "pencil") { editing = game }
                 Button(game.isFavorite ? "Remove from Favorites" : "Add to Favorites", systemImage: game.isFavorite ? "star.slash" : "star") {
                     catalog.toggleFavorite(game)
+                }
+                Button(game.isHidden ? "Unhide" : "Hide", systemImage: game.isHidden ? "eye" : "eye.slash") {
+                    catalog.setHidden(!game.isHidden, for: game)
                 }
             }
     }
@@ -409,25 +417,31 @@ struct GamesView: View {
         if [.up, .down, .left, .right].contains(command), isSearchFocused { isSearchFocused = false }
         switch command {
         case .back where isSearching: closeSearch()
-        // The row: left and right along it, down to the covers, up to the search bar.
-        case .left where rowIndex != nil: focus = Self.rowFocus(max(rowIndex! - 1, 0))
-        case .right where rowIndex != nil: focus = Self.rowFocus(min(rowIndex! + 1, rowCount - 1))
+        // The top: the search bar, Sort, Filter, left to right; down to the shortcuts, or the covers without them.
+        case .right where focus == Self.searchFocus && !isSearching: focus = Self.rowFocus(0)
+        case .left where rowIndex == 0: focus = isSearching ? Self.closeFocus : Self.searchFocus
+        case .right where focus == Self.closeFocus: focus = Self.rowFocus(0)
+        case .right where rowIndex == 0, .up where rowIndex == 0: break
+        case .down where (focus == Self.searchFocus || rowIndex == 0) && hasShortcutRow:
+            focus = Self.rowFocus(2)
+        // The shortcuts: along the row, up to the search bar, down to the covers.
+        case .left where rowIndex != nil: focus = Self.rowFocus(max(rowIndex! - 1, 2))
+        case .right where rowIndex != nil: focus = Self.rowFocus(min(rowIndex! + 1, shortcuts.count + 1))
         case .up where rowIndex != nil: focus = Self.searchFocus
         case .down where rowIndex != nil: focus = 0
         case .select where rowIndex != nil: pressPill(rowIndex!)
-        case .down where focus == Self.searchFocus && !isSearching: focus = Self.rowFocus(0)
         case .down where focus < 0: focus = 0
         case .right where focus == Self.searchFocus && isSearching: focus = Self.closeFocus
         case .left where focus == Self.closeFocus: focus = Self.searchFocus
         case .left where focus < 0, .right where focus < 0, .up where focus < 0: break
-        case .up where focus < columns: focus = isSearching ? Self.searchFocus : Self.rowFocus(0) // the row, or the bar
+        case .up where focus < columns: focus = hasShortcutRow ? Self.rowFocus(2) : Self.searchFocus
         case .up, .down, .left, .right: focus = FocusMove.next(focus, count: games.count, columns: columns, command)
         case .select where focus == Self.searchFocus: isSearchFocused = true // the keyboard; highlights hide while typing
         case .select where focus == Self.closeFocus: closeSearch()
         case .select: if games.indices.contains(focus) { start(games[focus]) }
         case .menu: if games.indices.contains(focus) { editing = games[focus] }
         case .alternate: if let game = focusedGame, game.isRunning(directory) { quit(game) }
-        case .options: if !isSearching { focus = Self.rowFocus(1); pressPill(1) }
+        case .options: focus = Self.rowFocus(0); pressPill(0)
         case .previousTab: switchTab(-1)
         case .nextTab: switchTab(1)
         case .settings: openSettings()
@@ -446,7 +460,7 @@ struct GamesView: View {
 
 /// Library's title and search bar over the top of the wall, like Apple's Files app: scrolling down, the bar squishes
 /// away first, then the title goes up with the wall. While searching, the title goes and the bar stays at the top.
-private struct LibraryHeader: View {
+private struct LibraryHeader<Pills: View>: View {
     let scroll: LibraryScroll
     let topInset: CGFloat
     let contentTop: CGFloat
@@ -459,12 +473,14 @@ private struct LibraryHeader: View {
     enum Focus { case bar, close }
     let close: () -> Void
     let dictate: () -> Void
+    /// Sort and Filter, beside the bar (searching too: the bar shortens for its close button).
+    @ViewBuilder let pills: Pills
 
-    static let barHeight: CGFloat = 44
+    static var barHeight: CGFloat { 44 }
     /// Between the title and the bar.
-    static let gap: CGFloat = 8
+    static var gap: CGFloat { 8 }
     /// The bar while searching: where the title's line was (TabTitle: 23 points down, 48 tall), clear of the edge.
-    static let pinned: CGFloat = 25
+    static var pinned: CGFloat { 25 }
 
     /// The height the page leaves above the wall for the header.
     static func room(titleHeight: CGFloat, isSearching: Bool) -> CGFloat {
@@ -496,7 +512,9 @@ private struct LibraryHeader: View {
     /// Tapping it brings up the keyboard and turns search on, which makes room for the close button beside it.
     private func searchBar(height: CGFloat) -> some View {
         let shown = height / Self.barHeight
-        return HStack(spacing: 12) {
+        // The field, its close button (only while searching) and Sort and Filter, each with its own gap before it,
+        // so the hidden close button leaves none.
+        return HStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search Games", text: $query)
@@ -520,17 +538,25 @@ private struct LibraryHeader: View {
             .contentShape(.capsule)
             .onTapGesture { isSearchFocused.wrappedValue = true }
             .background(Color(.tertiarySystemFill), in: .capsule) // flat, like a system search field
-            .focusRing(focused == .bar, cornerRadius: .infinity) // the bar itself squishes all the way to nothing
-            if isSearching {
-                Button("Close Search", systemImage: "xmark", action: close)
-                    .labelStyle(.iconOnly)
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(width: Self.barHeight, height: Self.barHeight)
-                    .contentShape(.circle)
-                    .glassEffect(.regular.interactive(), in: .circle)
-                    .focusRing(focused == .close, cornerRadius: .infinity)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-            }
+            .focusRing(focused == .bar, cornerRadius: .infinity, scale: 1.015) // wide: 5% was ~23 points; the bar itself squishes all the way to nothing
+            // In the bar's room, so Sort and Filter stay put. Always laid out (no width while not searching): one
+            // added mid-move appeared at the bar's end place, above it while the bar was still sliding up.
+            Button("Close Search", systemImage: "xmark", action: close)
+                .labelStyle(.iconOnly)
+                .font(.system(size: 17, weight: .semibold))
+                .frame(width: Self.barHeight, height: Self.barHeight)
+                .contentShape(.circle)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .focusRing(focused == .close, cornerRadius: .infinity)
+                .opacity(isSearching ? 1 : 0)
+                .frame(width: isSearching ? Self.barHeight : 0)
+                .padding(.leading, isSearching ? 12 : 0)
+                .allowsHitTesting(isSearching)
+                .accessibilityHidden(!isSearching)
+            pills
+                .padding(.leading, 12)
+                .opacity(min(max((shown - 0.65) / 0.35, 0), 1)) // they go with the bar's contents
+                .allowsHitTesting(shown > 0.65)
         }
         .tint(.primary)
     }
@@ -557,7 +583,7 @@ private struct PillLabel: View {
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(.primary)
         .padding(.horizontal, title == nil ? 0 : 14)
-        .frame(minWidth: 36, minHeight: 36)
+        .frame(minWidth: 44, minHeight: 44) // the search bar's height
         .contentShape(.capsule)
         .glassEffect(isOn ? .regular.tint(.white.opacity(0.18)).interactive() : .regular.interactive(), in: .capsule)
         .overlay { if isRunning { Capsule().stroke(isElsewhere ? .orange : .green, lineWidth: 2) } }

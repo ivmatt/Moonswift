@@ -15,11 +15,27 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
     let sources: [Source]
     /// Desktop, Steam Big Picture and the like: launchers and tools, not games.
     let isApp: Bool
+    /// Hidden by you: left out of Home and Library, except Library's Hidden filter.
+    let isHidden: Bool
     let isFavorite: Bool
     let lastPlayed: Date?
 
     static let appTitles: Set<String> = ["desktop", "steam big picture", "steam", "remote monitor", "remote input",
                                          "playnite", "playnite fullscreen", "virtual desktop"]
+
+    /// Your choice in Show As wins; without one, session controls and the usual launcher titles are shortcuts.
+    static func isShortcut(_ choice: ShowAs?, title: String, isSessionControl: Bool) -> Bool {
+        switch choice {
+        case .game: false
+        case .shortcut: true
+        case nil: isSessionControl || appTitles.contains(title.lowercased())
+        }
+    }
+}
+
+/// How a title is listed: with the games, or as a shortcut. No choice saved means Automatic.
+nonisolated enum ShowAs: String, Codable, CaseIterable {
+    case game, shortcut
 }
 
 /// Every PC's games, kept on this device so Home and Library show them at once (and while a PC is offline), and
@@ -29,6 +45,9 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
     private(set) var histories: [String: GameHistory] = [:] { didSet { gamesCache = [:] } } // by PC
     /// Your own name and pictures for a game, by game ID. Only how Moonswift shows it; the PC's list is untouched.
     private(set) var nicknames: [String: String] = [:] { didSet { gamesCache = [:] } }
+    /// Games you hid, and your Show As choices, by game ID.
+    private(set) var hidden: Set<String> = [] { didSet { gamesCache = [:] } }
+    private(set) var showAs: [String: ShowAs] = [:] { didSet { gamesCache = [:] } }
     /// `games(on:)` by its PCs, until a list, history or nickname changes: Home reads it many times a redraw.
     @ObservationIgnored private var gamesCache: [[String]: [CatalogGame]] = [:]
     /// Seconds the launch splash stays past the first picture, for games that need more (or less) than the default.
@@ -71,6 +90,12 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
         if let data = try? Data(contentsOf: custom.appending(path: "nicknames.json")) {
             nicknames = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
         }
+        if let data = try? Data(contentsOf: custom.appending(path: "hidden.json")) {
+            hidden = (try? JSONDecoder().decode(Set<String>.self, from: data)) ?? []
+        }
+        if let data = try? Data(contentsOf: custom.appending(path: "showAs.json")) {
+            showAs = (try? JSONDecoder().decode([String: ShowAs].self, from: data)) ?? [:]
+        }
         if let data = try? Data(contentsOf: custom.appending(path: "splashWaits.json")) {
             splashWaits = (try? JSONDecoder().decode([String: Int].self, from: data)) ?? [:]
         }
@@ -106,6 +131,17 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         nicknames[game.id] = name.isEmpty || name == game.originalTitle ? nil : name
         try? JSONEncoder().encode(nicknames).write(to: Self.customFolder.appending(path: "nicknames.json"), options: .atomic)
+    }
+
+    func setHidden(_ isHidden: Bool, for game: CatalogGame) {
+        if isHidden { hidden.insert(game.id) } else { hidden.remove(game.id) }
+        try? JSONEncoder().encode(hidden).write(to: Self.customFolder.appending(path: "hidden.json"), options: .atomic)
+    }
+
+    /// nil: Automatic.
+    func setShowAs(_ choice: ShowAs?, for game: CatalogGame) {
+        showAs[game.id] = choice
+        try? JSONEncoder().encode(showAs).write(to: Self.customFolder.appending(path: "showAs.json"), options: .atomic)
     }
 
     /// nil: the default from Settings.
@@ -179,7 +215,7 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
 
     /// All games of the saved PCs, one entry per title, newest played first, then by name.
     func games(on pcIDs: [String]) -> [CatalogGame] {
-        _ = (apps, histories, nicknames) // read even when cached, so views still follow their changes
+        _ = (apps, histories, nicknames, hidden, showAs) // read even when cached, so views still follow their changes
         if let cached = gamesCache[pcIDs] { return cached }
         let games = buildGames(on: pcIDs)
         gamesCache[pcIDs] = games
@@ -198,8 +234,9 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
             let history = sources.map { (histories[$0.pcID] ?? GameHistory(), GameHistory.key($0.app)) }
             let original = sources[0].app.title, id = original.lowercased()
             return CatalogGame(id: id, title: nicknames[id] ?? original, originalTitle: original, sources: sources,
-                               isApp: sources[0].app.sessionControl != nil
-                                   || CatalogGame.appTitles.contains(sources[0].app.title.lowercased()),
+                               isApp: CatalogGame.isShortcut(showAs[id], title: original,
+                                                             isSessionControl: sources[0].app.sessionControl != nil),
+                               isHidden: hidden.contains(id),
                                isFavorite: history.contains { $0.0.favorites.contains($0.1) },
                                lastPlayed: history.compactMap { $0.0.lastPlayed[$0.1] }.max())
         }

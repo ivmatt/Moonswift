@@ -257,6 +257,7 @@ import SwiftUI
     }
 
     func streamEnded() {
+        endSplash() // ended before the picture came in (quit, failed): its splash would stay over Home for good
         stream = nil
         streaming = nil
         isMinimized = false

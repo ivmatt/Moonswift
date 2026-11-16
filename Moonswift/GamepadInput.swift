@@ -282,8 +282,8 @@ extension View {
     }
 
     /// The controller focus highlight: slightly bigger, a thin ring (white in dark mode, black in light) an even gap outside the shape, and a shadow.
-    /// `cornerRadius` is the shape's own; `.infinity` for a capsule.
-    func focusRing(_ isOn: Bool, cornerRadius: CGFloat = 12) -> some View {
+    /// `cornerRadius` is the shape's own; `.infinity` for a capsule. `scale`: how much bigger; less for something wide.
+    func focusRing(_ isOn: Bool, cornerRadius: CGFloat = 12, scale: CGFloat = 1.05) -> some View {
         let gap: CGFloat = 3, line: CGFloat = 2
         return self
             .overlay {
@@ -293,7 +293,7 @@ extension View {
                     .padding(-(gap + line))
                     .opacity(isOn ? 1 : 0)
             }
-            .scaleEffect(isOn ? 1.05 : 1)
+            .scaleEffect(isOn ? scale : 1)
             .shadow(color: .black.opacity(isOn ? 0.3 : 0), radius: 12, y: 6)
             .zIndex(isOn ? 1 : 0)
             .animation(.snappy(duration: 0.15), value: isOn)

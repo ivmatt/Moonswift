@@ -21,6 +21,10 @@ struct ChoiceMenuSpec {
     var info: [Info] = []
     /// An icon beside each option, where the tick would go ("" for none); options with icons show no tick.
     var icons: [String] = []
+    /// Options that start a new group: a divider above each (Library's Sort, then Filter).
+    var groupStarts: Set<Int> = []
+    /// More ticked options, one per group after the first (`selected` is the first group's).
+    var alsoTicked: Set<Int> = []
     /// Grows rightwards out of the whole anchor (a button), instead of leftwards out of a row's value.
     var opensRight = false
 
@@ -113,7 +117,8 @@ private struct ChoiceMenu: View {
             let row = spec.anchor.offsetBy(dx: -origin.x, dy: -origin.y)
             // As tall as its contents, or the screen less its margins: then it scrolls (Button Mapping's buttons).
             let infoHeight = spec.info.isEmpty ? 0 : CGFloat(spec.info.count) * (Self.headerHeight + Self.rowHeight) + Self.dividerHeight
-            let height = min(CGFloat(spec.options.count) * Self.rowHeight + infoHeight + 2 * Self.inset,
+            let height = min(CGFloat(spec.options.count) * Self.rowHeight + infoHeight
+                             + CGFloat(spec.groupStarts.count) * Self.dividerHeight + 2 * Self.inset,
                              proxy.size.height - 2 * Self.margin)
             // Over the row's right end, covering its value, like the system's (or from a button's left edge, over
             // it); kept on screen at both sides.
@@ -167,10 +172,13 @@ private struct ChoiceMenu: View {
             }
             ForEach(spec.options.indices, id: \.self) { index in
                 let icon = index < spec.icons.count ? spec.icons[index] : ""
+                if spec.groupStarts.contains(index) {
+                    Divider().padding(.horizontal, 14).frame(height: Self.dividerHeight)
+                }
                 Button { choose(index) } label: {
                     HStack(spacing: 10) {
                         Image(systemName: icon.isEmpty ? "checkmark" : icon).font(.footnote.weight(.semibold))
-                            .opacity(!icon.isEmpty || index == spec.selected ? 1 : 0)
+                            .opacity(!icon.isEmpty || index == spec.selected || spec.alsoTicked.contains(index) ? 1 : 0)
                             .frame(width: 16)
                         Text(spec.options[index])
                         Spacer(minLength: 0)

@@ -66,7 +66,7 @@ struct HomeView: View {
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
 
     /// Games only: the shortcuts (Desktop, Steam Big Picture…) are in Library's row of their own.
-    private var games: [CatalogGame] { catalog.games(on: hosts.map(\.uniqueID)).filter { !$0.isApp } }
+    private var games: [CatalogGame] { catalog.games(on: hosts.map(\.uniqueID)).filter { !$0.isApp && !$0.isHidden } }
 
     /// The one row of covers: every game, most recently played first (the catalog's order).
     private var row: (title: String, games: [CatalogGame])? { games.isEmpty ? nil : ("Games", games) }
@@ -530,6 +530,7 @@ struct HomeView: View {
         Button(game.isFavorite ? "Remove from Favorites" : "Add to Favorites", systemImage: game.isFavorite ? "star.slash" : "star") {
             catalog.toggleFavorite(game)
         }
+        Button("Hide", systemImage: "eye.slash") { catalog.setHidden(true, for: game) }
         if game.isRunning(directory) {
             Button(game.runningLabels(directory, catalog).quit, systemImage: "xmark", role: .destructive) { quit(game) }
         }

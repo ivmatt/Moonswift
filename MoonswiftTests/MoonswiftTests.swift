@@ -1089,3 +1089,13 @@ struct PadActionsRowTests {
         }
     }
 }
+
+struct ShowAsTests {
+    @Test func choiceBeatsTheTitleGuess() {
+        #expect(CatalogGame.isShortcut(nil, title: "Desktop", isSessionControl: false))
+        #expect(!CatalogGame.isShortcut(nil, title: "Hades", isSessionControl: false))
+        #expect(!CatalogGame.isShortcut(.game, title: "Desktop", isSessionControl: false))
+        #expect(CatalogGame.isShortcut(.shortcut, title: "Hades", isSessionControl: false))
+        #expect(!CatalogGame.isShortcut(.game, title: "Remote Monitor", isSessionControl: true))
+    }
+}
