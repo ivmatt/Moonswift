@@ -15,7 +15,8 @@ struct GamesView: View {
     /// of them changes.
     @State private var wallSize = CGSize.zero
     private var columns: Int {
-        wallSize.width > 0
+        guard layout == .grid else { return 1 } // the list: one game per row, so up and down move by one
+        return wallSize.width > 0
             ? Self.columns(forWidth: wallSize.width, height: wallSize.height, ratio: coverShape.ratio) : 6
     }
     /// How far a half-open Duo's fold sits right of the wall's middle (left, if negative): the wall moves over so the
@@ -39,6 +40,11 @@ struct GamesView: View {
         var symbol: String { [.all: "square.grid.2x2", .favorites: "star", .hidden: "eye.slash"][self]! }
     }
 
+    private enum Layout: String, CaseIterable {
+        case grid = "Grid", list = "List"
+        var symbol: String { self == .grid ? "square.grid.2x2" : "list.bullet" }
+    }
+
     private enum Order: String, CaseIterable {
         case recent = "Recently Played", name = "Name"
         var symbol: String { self == .recent ? "clock" : "textformat" }
@@ -52,6 +58,7 @@ struct GamesView: View {
     @AppStorage("libraryOrder") private var order = Order.recent
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
     @AppStorage("libraryFilter") private var filter = Filter.all
+    @AppStorage("libraryLayout") private var layout = Layout.grid
     /// What the search field filters the wall by (Library is where search lives; there's no Search tab).
     @State private var query = ""
     /// Search is on: the bar shows its close button and stays put at the top as the wall scrolls. Separate from the
@@ -120,7 +127,11 @@ struct GamesView: View {
                         withAnimation { scroller.scrollTo("top", anchor: .top) }
                     } else if shown.indices.contains(new) {
                         // By game, not position: identifying covers by position kept each spot's old art after a sort or filter.
-                        withAnimation { scroller.scrollTo(shown[new].id, anchor: new < old ? .center : nil) }
+                        // A list row is the page's whole width: scrolled "only as far as it takes" (no anchor), it also
+                        // shifted the page sideways. Centred across, it only moves up and down: low down going down.
+                        let anchor: UnitPoint? = layout == .list ? UnitPoint(x: 0.5, y: new < old ? 0.5 : 0.85)
+                            : new < old ? .center : nil
+                        withAnimation { scroller.scrollTo(shown[new].id, anchor: anchor) }
                     }
                 }
                 .overlay {
@@ -163,7 +174,10 @@ struct GamesView: View {
     // MARK: Games
 
     private var wall: some View {
-        ScrollView {
+        // Read here, on the main actor: the measuring closure below can run on another thread, where reading the
+        // window's inset (main-actor only) crashed the app as a stream started.
+        let contentTop = contentTop
+        return ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 // The header's room: the title and search bar, or while searching just the bar at the top.
                 Color.clear.frame(height: LibraryHeader<EmptyView>.room(titleHeight: scroll.titleHeight, isSearching: isSearching))
@@ -172,9 +186,19 @@ struct GamesView: View {
                     .onGeometryChange(for: CGFloat.self) { contentTop - $0.frame(in: .scrollView).minY } action: { scroll.offset = $0 }
                 // Part of the wall, so it scrolls away with it; not while searching, which is about the games.
                 if hasShortcutRow { shortcutRow }
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: columns), spacing: 18) {
-                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, game in
-                        cover(game, isFocused: gamepad.isActive && !isSearchFocused && index == focus)
+                Group {
+                    if layout == .list {
+                        LazyVStack(spacing: 10) {
+                            ForEach(Array(shown.enumerated()), id: \.element.id) { index, game in
+                                listRow(game, isFocused: gamepad.isActive && !isSearchFocused && index == focus)
+                            }
+                        }
+                    } else {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: columns), spacing: 18) {
+                            ForEach(Array(shown.enumerated()), id: \.element.id) { index, game in
+                                cover(game, isFocused: gamepad.isActive && !isSearchFocused && index == focus)
+                            }
+                        }
                     }
                 }
                 .padding(.leading, max(0, 2 * foldShift)) // the title and header stay put
@@ -254,6 +278,10 @@ struct GamesView: View {
                 ForEach(Filter.allCases, id: \.self) { Label($0.rawValue, systemImage: $0.symbol).tag($0) }
             }
             .pickerStyle(.inline)
+            Picker("View As", selection: $layout) {
+                ForEach(Layout.allCases, id: \.self) { Label($0.rawValue, systemImage: $0.symbol).tag($0) }
+            }
+            .pickerStyle(.inline)
         } label: {
             PillLabel(title: nil, systemImage: filter == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill",
                       isFocused: focused(0), isHidden: isChoiceOpen(from: 0), isOn: filter != .all)
@@ -311,11 +339,19 @@ struct GamesView: View {
         let anchor = pillFrames.frames[Self.rowFocus(index)] ?? .zero
         switch index {
         case 0:
-            let sorts = Order.allCases.count
-            choice = ChoiceMenuSpec(source: Self.rowFocus(0), options: Order.allCases.map(\.rawValue) + Filter.allCases.map(\.rawValue),
+            // Sort, a line, Filter, a line, View As: one tick in each.
+            let sorts = Order.allCases.count, layouts = sorts + Filter.allCases.count
+            choice = ChoiceMenuSpec(source: Self.rowFocus(0),
+                                    options: Order.allCases.map(\.rawValue) + Filter.allCases.map(\.rawValue) + Layout.allCases.map(\.rawValue),
                                     selected: Order.allCases.firstIndex(of: order) ?? 0, anchor: anchor,
-                                    pick: { $0 < sorts ? (order = Order.allCases[$0]) : (filter = Filter.allCases[$0 - sorts]) },
-                                    groupStarts: [sorts], alsoTicked: [sorts + (Filter.allCases.firstIndex(of: filter) ?? 0)],
+                                    pick: { index in
+                                        if index < sorts { order = Order.allCases[index] }
+                                        else if index < layouts { filter = Filter.allCases[index - sorts] }
+                                        else { layout = Layout.allCases[index - layouts] }
+                                    },
+                                    groupStarts: [sorts, layouts],
+                                    alsoTicked: [sorts + (Filter.allCases.firstIndex(of: filter) ?? 0),
+                                                 layouts + (Layout.allCases.firstIndex(of: layout) ?? 0)],
                                     opensRight: true)
         default:
             guard shortcuts.indices.contains(index - 2) else { return }
@@ -362,15 +398,64 @@ struct GamesView: View {
             .onTapGesture {
                 if readied == game.id { start(game) } else { withAnimation(.snappy) { readied = game.id } }
             }
-            .contextMenu {
-                Button("Edit Game", systemImage: "pencil") { editing = game }
-                Button(game.isFavorite ? "Remove from Favorites" : "Add to Favorites", systemImage: game.isFavorite ? "star.slash" : "star") {
-                    catalog.toggleFavorite(game)
+            .contextMenu { gameMenu(game) }
+    }
+
+    /// A cover's or row's long-press menu.
+    @ViewBuilder private func gameMenu(_ game: CatalogGame) -> some View {
+        Button("Edit Game", systemImage: "pencil") { editing = game }
+        Button(game.isFavorite ? "Remove from Favorites" : "Add to Favorites", systemImage: game.isFavorite ? "star.slash" : "star") {
+            catalog.toggleFavorite(game)
+        }
+        Button(game.isHidden ? "Unhide" : "Hide", systemImage: game.isHidden ? "eye" : "eye.slash") {
+            catalog.setHidden(!game.isHidden, for: game)
+        }
+    }
+
+    /// The list's row: a small cover, the name, its host and when it was last played, and its own Play (or Resume and
+    /// Quit) on the right; a tap on the row itself does nothing, so scrolling never starts a game.
+    private func listRow(_ game: CatalogGame, isFocused: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 14)
+        let isRunning = game.isRunning(directory)
+        return HStack(spacing: 14) {
+            CoverArt(app: game.sources[0].app, client: client(for: game), custom: catalog.cover(for: game.id, coverShape),
+                     title: game.title)
+                .frame(width: 64 * coverShape.ratio, height: 64)
+                .clipShape(.rect(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(game.title).font(.headline).lineLimit(1)
+                    if game.isFavorite { Image(systemName: "star.fill").font(.caption).foregroundStyle(.yellow) }
                 }
-                Button(game.isHidden ? "Unhide" : "Hide", systemImage: game.isHidden ? "eye" : "eye.slash") {
-                    catalog.setHidden(!game.isHidden, for: game)
-                }
+                Text(details(game)).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
+            Spacer(minLength: 12)
+            if isRunning {
+                Button(game.runningLabels(directory, catalog).resume, systemImage: "play.fill") { start(game) }
+                    .buttonStyle(.glass)
+                Button(game.runningLabels(directory, catalog).quit, systemImage: "xmark") { quit(game) }
+                    .buttonStyle(.glassProminent)
+                    .tint(.red)
+            } else {
+                Button("Play", systemImage: "play.fill") { start(game) }.buttonStyle(.glass)
+            }
+        }
+        .font(.subheadline.weight(.semibold))
+        .padding(10)
+        .background(.white.opacity(0.08), in: shape)
+        .overlay { if isRunning { shape.stroke(game.elsewhere(directory, catalog) != nil ? .orange : .green, lineWidth: 2) } }
+        .contentShape(shape)
+        .focusRing(isFocused, cornerRadius: 14, scale: 1.015) // wide, like the search bar
+        .contextMenu { gameMenu(game) }
+        .accessibilityElement(children: .contain)
+    }
+
+    /// Under a row's name: its host and when it was last played, or why it can't be played now.
+    private func details(_ game: CatalogGame) -> String {
+        if let down = game.unavailable(hosts: hosts, directory: directory) { return "\(down.pc) \(down.reason)" }
+        let host = hosts.first { $0.uniqueID == game.sources[0].pcID }?.displayName
+        let played = game.lastPlayed.map { $0.formatted(.relative(presentation: .named)) } ?? "Not played yet"
+        return [host, played].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// The controller's way to the filter button (View): what to show and in which order.
