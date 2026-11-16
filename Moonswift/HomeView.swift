@@ -63,6 +63,12 @@ struct HomeView: View {
     @State private var coverRowHeight: CGFloat = 0
     /// Home's height above the guide's room, which sizes the covers and the hero's title.
     @State private var homeHeight: CGFloat = 0
+    @State private var homeWidth: CGFloat = 0
+    /// Where the hero's title starts, and the status pill, on screen; and how far the pill is moved over to line up
+    /// with the title, when it's in a top bar (its leading end is the bar's margin, not the page's).
+    @State private var heroTitleX: CGFloat?
+    @State private var statusX: CGFloat?
+    @State private var statusShift: CGFloat = 0
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
 
     /// Games only: the shortcuts (Desktop, Steam Big Picture…) are in Library's row of their own.
@@ -93,11 +99,16 @@ struct HomeView: View {
                            isFocused: gamepad.isActive && focusRow == -1 && topButton == 0,
                            isHidden: statusMenu?.source == AnyHashable("status"), isCompact: floatsTabBar)
                 // In the page's own coordinates for its menu, wherever the pill is: the top bar sits outside the page.
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { pillFrame.frames["status"] = $0 }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                    pillFrame.frames["status"] = $0
+                    statusX = $0.minX
+                    alignStatus()
+                }
             if let (host, session) = sessionHost { sessionPill(host, session) }
         }
-        // Floating tab bar: in line with its shrunk button below, rather than the top bar's inner margin in.
-        .offset(x: floatsTabBar ? -10 : 0)
+        // In a top bar: in line with the hero's title and Play below, rather than the bar's inner margin.
+        // An offset, not padding: wider, it moved the top bar's layout, which moved it again, without end.
+        .offset(x: hasTopBar ? statusShift : 0)
         .animation(.snappy, value: sessionHost?.host.uniqueID))
     }
 
@@ -326,6 +337,10 @@ struct HomeView: View {
                              isElsewhere: game.elsewhere(directory, catalog) != nil, focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
                              play: { start(game) }, quit: { quit(game) }, isPressingPlay: isPressingPlay)
                         .frame(maxWidth: heroFold.maxWidth ?? .infinity, alignment: .leading)
+                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX + HeroCard.inset } action: {
+                            heroTitleX = $0
+                            alignStatus()
+                        }
                 }
             }
             .padding(.bottom, heroFold.lift)
@@ -333,7 +348,8 @@ struct HomeView: View {
             // On a half-open Duo, the hero's title and buttons stay off the fold: above it, or to its left.
             .onGeometryChange(for: FoldAvoidance.self) { FoldAvoidance(fold: $0.fold, in: $0.size) } action: { heroFold = $0 }
             // Ends above the covers, so a wide picture shows whole; on a half-open Duo, above the fold.
-            .background { heroArt.padding(.bottom, heroFold.lift) }
+            // On an iPhone in landscape, down past the row's focus-ring room to the covers' top, fading out there.
+            .background { heroArt.padding(.bottom, heroFold.lift - (isShortAndWide ? 12 : 0)) }
             if let row {
                 coverRow(row.games)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { coverRowHeight = $0 }
@@ -344,7 +360,7 @@ struct HomeView: View {
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.fold.map { $0.width >= $0.height ? proxy.size.height - $0.maxY : 0 } ?? 0
         } action: { belowFold = $0 }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { homeHeight = $0 }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { homeHeight = $0.height; homeWidth = $0.width }
         // With a controller, room for the button guide (its pill, then a gap); without, the covers end where the guide
         // would, at the safe area's edge (the row's 12 points of focus-ring room hang below it, into the home
         // indicator's margin, though not under a tab bar along the bottom).
@@ -414,7 +430,7 @@ struct HomeView: View {
                 .overlay { Color.black.opacity(isDown ? 0.45 : 0) }
                 .animation(.easeInOut(duration: 0.5), value: isDown)
                 .overlay {
-                    LinearGradient(stops: [.init(color: .clear, location: 0.55), .init(color: Color(.systemBackground), location: 1)],
+                    LinearGradient(stops: [.init(color: .clear, location: isShortAndWide ? 0.7 : 0.55), .init(color: Color(.systemBackground), location: 1)],
                                    startPoint: .top, endPoint: .bottom)
                 }
                 .overlay { LinearGradient(colors: [Color(.systemBackground).opacity(0.6), .clear], startPoint: .leading, endPoint: .center) }
@@ -442,11 +458,26 @@ struct HomeView: View {
         let preferred: CGFloat = showsGuide ? 116 : 128
         // Square covers are shorter for their width: on a short screen they take less of its height, so more of the
         // hero shows.
-        let share: CGFloat = coverShape == .square ? 0.3 : 0.38
+        // An iPhone in landscape (short and wide) gives the hero more: the covers take 34% of the height, not 38%.
+        let share: CGFloat = coverShape == .square ? (isShortAndWide ? 0.27 : 0.3) : (isShortAndWide ? 0.34 : 0.38)
         return homeHeight > 0 ? min(preferred, (homeHeight * share * coverShape.ratio).rounded()) : preferred
     }
+    /// An iPhone in landscape: smaller covers with tighter corners, and the hero's fade nearer them.
+    private var isShortAndWide: Bool { homeHeight > 0 && homeHeight < 520 && homeWidth > homeHeight * 1.8 }
+
     /// Home is short (the Duo's outer display): the hero's title is set smaller.
     private var isShort: Bool { homeHeight > 0 && homeHeight < 520 }
+
+    /// Moves the status pill the rest of the way to the hero title's line. Its measured place includes the move so
+    /// far, so once it's there there's nothing left to move.
+    private func alignStatus() {
+        guard hasTopBar, let heroTitleX, let statusX else { return }
+        // shortcut: the floating tab bar's top bar draws its items 10 points in from where they measure (found by eye,
+        // as the old -10 offset was); recheck if a system update moves it.
+        let drawnInset: CGFloat = floatsTabBar ? 10 : 0
+        let shift = max(0, statusShift + heroTitleX - statusX - drawnInset)
+        if abs(shift - statusShift) > 0.5 { withTransaction(Transaction(animation: nil)) { statusShift = shift } }
+    }
 
     /// The window's top safe area: a tab without a toolbar has just this.
     static var windowTopInset: CGFloat {
@@ -486,7 +517,8 @@ struct HomeView: View {
                         ForEach(games) { game in
                             CoverTile(game: game, client: client(for: game), isRunning: game.isRunning(directory),
                                       unavailable: game.unavailable(hosts: hosts, directory: directory), isFocused: focusRow == 1 && game.id == selected,
-                                      isElsewhere: game.elsewhere(directory, catalog) != nil)
+                                      isElsewhere: game.elsewhere(directory, catalog) != nil,
+                                      cornerRadius: isShortAndWide ? 10 : 14)
                                 .frame(width: coverWidth)
                                 .onTapGesture { // selects only: Play starts it, so a stray second tap can't
                                     withAnimation(.snappy) { selectedID = game.id }
@@ -588,6 +620,8 @@ struct HomeView: View {
 /// The selected game: what it is, and Play, or Resume and Quit while it runs. Its art, if any, is behind it
 /// (`heroArt`).
 private struct HeroCard: View {
+    /// The title and buttons' margin from the card's leading edge.
+    static let inset: CGFloat = 36
     let game: CatalogGame
     let subtitle: String
     /// On a short screen: a smaller title.
@@ -642,7 +676,7 @@ private struct HeroCard: View {
             .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-        .padding(.horizontal, 36)
+        .padding(.horizontal, Self.inset)
         .padding(.bottom, 16)
         .animation(.snappy, value: game.id)
     }
@@ -661,6 +695,8 @@ struct CoverTile: View {
     let isFocused: Bool
     /// Running on another device: an orange ring rather than green.
     var isElsewhere = false
+    /// Tighter for small covers (Home's row on an iPhone in landscape).
+    var cornerRadius: CGFloat = 14
     @Environment(GameCatalog.self) private var catalog
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
 
@@ -688,9 +724,9 @@ struct CoverTile: View {
                     }
                     .animation(.easeInOut(duration: 0.5), value: unavailable != nil) // blur and label fade together
             }
-            .clipShape(.rect(cornerRadius: 14))
+            .clipShape(.rect(cornerRadius: cornerRadius))
             .overlay {
-                if isRunning { RoundedRectangle(cornerRadius: 14).stroke(isElsewhere ? .orange : .green, lineWidth: 3) }
+                if isRunning { RoundedRectangle(cornerRadius: cornerRadius).stroke(isElsewhere ? .orange : .green, lineWidth: 3) }
             }
             .overlay(alignment: .topTrailing) {
                 if game.isFavorite {
@@ -698,7 +734,7 @@ struct CoverTile: View {
                         .background(.yellow, in: .circle).foregroundStyle(.black).padding(6)
                 }
             }
-            .focusRing(isFocused, cornerRadius: 14)
+            .focusRing(isFocused, cornerRadius: cornerRadius)
             .contentShape(.rect)
             .accessibilityElement()
             .accessibilityLabel(game.title)
