@@ -180,6 +180,13 @@ final class TouchInputView: UIView, UIKeyInput {
         }
     }
     var onGesture: (TouchGesture) -> Void = { _ in }
+    /// Any finger down: the on-screen controller wakes from Hide When Idle.
+    var onTouch: () -> Void = {}
+    /// The on-screen controller, for its floating sticks: touches outside its controls come here first, so a third
+    /// finger can still make a gesture of them.
+    var padRouter: PadTouchRouter?
+    /// Off in Controller mode, where the on-screen controller's actions row stands in: fingers are never a gesture.
+    var allowsGestures = true
     /// A three-finger swipe left's distance while the fingers are down; nil once they lift (or it isn't one).
     var onSwipeProgress: (CGFloat?) -> Void = { _ in }
     /// The gestures set to Keyboard: they show it (or hide it) here, rather than going to `onGesture`.
@@ -225,13 +232,14 @@ final class TouchInputView: UIView, UIKeyInput {
         }
         let touches = fingers(all)
         guard !touches.isEmpty else { return }
+        onTouch()
         if activeTouches == 0 { isShortcutGesture = false }
         activeTouches += touches.count
         if isShortcutGesture { // a finger joining an ongoing shortcut (the fourth of a pinch) starts where it lands
             for touch in touches { shortcutStart[ObjectIdentifier(touch)] = touch.location(in: self) }
             for touch in touches { shortcutLast[ObjectIdentifier(touch)] = touch.location(in: self) }
         }
-        if activeTouches >= 3, !isShortcutGesture {
+        if activeTouches >= 3, !isShortcutGesture, allowsGestures {
             cancelAll()
             isShortcutGesture = true
             didHold = false
@@ -250,7 +258,7 @@ final class TouchInputView: UIView, UIKeyInput {
             nextID &+= 1
             ids[ObjectIdentifier(touch)] = id
             switch mode {
-            case .controller: break
+            case .controller: padRouter?.pad?.floatingBegan(touch)
             case .trackpad:
                 trackpad.cursorScale = Double(streamSize.width / max(video.width, 1)) // finger across the video = cursor across the screen
                 trackpad.began(Int(id), at: touch.location(in: self), time: touch.timestamp)
@@ -268,7 +276,7 @@ final class TouchInputView: UIView, UIKeyInput {
         for touch in touches {
             guard let id = ids[ObjectIdentifier(touch)] else { continue }
             switch mode {
-            case .controller: break
+            case .controller: padRouter?.pad?.floatingMoved(touch)
             case .trackpad: perform(trackpad.moved(Int(id), to: touch.location(in: self)))
             case .touchscreen: sendTouch(touch, event: LI_TOUCH_EVENT_MOVE)
             }
@@ -340,7 +348,7 @@ final class TouchInputView: UIView, UIKeyInput {
             for touch in touches {
                 guard let id = ids[ObjectIdentifier(touch)] else { continue }
                 switch mode {
-                case .controller: break
+                case .controller: padRouter?.pad?.floatingEnded(touch)
                 case .trackpad:
                     if cancelled { trackpad.cancelAll() } else { perform(trackpad.ended(Int(id), time: touch.timestamp)) }
                 case .touchscreen:
@@ -395,6 +403,9 @@ final class TouchInputView: UIView, UIKeyInput {
     }
 
     // MARK: On-screen keyboard
+
+    /// The actions row's Keyboard button: up if it's down, down if it's up.
+    func toggleKeyboard() { _ = isFirstResponder ? resignFirstResponder() : becomeFirstResponder() }
 
     override var canBecomeFirstResponder: Bool { true }
     /// iOS's own three-finger editing gestures (pinch to copy, swipe to undo) would fight the stream shortcuts.
@@ -469,6 +480,7 @@ final class TouchInputView: UIView, UIKeyInput {
         }
         mouseFinger = nil
         trackpad.cancelAll()
+        padRouter?.pad?.cancelFloating() // a gesture (or pause) takes the floating sticks' fingers back
         ids = [:]
     }
 
@@ -515,6 +527,9 @@ struct TouchInputLayer: UIViewRepresentable {
     let isPaused: Bool
     let onGesture: (TouchGesture) -> Void
     var onSwipeProgress: (CGFloat?) -> Void = { _ in }
+    var onTouch: () -> Void = {}
+    var padRouter: PadTouchRouter?
+    var allowsGestures = true
     var keyboardGestures: Set<TouchGesture> = []
     var followsSwipeLeft: Set<Int> = []
     var allowsFourFingers = false
@@ -527,6 +542,10 @@ struct TouchInputLayer: UIViewRepresentable {
         view.isPaused = isPaused
         view.onGesture = onGesture
         view.onSwipeProgress = onSwipeProgress
+        view.onTouch = onTouch
+        view.padRouter = padRouter
+        view.allowsGestures = allowsGestures
+        padRouter?.touchView = view
         view.keyboardGestures = keyboardGestures
         view.followsSwipeLeft = followsSwipeLeft
         view.allowsFourFingers = allowsFourFingers

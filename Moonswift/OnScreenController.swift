@@ -6,69 +6,252 @@ nonisolated enum PadControl: String, Codable, CaseIterable {
     case leftStick, rightStick, dpad, a, b, x, y, lb, rb, lt, rt, view, menu, l3, r3
 
     var isStick: Bool { self == .leftStick || self == .rightStick }
+    /// A, B, X and Y by where they sit: A at the bottom, B right, X left, Y top (Xbox's order; the host's too).
     var isFaceButton: Bool { [.a, .b, .x, .y].contains(self) }
-    /// Shoulders and triggers are drawn as wide capsules.
-    var isWide: Bool { [.lb, .rb, .lt, .rt].contains(self) }
+    /// Height ÷ width: bumpers are wide and short, triggers about square, like on a controller.
+    var aspect: CGFloat {
+        switch self {
+        case .lb, .rb: 0.675
+        case .lt, .rt: 1.02
+        default: 1
+        }
+    }
+    /// Bumpers and triggers are rounded rectangles; everything else is round (or the d-pad's arms).
+    var isRoundedRect: Bool { [.lb, .rb, .lt, .rt].contains(self) }
 
-    var label: String {
+    /// Its name in the editor's Add menu, in the layout's labels.
+    func name(_ labels: PadLabels) -> String {
         switch self {
         case .leftStick: "Left Stick"
         case .rightStick: "Right Stick"
         case .dpad: "D-Pad"
-        case .a, .b, .x, .y: rawValue.uppercased()
-        case .lb: "LB"
-        case .rb: "RB"
-        case .lt: "LT"
-        case .rt: "RT"
         case .view: "View"
         case .menu: "Menu"
-        case .l3: "L3"
-        case .r3: "R3"
+        default:
+            switch labels.label(self) {
+            case .text(let text): text
+            case .symbol: labels == .playstation ? ["a": "Cross", "b": "Circle", "x": "Square", "y": "Triangle"][rawValue] ?? rawValue : rawValue
+            }
         }
     }
 }
 
-/// One control's place: its centre as a share of the controller's area (the screen inside its safe area), and its
-/// size in points (a wide control is this wide and about half as tall).
-nonisolated struct PadItem: Codable, Hashable {
-    var control: PadControl
-    var x: CGFloat
-    var y: CGFloat
-    var size: CGFloat
+/// What's written on the buttons: an Xbox, PlayStation or Nintendo controller's. Only the labels change: a button
+/// sends what the button in its place on an Xbox controller sends, as the host expects.
+nonisolated enum PadLabels: String, Codable, CaseIterable {
+    case xbox, playstation, nintendo
 
-    func frame(in area: CGSize) -> CGRect {
-        let height = control.isWide ? size * 0.55 : size
-        return CGRect(x: x * area.width - size / 2, y: y * area.height - height / 2, width: size, height: height)
+    var title: String {
+        switch self {
+        case .xbox: "Xbox"
+        case .playstation: "PlayStation"
+        case .nintendo: "Nintendo"
+        }
+    }
+
+    enum Label { case text(String), symbol(String) }
+
+    func label(_ control: PadControl) -> Label {
+        switch (self, control) {
+        case (.playstation, .a): .symbol("xmark")
+        case (.playstation, .b): .symbol("circle")
+        case (.playstation, .x): .symbol("square")
+        case (.playstation, .y): .symbol("triangle")
+        case (.playstation, .lb): .text("L1")
+        case (.playstation, .rb): .text("R1")
+        case (.playstation, .lt): .text("L2")
+        case (.playstation, .rt): .text("R2")
+        case (.nintendo, .a): .text("B") // bottom
+        case (.nintendo, .b): .text("A") // right
+        case (.nintendo, .x): .text("Y") // left
+        case (.nintendo, .y): .text("X") // top
+        case (.nintendo, .lb): .text("L")
+        case (.nintendo, .rb): .text("R")
+        case (.nintendo, .lt): .text("ZL")
+        case (.nintendo, .rt): .text("ZR")
+        case (_, .lb): .text("LB")
+        case (_, .rb): .text("RB")
+        case (_, .lt): .text("LT")
+        case (_, .rt): .text("RT")
+        case (_, .view): .symbol("rectangle.on.rectangle")
+        case (_, .menu): .symbol("line.3.horizontal")
+        default: .text(control.rawValue.uppercased())
+        }
     }
 }
 
-/// A named set of controls and where they sit.
+/// One control's place, in points from the nearest edges of the controller's area (the screen inside its safe area),
+/// so a layout keeps its shape on any screen: A, B, X and Y stay evenly apart on a tall screen or a wide one.
+nonisolated struct PadItem: Codable, Hashable {
+    enum Across: String, Codable { case leading, center, trailing }
+    enum Down: String, Codable { case top, bottom }
+
+    var control: PadControl
+    var across: Across
+    var down: Down
+    /// From the leading or trailing edge to the centre (from the middle, rightward, for `center`).
+    var x: CGFloat
+    /// From the top or bottom edge to the centre.
+    var y: CGFloat
+    /// Its width in points; its height follows from its shape.
+    var size: CGFloat
+
+    init(control: PadControl, _ across: Across, _ down: Down, x: CGFloat, y: CGFloat, size: CGFloat) {
+        self.control = control
+        self.across = across
+        self.down = down
+        self.x = x
+        self.y = y
+        self.size = size
+    }
+
+    func center(in area: CGSize) -> CGPoint {
+        let cx = switch across {
+        case .leading: x
+        case .center: area.width / 2 + x
+        case .trailing: area.width - x
+        }
+        return CGPoint(x: cx, y: down == .top ? y : area.height - y)
+    }
+
+    func frame(in area: CGSize) -> CGRect {
+        let center = center(in: area), height = size * control.aspect
+        return CGRect(x: center.x - size / 2, y: center.y - height / 2, width: size, height: height)
+    }
+
+    /// The same control with its centre at `center`, measured from whichever edges are nearest now (the middle,
+    /// across, for anything in its central fifth).
+    func moved(to center: CGPoint, in area: CGSize) -> PadItem {
+        var item = self
+        let middle = area.width / 2
+        if abs(center.x - middle) < area.width * 0.1 {
+            (item.across, item.x) = (.center, center.x - middle)
+        } else if center.x < middle {
+            (item.across, item.x) = (.leading, center.x)
+        } else {
+            (item.across, item.x) = (.trailing, area.width - center.x)
+        }
+        (item.down, item.y) = center.y < area.height / 2 ? (.top, center.y) : (.bottom, area.height - center.y)
+        return item
+    }
+
+    /// Its position on a `step`-point grid, measured from the same edges.
+    func snapped(to step: CGFloat) -> PadItem {
+        var item = self
+        item.x = (x / step).rounded() * step
+        item.y = (y / step).rounded() * step
+        return item
+    }
+
+    /// Layouts saved before positions were in points held shares of the area: read them as if on an 888 × 600 one.
+    private enum CodingKeys: String, CodingKey { case control, across, down, x, y, size }
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        control = try values.decode(PadControl.self, forKey: .control)
+        size = try values.decode(CGFloat.self, forKey: .size)
+        let x = try values.decode(CGFloat.self, forKey: .x), y = try values.decode(CGFloat.self, forKey: .y)
+        if let across = try values.decodeIfPresent(Across.self, forKey: .across),
+           let down = try values.decodeIfPresent(Down.self, forKey: .down) {
+            (self.across, self.down, self.x, self.y) = (across, down, x, y)
+        } else {
+            let area = CGSize(width: 888, height: 600)
+            self = PadItem(control: control, .leading, .top, x: 0, y: 0, size: size)
+                .moved(to: CGPoint(x: x * area.width, y: y * area.height), in: area)
+        }
+    }
+}
+
+/// A named set of controls and where they sit, with how they look.
 nonisolated struct PadLayout: Codable, Hashable, Identifiable {
     var id: String
     var name: String
     var items: [PadItem]
     /// How solid the controls are drawn, 0.2...1.
     var opacity: Double = 0.6
-    /// The left stick appears wherever a thumb lands in the left part of the screen, outside the other controls.
+    /// A stick appears wherever a thumb lands on its side of the screen, outside the other controls.
     var floatingLeftStick = false
+    var floatingRightStick = false
+    /// Liquid Glass controls (opt in: plain ones cost less while streaming).
+    var glass = false
+    /// Seconds untouched before the controls fade away (for cutscenes); 0: never. A touch brings them back.
+    var hideAfter = 0
+    /// The actions row along the top keeps the top strip to itself (controls stay below it). Control Center always
+    /// leads it, so there's always a way to the control panel; these follow (Quick Settings, the keyboard,
+    /// shortcuts…), yours to add, remove and order.
+    var actions: [GestureAction] = PadLayout.defaultActions
+    static let defaultActions: [GestureAction] = [.quickSettings, .keyboard, .editLayout]
+    /// The row stays out of sight until its strip is touched, then shows for a few seconds (less distracting over a
+    /// game, especially at a high opacity).
+    var actionsOnTouch = false
+    /// What the row shows: Control Center, then the layout's own.
+    var rowActions: [GestureAction] { [.controlPanel] + actions }
+    /// The top strip's height, in points: controls sit below it.
+    static let actionStrip: CGFloat = 56
 
-    /// Everything but the stick clicks: sticks low on each side, the d-pad and the A, B, X, Y diamond inside them,
-    /// shoulders and triggers in the top corners, View and Menu between.
+    /// A stick that floats has no fixed place: it's drawn (and touched) only where a thumb lands.
+    func isFloating(_ control: PadControl) -> Bool {
+        (control == .leftStick && floatingLeftStick) || (control == .rightStick && floatingRightStick)
+    }
+    var labels = PadLabels.xbox
+
+    init(id: String, name: String, items: [PadItem]) {
+        self.id = id
+        self.name = name
+        self.items = items
+    }
+
+    /// Everything but the stick clicks: sticks low on each side, the d-pad and the A, B, X, Y diamond inside them
+    /// (evenly apart), triggers and bumpers in the top corners and View and Menu between them, all below the actions
+    /// row's strip.
     static let standard = PadLayout(id: "standard", name: "Standard", items: [
-        PadItem(control: .leftStick, x: 0.12, y: 0.58, size: 130),
-        PadItem(control: .dpad, x: 0.27, y: 0.82, size: 112),
-        PadItem(control: .y, x: 0.88, y: 0.43, size: 56),
-        PadItem(control: .x, x: 0.81, y: 0.56, size: 56),
-        PadItem(control: .b, x: 0.95, y: 0.56, size: 56),
-        PadItem(control: .a, x: 0.88, y: 0.69, size: 56),
-        PadItem(control: .rightStick, x: 0.72, y: 0.82, size: 112),
-        PadItem(control: .lt, x: 0.07, y: 0.08, size: 76),
-        PadItem(control: .lb, x: 0.17, y: 0.08, size: 76),
-        PadItem(control: .rb, x: 0.83, y: 0.08, size: 76),
-        PadItem(control: .rt, x: 0.93, y: 0.08, size: 76),
-        PadItem(control: .view, x: 0.44, y: 0.08, size: 44),
-        PadItem(control: .menu, x: 0.56, y: 0.08, size: 44),
+        PadItem(control: .leftStick, .leading, .bottom, x: 110, y: 150, size: 130),
+        PadItem(control: .dpad, .leading, .bottom, x: 270, y: 100, size: 150),
+        PadItem(control: .a, .trailing, .bottom, x: 120, y: 107, size: 56),
+        PadItem(control: .b, .trailing, .bottom, x: 62, y: 165, size: 56),
+        PadItem(control: .x, .trailing, .bottom, x: 178, y: 165, size: 56),
+        PadItem(control: .y, .trailing, .bottom, x: 120, y: 223, size: 56),
+        PadItem(control: .rightStick, .trailing, .bottom, x: 280, y: 100, size: 120),
+        // Below the actions row's strip (56 points).
+        PadItem(control: .lt, .leading, .top, x: 50, y: 100, size: 72),
+        PadItem(control: .lb, .leading, .top, x: 136, y: 88, size: 72),
+        PadItem(control: .rb, .trailing, .top, x: 136, y: 88, size: 72),
+        PadItem(control: .rt, .trailing, .top, x: 50, y: 100, size: 72),
+        PadItem(control: .view, .center, .top, x: -40, y: 90, size: 44),
+        PadItem(control: .menu, .center, .top, x: 40, y: 90, size: 44),
     ])
+
+    private enum CodingKeys: String, CodingKey { case id, name, items, opacity, floatingLeftStick, floatingRightStick, glass, labels, hideAfter, actions, actionsOnTouch }
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        items = try values.decode([PadItem].self, forKey: .items)
+        opacity = try values.decodeIfPresent(Double.self, forKey: .opacity) ?? 0.6
+        floatingLeftStick = try values.decodeIfPresent(Bool.self, forKey: .floatingLeftStick) ?? false
+        floatingRightStick = try values.decodeIfPresent(Bool.self, forKey: .floatingRightStick) ?? false
+        glass = try values.decodeIfPresent(Bool.self, forKey: .glass) ?? false
+        labels = try values.decodeIfPresent(PadLabels.self, forKey: .labels) ?? .xbox
+        hideAfter = try values.decodeIfPresent(Int.self, forKey: .hideAfter) ?? 0
+        actionsOnTouch = try values.decodeIfPresent(Bool.self, forKey: .actionsOnTouch) ?? false
+        // Control Center was once one of these, removable: it's always first now, apart from them.
+        actions = (try values.decodeIfPresent([String].self, forKey: .actions)?.compactMap(GestureAction.init(stored:))
+            ?? Self.defaultActions).filter { $0 != .controlPanel }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(name, forKey: .name)
+        try values.encode(items, forKey: .items)
+        try values.encode(opacity, forKey: .opacity)
+        try values.encode(floatingLeftStick, forKey: .floatingLeftStick)
+        try values.encode(floatingRightStick, forKey: .floatingRightStick)
+        try values.encode(glass, forKey: .glass)
+        try values.encode(labels, forKey: .labels)
+        try values.encode(hideAfter, forKey: .hideAfter)
+        try values.encode(actions.map(\.stored), forKey: .actions)
+        try values.encode(actionsOnTouch, forKey: .actionsOnTouch)
+    }
 }
 
 /// What the on-screen controller shows pressed and where its sticks are, for drawing.
@@ -78,8 +261,13 @@ nonisolated struct PadLayout: Codable, Hashable, Identifiable {
     /// -1...1 each way, up negative (as on screen).
     var leftStick = CGPoint.zero
     var rightStick = CGPoint.zero
-    /// Where a floating left stick sits while a thumb holds it.
-    var floatingCenter: CGPoint?
+    /// Where a floating stick sits while a thumb holds it.
+    var floatingLeft: CGPoint?
+    var floatingRight: CGPoint?
+    /// A finger is on a control: the controls don't hide while one is held.
+    var isHeld = false
+    /// Bumped on every touch, to bring hidden controls back and restart their idle time.
+    var touches = 0
 
     /// The pad as the host gets it.
     var snapshot: PadSnapshot {
@@ -102,62 +290,201 @@ struct OnScreenController: View {
     let layout: PadLayout
     /// The game isn't taking input (a menu or panel is up): touches are let go and ignored.
     let isPaused: Bool
+    /// Bumped by touches elsewhere on the stream: they bring the controls back too.
+    var wake = 0
+    /// Where the stream's touch layer finds this controller, for floating sticks.
+    var router: PadTouchRouter?
+    /// The key shortcuts, for the actions row's shortcut buttons.
+    var shortcuts: [KeyShortcut] = []
+    /// An actions-row button was tapped.
+    var perform: (GestureAction) -> Void = { _ in }
     let send: (PadSnapshot) -> Void
     @State private var presses = PadPresses()
+    @State private var isIdle = false
 
     var body: some View {
         GeometryReader { proxy in
-            // One container, so the system draws all the glass together (cheaper over a live game).
-            GlassEffectContainer(spacing: 0) { // 0: pieces near each other don't melt together
             ZStack {
-                ForEach(layout.items, id: \.control) { item in
-                    PadControlView(item: item, area: proxy.size, presses: presses)
+                // One container, so the system draws all the glass together (cheaper over a live game).
+                GlassEffectContainer(spacing: 0) { // 0: pieces near each other don't melt together
+                    ZStack { controls(.body, in: proxy.size) }
                 }
-                if let center = presses.floatingCenter, let stick = layout.items.first(where: { $0.control == .leftStick }) {
-                    // The floating stick where the thumb landed; the fixed one stays drawn faintly.
-                    PadControlView(item: PadItem(control: .leftStick, x: center.x / max(proxy.size.width, 1),
-                                                 y: center.y / max(proxy.size.height, 1), size: stick.size),
-                                   area: proxy.size, presses: presses, isFloating: true)
+                // Floating sticks come and go with the thumb: in a container of their own, as a glass piece joining
+                // the controls' container made the system redraw all of them (they went dark).
+                GlassEffectContainer(spacing: 0) {
+                    ZStack { floatingSticks(.body, in: proxy.size) }
+                }
+                // Labels above the glass, not in it: glass blurs what it holds.
+                controls(.label, in: proxy.size)
+                floatingSticks(.label, in: proxy.size)
+            }
+            // Only the drawing fades: iOS doesn't send touches to what's invisible, and hidden controls must still work.
+            .opacity(drawnOpacity)
+            .overlay { PadTouchLayer(router: router, layout: layout, presses: presses, isPaused: isPaused, send: send) }
+            .overlay(alignment: .top) {
+                ActionsRow(layout: layout, shortcuts: shortcuts, faceOpacity: drawnOpacity) { action in
+                    presses.touches += 1 // a tap wakes hidden controls too
+                    perform(action)
                 }
             }
+            .animation(.easeInOut(duration: isIdle ? 0.6 : 0.2), value: isIdle)
+        }
+        // Hide When Idle: fades away after its time untouched (never while a finger is on a control); any touch,
+        // on a control or elsewhere on the stream, brings it back. Hidden controls still work where they were.
+        .task(id: "\(presses.touches)|\(wake)|\(layout.hideAfter)") {
+            isIdle = false
+            guard layout.hideAfter > 0 else { return }
+            repeat { try? await Task.sleep(for: .seconds(layout.hideAfter)) } while presses.isHeld && !Task.isCancelled
+            if !Task.isCancelled { isIdle = true }
+        }
+    }
+
+    private var drawnOpacity: Double { isIdle ? 0 : layout.opacity }
+
+    /// Every placed control's body or label (a floating stick has no place: see floatingSticks).
+    @ViewBuilder private func controls(_ part: PadControlView.Part, in area: CGSize) -> some View {
+        ForEach(layout.items.filter { !layout.isFloating($0.control) }, id: \.control) { item in
+            PadControlView(item: item, layout: layout, area: area, presses: presses, part: part)
+        }
+    }
+
+    /// A floating stick where its thumb is, while one holds it.
+    @ViewBuilder private func floatingSticks(_ part: PadControlView.Part, in area: CGSize) -> some View {
+        ForEach([(PadControl.leftStick, presses.floatingLeft), (.rightStick, presses.floatingRight)], id: \.0) { control, center in
+            if let center, let stick = layout.items.first(where: { $0.control == control }) {
+                PadControlView(item: stick.moved(to: center, in: area), layout: layout, area: area,
+                               presses: presses, part: part)
             }
-            .opacity(layout.opacity)
-            .overlay { PadTouchLayer(layout: layout, presses: presses, isPaused: isPaused, send: send) }
         }
     }
 }
 
+/// The row along the top: one button per action, in the layout's look.
+struct ActionsRow: View {
+    let layout: PadLayout
+    let shortcuts: [KeyShortcut]
+    /// The faces fade with the controls; the buttons stay tappable even when they're faded out.
+    var faceOpacity: Double = 1
+    let perform: (GestureAction) -> Void
+    /// Show on Touch: shown for a few seconds after its strip is touched.
+    @State private var isRevealed = false
+    @State private var revealTime = 0
+
+    private var isShown: Bool { !layout.actionsOnTouch || isRevealed }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(Array(layout.rowActions.enumerated()), id: \.offset) { _, action in
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    revealTime += 1 // stays up a little longer after each use
+                    perform(action)
+                } label: {
+                    ActionButtonFace(action: action, shortcuts: shortcuts, isGlass: layout.glass)
+                }
+                .buttonStyle(ActionPressStyle(opacity: faceOpacity))
+                .disabled(!isShown) // hidden: the first touch only shows it
+            }
+        }
+        .opacity(isShown ? 1 : 0)
+        .animation(.easeInOut(duration: 0.25), value: isShown)
+        .frame(maxWidth: .infinity)
+        .frame(height: PadLayout.actionStrip)
+        .background {
+            if !isShown {
+                // The whole strip, out of sight: a touch on it shows the row.
+                Color.clear.contentShape(.rect).onTapGesture { revealTime += 1 }
+            }
+        }
+        .task(id: revealTime) {
+            guard layout.actionsOnTouch, revealTime > 0 else { return }
+            isRevealed = true
+            try? await Task.sleep(for: .seconds(4))
+            if !Task.isCancelled { isRevealed = false }
+        }
+    }
+}
+
+/// An action button's face pressed: lit like a pressed control, and a little smaller.
+private struct ActionPressStyle: ButtonStyle {
+    let opacity: Double
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .environment(\.actionIsPressed, configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.92 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .opacity(opacity)
+            .contentShape(.capsule)
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var actionIsPressed = false
+}
+
+/// One action's face: a round button with its symbol, or a capsule with a shortcut's keys; label above the body.
+struct ActionButtonFace: View {
+    let action: GestureAction
+    let shortcuts: [KeyShortcut]
+    let isGlass: Bool
+    @Environment(\.actionIsPressed) private var isPressed
+
+    var body: some View {
+        let label = action.rowLabel(shortcuts)
+        let isCapsule = label.text != nil
+        Group {
+            if let text = label.text {
+                Text(text).font(.footnote.weight(.semibold)).padding(.horizontal, 14)
+            } else if let symbol = label.symbol {
+                Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+            }
+        }
+        .foregroundStyle(.white)
+        .frame(minWidth: 42, minHeight: 42)
+        .background {
+            if isCapsule {
+                PadSurface(shape: Capsule(), isGlass: isGlass, isPressed: isPressed)
+            } else {
+                PadSurface(shape: Circle(), isGlass: isGlass, isPressed: isPressed)
+            }
+        }
+        .contentShape(.capsule)
+    }
+}
+
+/// One control, drawn plain or in Liquid Glass, lit while pressed.
 struct PadControlView: View {
     let item: PadItem
+    let layout: PadLayout
     let area: CGSize
     let presses: PadPresses
-    var isFloating = false
+    /// Its body, its label, or both: over glass, labels are drawn apart, above it, so the glass doesn't blur them.
+    var part = Part.whole
+    enum Part { case body, label, whole }
 
     var body: some View {
         let frame = item.frame(in: area)
+        let showsBody = part != .label, showsLabel = part != .body
         Group {
             switch item.control {
             case .leftStick, .rightStick:
-                let offset = item.control == .leftStick && (presses.floatingCenter == nil || isFloating) ? presses.leftStick
-                    : item.control == .rightStick ? presses.rightStick : .zero
-                let isHeld = offset != .zero
-                Color.clear
-                    .glassEffect(.regular, in: .circle)
-                    .overlay {
-                        Color.clear
-                            .frame(width: frame.width * 0.45, height: frame.width * 0.45)
-                            .glassEffect(.regular.tint(.white.opacity(isHeld ? 0.5 : 0.25)), in: .circle)
-                            .offset(x: offset.x * frame.width * 0.3, y: offset.y * frame.width * 0.3)
-                    }
+                // The base is body; the thumb (and, on glass, a sharp edge) is drawn with the labels, above the
+                // glass, which would blur it.
+                ZStack {
+                    if showsBody { PadSurface(shape: Circle(), isGlass: layout.glass, isPressed: false) }
+                    if showsLabel { stickTop(frame) }
+                }
             case .dpad:
-                DPadView(size: frame.width, presses: presses)
+                DPadView(size: frame.width, isGlass: layout.glass, presses: presses, showsArms: showsBody, showsChevrons: showsLabel)
             default:
                 let isPressed = presses.buttons.contains(item.control)
-                let shape = item.control.isWide ? AnyShape(Capsule()) : AnyShape(Circle())
-                label
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .glassEffect(.regular.tint(isPressed ? .white.opacity(0.5) : nil), in: shape)
+                let shape = item.control.isRoundedRect
+                    ? AnyShape(RoundedRectangle(cornerRadius: item.size * 0.16, style: .continuous)) : AnyShape(Circle())
+                ZStack {
+                    if showsBody { PadSurface(shape: shape, isGlass: layout.glass, isPressed: isPressed) }
+                    if showsLabel { label.foregroundStyle(.white) }
+                }
             }
         }
         .frame(width: frame.width, height: frame.height)
@@ -165,11 +492,43 @@ struct PadControlView: View {
         .allowsHitTesting(false)
     }
 
+    /// A stick's thumb, pushed the way it's held, solid so it stays sharp; over glass, a crisp ring for the base too.
+    private func stickTop(_ frame: CGRect) -> some View {
+        let isLeft = item.control == .leftStick
+        let offset = isLeft ? presses.leftStick : presses.rightStick
+        let isHeld = offset != .zero
+        return ZStack {
+            if layout.glass { Circle().stroke(.white.opacity(0.45), lineWidth: 1.5) }
+            Circle().fill(.white.opacity(isHeld ? 0.95 : 0.8))
+                .overlay { Circle().stroke(.white, lineWidth: 1) }
+                .frame(width: frame.width * 0.45, height: frame.width * 0.45)
+                .offset(x: offset.x * frame.width * 0.3, y: offset.y * frame.width * 0.3)
+        }
+    }
+
     @ViewBuilder private var label: some View {
-        switch item.control {
-        case .view: Image(systemName: "rectangle.on.rectangle").font(.system(size: item.size * 0.36, weight: .semibold))
-        case .menu: Image(systemName: "line.3.horizontal").font(.system(size: item.size * 0.38, weight: .semibold))
-        default: Text(item.control.label).font(.system(size: item.size * (item.control.isWide ? 0.24 : 0.38), weight: .bold))
+        let text = item.size * (item.control.isRoundedRect ? 0.26 : 0.38)
+        switch layout.labels.label(item.control) {
+        case .text(let string): Text(string).font(.system(size: text, weight: .bold))
+        case .symbol(let name): Image(systemName: name).font(.system(size: text * 0.9, weight: .bold))
+        }
+    }
+}
+
+/// A control's body: Liquid Glass, or a dark see-through fill with a white edge; white while pressed.
+struct PadSurface<S: Shape>: View {
+    let shape: S
+    let isGlass: Bool
+    let isPressed: Bool
+    /// A stick's thumb: a little brighter.
+    var isThumb = false
+
+    var body: some View {
+        if isGlass {
+            Color.clear.glassEffect(.regular.tint(isPressed ? .white.opacity(0.5) : isThumb ? .white.opacity(0.25) : nil), in: shape)
+        } else {
+            shape.fill(isPressed ? .white.opacity(0.6) : isThumb ? .white.opacity(0.75) : .black.opacity(0.3))
+                .overlay { shape.stroke(.white.opacity(0.7), lineWidth: 2) }
         }
     }
 }
@@ -178,7 +537,10 @@ struct PadControlView: View {
 /// while pressed. Each arm's outline is drawn already pointing its way: glass in a container doesn't follow rotations.
 private struct DPadView: View {
     let size: CGFloat
+    let isGlass: Bool
     let presses: PadPresses
+    var showsArms = true
+    var showsChevrons = true
 
     var body: some View {
         // The arm's drawing is 124 × 180.3; two of them tip to tip, with a gap between the tips, span the d-pad.
@@ -207,8 +569,9 @@ private struct DPadView: View {
             .font(.system(size: width * 0.42, weight: .medium))
             .foregroundStyle(.white.opacity(0.9))
             .offset(shift)
+            .opacity(showsChevrons ? 1 : 0)
             .frame(width: isVertical ? width : length, height: isVertical ? length : width)
-            .glassEffect(.regular.tint(isPressed ? .white.opacity(0.5) : nil), in: DPadArm(direction: direction))
+            .background { if showsArms { PadSurface(shape: DPadArm(direction: direction), isGlass: isGlass, isPressed: isPressed) } }
     }
 }
 
@@ -249,13 +612,25 @@ nonisolated struct DPadArm: Shape {
     }
 }
 
+/// Joins the stream's touch layer and the on-screen controller: the layer hands floating sticks their touches, and
+/// the actions row's Keyboard button reaches the layer's keyboard.
+final class PadTouchRouter {
+    weak var pad: PadTouchView?
+    weak var touchView: TouchInputView?
+}
+
 private struct PadTouchLayer: UIViewRepresentable {
+    var router: PadTouchRouter?
     let layout: PadLayout
     let presses: PadPresses
     let isPaused: Bool
     let send: (PadSnapshot) -> Void
 
-    func makeUIView(context: Context) -> PadTouchView { PadTouchView(presses: presses) }
+    func makeUIView(context: Context) -> PadTouchView {
+        let view = PadTouchView(presses: presses)
+        router?.pad = view
+        return view
+    }
 
     func updateUIView(_ view: PadTouchView, context: Context) {
         view.layout = layout
@@ -297,42 +672,90 @@ final class PadTouchView: UIView {
     /// The controls a point is on, nearest first.
     private func hits(_ point: CGPoint) -> [PadItem] {
         layout.items
+            .filter { !layout.isFloating($0.control) } // a floating stick is wherever the thumb lands, not here
             .filter { frame($0).insetBy(dx: -Self.slack, dy: -Self.slack).contains(point) }
             .sorted { distance(point, frame($0)) < distance(point, frame($1)) }
     }
 
     private func distance(_ point: CGPoint, _ rect: CGRect) -> CGFloat { hypot(point.x - rect.midX, point.y - rect.midY) }
 
-    private var floatingZone: CGRect { CGRect(x: 0, y: bounds.height * 0.2, width: bounds.width * 0.45, height: bounds.height * 0.8) }
+    /// Where a floating stick can land: its side of the screen, below the top fifth (the shoulders' row).
+    private func floatingZone(_ stick: PadControl) -> CGRect {
+        let width = bounds.width * 0.45
+        return CGRect(x: stick == .leftStick ? 0 : bounds.width - width, y: bounds.height * 0.2, width: width, height: bounds.height * 0.8)
+    }
 
-    /// Only the controls (and a floating stick's zone) take touches; the rest reach the stream below.
+    /// A floating stick whose side this point is on, if it's turned on.
+    private func floatingStick(at point: CGPoint) -> PadControl? {
+        [(PadControl.leftStick, layout.floatingLeftStick), (.rightStick, layout.floatingRightStick)]
+            .first { $0.1 && floatingZone($0.0).contains(point) }?.0
+    }
+
+    /// Only the controls take touches; the rest reach the stream's touch layer, which hands one- and two-finger
+    /// touches on a floating stick's side back here (floatingBegan), and keeps three for a gesture.
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        !isPaused && (!hits(point).isEmpty || (layout.floatingLeftStick && floatingZone.contains(point)))
+        !isPaused && !hits(point).isEmpty
+    }
+
+    // MARK: Floating sticks, by way of the stream's touch layer
+
+    /// A touch the stream's touch layer got instead: a floating stick's, or (should one ever slip past this view) a
+    /// control's, so a control is never unreachable.
+    func floatingBegan(_ touch: UITouch) {
+        let point = touch.location(in: self)
+        guard !isPaused, let grab = grab(at: point) else { return }
+        grabs[ObjectIdentifier(touch)] = (grab, point)
+        presses.touches += 1
+        update()
+    }
+
+    func floatingMoved(_ touch: UITouch) {
+        guard let held = grabs[ObjectIdentifier(touch)] else { return }
+        grabs[ObjectIdentifier(touch)] = (held.grab, touch.location(in: self))
+        update()
+    }
+
+    func floatingEnded(_ touch: UITouch) {
+        guard grabs.removeValue(forKey: ObjectIdentifier(touch)) != nil else { return }
+        update()
+    }
+
+    func cancelFloating() {
+        let before = grabs.count
+        grabs = grabs.filter { if case .stick(_, _, _, true) = $0.value.grab { false } else { true } }
+        if grabs.count != before { update() }
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard !isPaused else { return }
         for touch in touches {
             let point = touch.location(in: self)
-            let found = hits(point)
-            let grab: Grab?
-            if let stick = found.first(where: { $0.control.isStick }) {
-                let rect = frame(stick)
-                grab = .stick(stick.control, center: CGPoint(x: rect.midX, y: rect.midY), radius: rect.width / 2, isFloating: false)
-            } else if let dpad = found.first(where: { $0.control == .dpad }) {
-                let rect = frame(dpad)
-                grab = .dpad(center: CGPoint(x: rect.midX, y: rect.midY), radius: rect.width / 2)
-            } else if let nearest = found.first {
-                grab = nearest.control.isFaceButton ? .buttons(faceButtons(at: point), isFace: true) : .buttons([nearest.control], isFace: false)
-            } else if layout.floatingLeftStick, floatingZone.contains(point),
-                      let stick = layout.items.first(where: { $0.control == .leftStick }) {
-                grab = .stick(.leftStick, center: point, radius: stick.size / 2, isFloating: true)
-            } else {
-                grab = nil
-            }
-            if let grab { grabs[ObjectIdentifier(touch)] = (grab, point) }
+            if let grab = grab(at: point) { grabs[ObjectIdentifier(touch)] = (grab, point) }
         }
+        presses.touches += 1
         update()
+    }
+
+    /// What a finger landing here takes: the control under it (a stick, the d-pad, or buttons), else a floating stick
+    /// if this is its side.
+    private func grab(at point: CGPoint) -> Grab? {
+        let found = hits(point)
+        if let stick = found.first(where: { $0.control.isStick }) {
+            let rect = frame(stick)
+            return .stick(stick.control, center: CGPoint(x: rect.midX, y: rect.midY), radius: rect.width / 2, isFloating: false)
+        }
+        if let dpad = found.first(where: { $0.control == .dpad }) {
+            let rect = frame(dpad)
+            return .dpad(center: CGPoint(x: rect.midX, y: rect.midY), radius: rect.width / 2)
+        }
+        if let nearest = found.first {
+            return nearest.control.isFaceButton ? .buttons(faceButtons(at: point), isFace: true) : .buttons([nearest.control], isFace: false)
+        }
+        if let control = floatingStick(at: point) {
+            let size = layout.items.first { $0.control == control }?.size ?? 120
+            return .stick(control, center: point, radius: size / 2, isFloating: true)
+        }
+        return nil
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -366,13 +789,14 @@ final class PadTouchView: UIView {
         var buttons: Set<PadControl> = []
         var dpad = (up: false, down: false, left: false, right: false)
         var left = CGPoint.zero, right = CGPoint.zero
-        var floating: CGPoint?
+        var floatingLeft: CGPoint?, floatingRight: CGPoint?
         for (grab, point) in grabs.values {
             switch grab {
             case .stick(let control, let center, let radius, let isFloating):
                 let vector = Self.stickVector(from: center, to: point, radius: radius)
                 if control == .leftStick { left = vector } else { right = vector }
-                if isFloating { floating = center }
+                if isFloating, control == .leftStick { floatingLeft = center }
+                if isFloating, control == .rightStick { floatingRight = center }
             case .dpad(let center, let radius):
                 let directions = Self.dpadDirections(from: center, to: point, radius: radius)
                 dpad = (dpad.up || directions.up, dpad.down || directions.down,
@@ -389,7 +813,9 @@ final class PadTouchView: UIView {
         presses.dpad = dpad
         presses.leftStick = left
         presses.rightStick = right
-        presses.floatingCenter = floating
+        presses.isHeld = !grabs.isEmpty
+        presses.floatingLeft = floatingLeft
+        presses.floatingRight = floatingRight
         send(presses.snapshot)
     }
 

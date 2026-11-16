@@ -79,6 +79,9 @@ struct StreamView: View {
     @State private var padLayouts = PadLayoutStore()
     /// Editing the on-screen controller's layout over the game (Quick Settings → Edit Layout).
     @State private var isEditingPad = false
+    /// Bumped by touches on the stream outside the controls: they bring hidden controls back.
+    @State private var padWake = 0
+    @State private var padRouter = PadTouchRouter()
     @State private var rates = ""
     @State private var isLeaving = false
     @State private var isShowingSettings = false
@@ -143,7 +146,8 @@ struct StreamView: View {
                 VideoLayerView(renderer: renderer)
                 TouchInputLayer(mode: touchMode, streamSize: CGSize(width: target.width, height: target.height),
                                 isPaused: !isPlaying || !isSendingInput, onGesture: gesture,
-                                onSwipeProgress: followSwipe,
+                                onSwipeProgress: followSwipe, onTouch: { padWake &+= 1 }, padRouter: padRouter,
+                                allowsGestures: touchMode != .controller, // the actions row stands in for them
                                 keyboardGestures: Set(TouchGesture.active.filter { $0.action == .keyboard }),
                                 followsSwipeLeft: Set(TouchGesture.active.filter {
                                     $0.kind == .swipeLeft && [.controlPanel, .quickSettings].contains($0.action)
@@ -157,11 +161,12 @@ struct StreamView: View {
                 PadEditor(store: padLayouts, layoutID: padLayoutID) { isEditingPad = false }
             } else if showsOnScreenPad {
                 // Touch: Controller, with no real controller connected: an on-screen one, inside the safe area.
-                OnScreenController(layout: padLayouts.layout(padLayoutID.wrappedValue), isPaused: !isPlaying) { pad in
+                OnScreenController(layout: padLayouts.layout(padLayoutID.wrappedValue), isPaused: !isPlaying, wake: padWake,
+                                   router: padRouter, shortcuts: shortcuts.all, perform: perform) { pad in
                     if isSendingInput { controllers.setOnScreen(pad) }
                 }
             }
-            if showsPerformance, let performance, !launcher.isMinimized {
+            if showsPerformance, let performance, !launcher.isMinimized, !isEditingPad {
                 PerformanceOverlay(readout: performance, adaptiveNote: adaptiveNote, history: fpsHistory)
             }
             if let toast {
@@ -179,6 +184,7 @@ struct StreamView: View {
                 // The game stays in view; a tap on it closes the panel.
                 Color.black.opacity(0.25 * panelShown).ignoresSafeArea()
                     .onTapGesture { closePanel() }
+                    .allowsHitTesting(panel != nil) // not while it fades away: the game takes touches at once
                     .gesture(ThreeFingerSwipe(moved: pushPanel, ended: endPush))
                     .transition(.opacity)
                     .zIndex(1) // above the video's layer as it goes, or it vanishes rather than fading
@@ -204,6 +210,7 @@ struct StreamView: View {
                     }
                 }
                 .gesture(ThreeFingerSwipe(moved: pushPanel, ended: endPush))
+                .allowsHitTesting(panel != nil) // not while it slides away
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                 .offset(x: panel == nil && panelPull == nil ? 0 : ControlPanel<EmptyView>.travel * (1 - panelShown))
                 .transition(.move(edge: .trailing))
@@ -385,11 +392,18 @@ struct StreamView: View {
     }
 
     /// A gesture's action (Settings → Experience → Gestures); Keyboard is the touch layer's own.
-    private func gesture(_ gesture: TouchGesture) {
-        switch gesture.action {
-        case .nothing, .keyboard: break
+    private func gesture(_ gesture: TouchGesture) { perform(gesture.action) }
+
+    /// A gesture's or the actions row's action.
+    private func perform(_ action: GestureAction) {
+        switch action {
+        case .nothing: break
+        case .keyboard: padRouter.touchView?.toggleKeyboard() // gestures set to Keyboard do it in the touch layer itself
         case .controlPanel: showMenu(.actions)
         case .quickSettings: showMenu(.settings)
+        case .editLayout:
+            closePanel()
+            isEditingPad = true
         case .overlay:
             showsPerformance.toggle()
             show(showsPerformance ? "Performance overlay on" : "Performance overlay off")

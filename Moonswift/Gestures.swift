@@ -1,13 +1,15 @@
 import SwiftUI
 
 /// What a stream gesture does (Settings → Interface → Experience → Gestures).
-nonisolated enum GestureAction: Hashable {
+nonisolated enum GestureAction: Hashable, Sendable {
     case nothing, keyboard, controlPanel, quickSettings, overlay
+    /// The on-screen controller's layout editor (Controller mode).
+    case editLayout
     /// One of the key shortcuts, by ID.
     case shortcut(String)
 
     /// Every choice but the shortcuts, which come from the shortcut list.
-    static let fixed: [GestureAction] = [.nothing, .keyboard, .controlPanel, .quickSettings, .overlay]
+    static let fixed: [GestureAction] = [.nothing, .keyboard, .controlPanel, .quickSettings, .overlay, .editLayout]
 
     /// How it's saved: "overlay", or "shortcut:alttab".
     var stored: String {
@@ -17,6 +19,7 @@ nonisolated enum GestureAction: Hashable {
         case .controlPanel: "controlPanel"
         case .quickSettings: "quickSettings"
         case .overlay: "overlay"
+        case .editLayout: "editLayout"
         case .shortcut(let id): "shortcut:" + id
         }
     }
@@ -27,6 +30,19 @@ nonisolated enum GestureAction: Hashable {
         self = action
     }
 
+    /// Its button in the on-screen controller's actions row: a symbol, or a shortcut's keys.
+    func rowLabel(_ shortcuts: [KeyShortcut]) -> (symbol: String?, text: String?) {
+        switch self {
+        case .nothing: (nil, nil)
+        case .keyboard: ("keyboard", nil)
+        case .controlPanel: ("square.grid.2x2", nil)
+        case .quickSettings: ("slider.horizontal.3", nil)
+        case .overlay: ("gauge.with.dots.needle.67percent", nil)
+        case .editLayout: ("square.and.pencil", nil)
+        case .shortcut(let id): (nil, shortcuts.first { $0.id == id }?.keys)
+        }
+    }
+
     /// Its name in the Gestures page; a shortcut by its name (`shortcuts`: all of them, to look it up).
     func title(_ shortcuts: [KeyShortcut]) -> String {
         switch self {
@@ -35,6 +51,7 @@ nonisolated enum GestureAction: Hashable {
         case .controlPanel: "Control Panel"
         case .quickSettings: "Quick Settings"
         case .overlay: "Performance Overlay"
+        case .editLayout: "Edit Layout"
         case .shortcut(let id): shortcuts.first { $0.id == id }.map { "\($0.name) (\($0.keys))" } ?? "Nothing"
         }
     }

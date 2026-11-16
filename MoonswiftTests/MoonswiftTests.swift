@@ -1032,3 +1032,60 @@ struct PadLayoutStoreTests {
         #expect(PadEditor.clamped(10) == 32 && PadEditor.clamped(500) == 240)
     }
 }
+
+struct PadPositionTests {
+    @Test func faceButtonsStayEvenlyApartOnAnyScreen() {
+        for area in [CGSize(width: 888, height: 600), CGSize(width: 790, height: 380)] {
+            let centers = PadLayout.standard.items.filter(\.control.isFaceButton).map { ($0.control, $0.center(in: area)) }
+            let point = Dictionary(uniqueKeysWithValues: centers)
+            let distances = [(PadControl.a, PadControl.b), (.b, .y), (.y, .x), (.x, .a)].map { hypot(point[$0]!.x - point[$1]!.x, point[$0]!.y - point[$1]!.y) }
+            #expect(distances.allSatisfy { abs($0 - distances[0]) < 0.001 })
+        }
+    }
+
+    @Test func movedControlsMeasureFromTheNearestEdges() {
+        let area = CGSize(width: 800, height: 400)
+        let item = PadLayout.standard.items[0]
+        let right = item.moved(to: CGPoint(x: 700, y: 300), in: area)
+        #expect(right.across == .trailing && right.x == 100 && right.down == .bottom && right.y == 100)
+        #expect(right.center(in: area) == CGPoint(x: 700, y: 300))
+        let middle = item.moved(to: CGPoint(x: 420, y: 50), in: area)
+        #expect(middle.across == .center && middle.x == 20 && middle.down == .top)
+    }
+
+    @Test func layoutsSavedAsSharesOfTheScreenStillLoad() throws {
+        let old = #"{"id":"old","name":"Old","items":[{"control":"a","x":0.9,"y":0.7,"size":56}],"opacity":0.5,"floatingLeftStick":true}"#
+        let layout = try JSONDecoder().decode(PadLayout.self, from: Data(old.utf8))
+        #expect(layout.opacity == 0.5 && layout.floatingLeftStick && !layout.glass && layout.labels == .xbox)
+        let center = layout.items[0].center(in: CGSize(width: 888, height: 600))
+        #expect(abs(center.x - 799.2) < 0.01 && abs(center.y - 420) < 0.01)
+    }
+}
+
+struct PadGridTests {
+    @Test func snappingKeepsTheEdgeAndRoundsToTheGrid() throws {
+        let item = PadItem(control: .a, .trailing, .bottom, x: 125, y: 101, size: 56).snapped(to: 12)
+        #expect(item.across == .trailing && item.x == 120 && item.y == 96)
+        // Mirror images snap to mirror images: the same distance from opposite edges.
+        let left = PadItem(control: .lb, .leading, .top, x: 137, y: 33, size: 72).snapped(to: 12)
+        let right = PadItem(control: .rb, .trailing, .top, x: 137, y: 33, size: 72).snapped(to: 12)
+        #expect(left.x == right.x && left.y == right.y)
+        let old = #"{"id":"o","name":"O","items":[]}"#
+        #expect(try JSONDecoder().decode(PadLayout.self, from: Data(old.utf8)).hideAfter == 0) // older layouts never hide
+    }
+}
+
+struct PadActionsRowTests {
+    @Test func rowActionsSaveAndControlsStartBelowIt() throws {
+        var layout = PadLayout.standard
+        layout.actions = [.shortcut("alttab")]
+        let saved = try JSONDecoder().decode(PadLayout.self, from: JSONEncoder().encode(layout))
+        #expect(saved.rowActions == [.controlPanel, .shortcut("alttab")]) // Control Center always leads
+        // A layout saved when Control Center was removable gets it back, first, and only once.
+        let old = #"{"id":"o","name":"O","items":[],"showsActions":false,"actions":["keyboard","controlPanel"]}"#
+        #expect(try JSONDecoder().decode(PadLayout.self, from: Data(old.utf8)).rowActions == [.controlPanel, .keyboard])
+        for area in [CGSize(width: 788, height: 380), CGSize(width: 820, height: 600)] {
+            #expect(PadLayout.standard.items.allSatisfy { $0.frame(in: area).minY >= PadLayout.actionStrip })
+        }
+    }
+}
