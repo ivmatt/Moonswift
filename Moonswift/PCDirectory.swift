@@ -48,6 +48,11 @@ nonisolated struct PCRef: Sendable {
     /// whatever answers, to see how games look then.
     static let debugOfflineKey = "MoonswiftOffline"
     static var fakeOffline: Bool { UserDefaults.standard.bool(forKey: debugOfflineKey) }
+    /// Settings → Developer → Hosts Online: every saved host counts as online and paired, with the games saved from
+    /// it last time and nothing running, whatever answers; for working on the app away from the PC.
+    nonisolated static let debugOnlineKey = "MoonswiftOnline"
+    /// Also stands in for the host when launching: a test picture instead of a stream (StreamSession, HostClient).
+    nonisolated static var fakeOnline: Bool { UserDefaults.standard.bool(forKey: debugOnlineKey) }
 
     func setDemo(pcID: String, running: Int) {
         statuses[pcID] = Self.fakeOffline ? .offline : .online(paired: true)
@@ -104,6 +109,17 @@ nonisolated struct PCRef: Sendable {
         if !isManual, isChecking { return }
         isChecking = true
         defer { isChecking = false }
+        #if DEBUG
+        if Self.fakeOnline { // no network: every saved host answers, paired, with nothing running
+            for id in hosts.map(\.uniqueID) {
+                statuses[id] = .online(paired: true)
+                reportedPlaying[id] = 0
+                lastChecked[id] = .now
+                notResponding.remove(id)
+            }
+            return
+        }
+        #endif
         let targets = hosts.map { (id: $0.uniqueID, address: $0.address, remote: $0.remoteAddress,
                                    httpsPort: $0.httpsPort, serverCert: $0.serverCert) }
         await withTaskGroup(of: (String, HostStatus, ServerInfo?, String?).self) { group in
@@ -117,6 +133,7 @@ nonisolated struct PCRef: Sendable {
             for await (id, status, info, address) in group {
                 #if DEBUG
                 if Self.fakeOffline { statuses[id] = .offline; reportedPlaying[id] = 0; lastChecked[id] = .now; continue }
+
                 #endif
                 // One missed check (a slow cellular wake-up, a dropped packet) isn't enough to call a PC offline. Nor is
                 // a paired PC answering only the plain request: its secure one timed out (busy right after a stream),

@@ -81,6 +81,7 @@ struct SettingsView: View {
 
     #if DEBUG
     @AppStorage(PCDirectory.debugOfflineKey) private var debugOffline = false
+    @AppStorage(PCDirectory.debugOnlineKey) private var debugOnline = false
     @AppStorage(FakeStreamFailure.key) private var fakeFailure = FakeStreamFailure.off
     @Environment(PCDirectory.self) private var directory
     #endif
@@ -235,14 +236,20 @@ struct SettingsView: View {
                 if live == nil {
                     Section {
                         Toggle("Hosts Offline", isOn: $debugOffline)
-                            .onChange(of: debugOffline) { if DemoMode.isOn { directory.setDemo(pcID: DemoMode.pcID, running: 1) } }
+                            .onChange(of: debugOffline) {
+                                if debugOffline { debugOnline = false }
+                                if DemoMode.isOn { directory.setDemo(pcID: DemoMode.pcID, running: 1) }
+                            }
+                        Toggle("Hosts Online", isOn: $debugOnline)
+                            .onChange(of: debugOnline) { if debugOnline { debugOffline = false } }
                         Picker("Fail Next Stream", selection: $fakeFailure) {
                             ForEach(FakeStreamFailure.allCases, id: \.self) { Text($0.rawValue) }
                         }
                     } header: {
                         Text("Developer")
                     } footer: {
-                        Text("Debug builds only. Hosts Offline acts as if every host were offline. Fail Next Stream shows that failure page 2 seconds into the next stream, once.")
+                        Text("Debug builds only. Hosts Offline acts as if every host were offline; Hosts Online, as if every saved host "
+                             + "were online and paired, with its saved games (streams can't start). Fail Next Stream shows that failure page 2 seconds into the next stream, once.")
                     }
                 }
                 #endif

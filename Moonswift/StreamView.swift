@@ -82,6 +82,10 @@ struct StreamView: View {
     /// Bumped by touches on the stream outside the controls: they bring hidden controls back.
     @State private var padWake = 0
     @State private var padRouter = PadTouchRouter()
+    #if DEBUG
+    /// Hosts Online's test stream: what the on-screen controller last sent, shown on its picture.
+    @State private var testPad = PadSnapshot()
+    #endif
     @State private var rates = ""
     @State private var isLeaving = false
     @State private var isShowingSettings = false
@@ -144,6 +148,9 @@ struct StreamView: View {
                 .onGeometryChange(for: CGFloat.self) { FoldAvoidance(fold: $0.fold, in: $0.size).lift } action: { foldLift = $0 }
             ZStack {
                 VideoLayerView(renderer: renderer)
+                #if DEBUG
+                if PCDirectory.fakeOnline { TestStreamPicture(title: target.title, pad: testPad) }
+                #endif
                 TouchInputLayer(mode: touchMode, streamSize: CGSize(width: target.width, height: target.height),
                                 isPaused: !isPlaying || !isSendingInput, onGesture: gesture,
                                 onSwipeProgress: followSwipe, onTouch: { padWake &+= 1 }, padRouter: padRouter,
@@ -164,6 +171,9 @@ struct StreamView: View {
                 OnScreenController(layout: padLayouts.layout(padLayoutID.wrappedValue), isPaused: !isPlaying, wake: padWake,
                                    router: padRouter, shortcuts: shortcuts.all, perform: perform) { pad in
                     if isSendingInput { controllers.setOnScreen(pad) }
+                    #if DEBUG
+                    if PCDirectory.fakeOnline { testPad = pad }
+                    #endif
                 }
             }
             if showsPerformance, let performance, !launcher.isMinimized, !isEditingPad {
@@ -818,3 +828,44 @@ private struct StreamFailurePage: View {
         }
     }
 }
+
+#if DEBUG
+/// Settings → Developer → Hosts Online: a moving picture in place of the game, and what the on-screen controller is
+/// sending, so streams and touch controls can be tried with no host.
+private struct TestStreamPicture: View {
+    let title: String
+    let pad: PadSnapshot
+
+    var body: some View {
+        TimelineView(.animation) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            ZStack {
+                LinearGradient(colors: [Color(hue: (t / 20).truncatingRemainder(dividingBy: 1), saturation: 0.5, brightness: 0.35),
+                                        Color(hue: (t / 20 + 0.3).truncatingRemainder(dividingBy: 1), saturation: 0.5, brightness: 0.2)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                VStack(spacing: 10) {
+                    Text(title).font(.largeTitle.weight(.bold))
+                    Text("Test stream · no host").font(.headline).foregroundStyle(.white.opacity(0.7))
+                    Text(readout).font(.system(.body, design: .monospaced)).multilineTextAlignment(.center)
+                        .padding(12).background(.black.opacity(0.35), in: .rect(cornerRadius: 12))
+                }
+                .foregroundStyle(.white)
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    /// The buttons held and where the sticks and triggers are.
+    private var readout: String {
+        let buttons = [("A", pad.a), ("B", pad.b), ("X", pad.x), ("Y", pad.y), ("Up", pad.up), ("Down", pad.down),
+                       ("Left", pad.left), ("Right", pad.right), ("LB", pad.leftShoulder), ("RB", pad.rightShoulder),
+                       ("L3", pad.leftStickClick), ("R3", pad.rightStickClick), ("View", pad.options), ("Menu", pad.menu)]
+            .filter(\.1).map(\.0)
+        func stick(_ s: (x: Float, y: Float)) -> String { String(format: "%+.2f %+.2f", s.x, s.y) }
+        return "Held: \(buttons.isEmpty ? "–" : buttons.joined(separator: " "))\n"
+            + "LT \(String(format: "%.0f", pad.leftTrigger * 100))%  RT \(String(format: "%.0f", pad.rightTrigger * 100))%\n"
+            + "Left \(stick(pad.leftStick))   Right \(stick(pad.rightStick))"
+    }
+}
+#endif
