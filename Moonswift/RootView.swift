@@ -21,6 +21,8 @@ struct RootView: View {
     @Environment(StreamLauncher.self) private var launcher
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
     @State private var tab: TabID
+    /// The first host is being added: the welcome stays until its success page's Get Started.
+    @State private var isSettingUp = false
     @AppStorage(SettingsKey.onlineArtwork) private var findsArtwork = true
     @AppStorage(SettingsKey.artworkKeyVersion) private var artworkKeyVersion = 0
 
@@ -56,7 +58,18 @@ struct RootView: View {
     @State private var showsSettings = false
 
     var body: some View {
-        tabs
+        Group {
+            // Nothing to show or stream until a host is added: just the welcome, no tabs, toolbar or Settings.
+            if hosts.isEmpty || isSettingUp {
+                WelcomeView(isSettingUp: $isSettingUp) {
+                    tab = .home // whatever tab was open before the last host went
+                    withAnimation(.easeOut(duration: 0.6)) { isSettingUp = false }
+                }
+                .transition(.identity) // already black by then
+            } else {
+                tabs.transition(.opacity) // fades in from black after the first host's Get Started
+            }
+        }
         // On iPhone, the tab bar shrinks to a button while you scroll down (Library, Hosts) and gives the
         // short landscape screen its height back; scrolling up or tapping brings it back. Apple's way, over moving it.
         .tabBarMinimizeBehavior(.onScrollDown)

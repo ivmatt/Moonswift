@@ -296,15 +296,7 @@ struct HomeView: View {
             + [([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")]
     }
 
-    private var welcome: some View {
-        ContentUnavailableView {
-            Label("Welcome to Moonswift", systemImage: "play.tv")
-        } description: {
-            Text("Stream games from your host. Start by adding it; it needs to be on and on the same network.")
-        } actions: {
-            Button("Add a Host") { isAdding = true }.buttonStyle(.glassProminent).controlSize(.large)
-        }
-    }
+    private var welcome: some View { WelcomeView(isSettingUp: .constant(false)) } // the app shows it first (RootView)
 
     private var dashboard: some View {
         VStack(alignment: .leading, spacing: 0) {

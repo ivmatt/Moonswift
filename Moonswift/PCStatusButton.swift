@@ -149,15 +149,17 @@ struct PCStatusButton: View {
     }
 }
 
-/// An open ring turning, like a loading arc: the button's "checking" icon.
-private struct ArcSpinner: View {
+/// An open ring turning, like a loading arc: the status button's "checking" icon, and the app's spinner elsewhere.
+struct ArcSpinner: View {
+    var size: CGFloat = 18
+
     @State private var isTurning = false
 
     var body: some View {
         Circle()
             .trim(from: 0, to: 0.72)
             .stroke(style: StrokeStyle(lineWidth: 2.2, lineCap: .round))
-            .frame(width: 18, height: 18)
+            .frame(width: size, height: size)
             .rotationEffect(.degrees(isTurning ? 360 : 0))
             .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: isTurning)
             .onAppear { isTurning = true }

@@ -1,11 +1,14 @@
 import SwiftData
 import SwiftUI
 
-/// Shows a PIN and runs the pairing handshake while the user types it into Vibepollo, then saves the host.
+/// Shows a PIN and runs the pairing handshake while the user types it into the host's web page, then saves the host
+/// and reports its ID and name.
 struct PairingView: View {
     let address: String
     let name: String
-    let onPaired: () -> Void
+    /// B, inside a flow that steps back (Add Host); none: B closes it.
+    var onBack: (() -> Void)? = nil
+    let onPaired: (_ hostID: String, _ name: String) -> Void
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -13,9 +16,12 @@ struct PairingView: View {
     @State private var error: String?
     @State private var attempt = 0
 
-    // shortcut: assumes the default web UI port (HTTP port + 1); a host with remapped ports would show the wrong link.
-    private var webUI: String {
-        "https://\(URLComponents(string: "http://\(address)")?.host ?? address):47990/pin"
+    /// The host's web page: Sunshine-based hosts serve it one port above their main (HTTP) port, 47990 by default,
+    /// so a host moved to another port is followed too.
+    private var webPort: Int { (URLComponents(string: "http://\(address)")?.port ?? 47989) + 1 }
+    /// The same page from this device, over the network (the host lets its local network in by default).
+    private var webUI: URL? {
+        URLComponents(string: "http://\(address)")?.host.flatMap { URL(string: "https://\($0):\(webPort)") }
     }
 
     var body: some View {
@@ -28,10 +34,37 @@ struct PairingView: View {
                 Button("Try Again", action: retry)
                     .buttonStyle(.borderedProminent)
             } else {
-                ProgressView()
-                Text("On your host, open \(webUI) and enter this PIN.")
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 12) {
+                    step(1, "Open the host's web page: on \(name) itself, go to localhost:\(webPort) in a browser.")
+                    if let webUI {
+                        Link(destination: webUI) { Label("Or open it on this device", systemImage: "safari") }
+                            .font(.subheadline.weight(.semibold))
+                            .tint(.blue)
+                            .padding(.leading, 32)
+                    }
+                    step(2, "Sign in, then look for Clients or PIN.")
+                    step(3, "Type this PIN and a name for this device. Moonswift will take care of the rest.")
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
+                            .frame(width: 22)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Some hosts let you choose what your device can do. Make sure to allow this one to:")
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("•  Launch apps")
+                                Text("•  Send controller input")
+                                Text("•  Send keyboard and mouse input")
+                            }
+                            .padding(.leading, 4)
+                            Text("Otherwise, games may not launch or respond.")
+                        }
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .padding(12)
+                    .background(.orange.opacity(0.12), in: .rect(cornerRadius: 12))
+                    .padding(.top, 4)
+                }
+                .frame(maxWidth: 480, alignment: .leading)
+                ArcSpinner(size: 22).foregroundStyle(.secondary)
             }
         }
         .padding()
@@ -39,10 +72,17 @@ struct PairingView: View {
         .task(id: attempt) { await pair() } // cancelled (and the request with it) when the view closes
         .onGamepad { command in
             switch command {
-            case .back: dismiss() // closes the sheet, or pops back to Add PC
+            case .back: if let onBack { onBack() } else { dismiss() }
             case .select: if error != nil { retry() }
             default: break
             }
+        }
+    }
+
+    private func step(_ number: Int, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("\(number)").font(.subheadline.weight(.bold)).frame(width: 22, height: 22).background(.quaternary, in: .circle)
+            Text(text).foregroundStyle(.secondary)
         }
     }
 
@@ -56,10 +96,11 @@ struct PairingView: View {
         do {
             let paired = try await Pairing.pair(address: address, pin: pin)
             // Same uniqueID as an existing host updates it (unique attribute), so re-pairing refreshes it.
-            context.insert(SavedHost(uniqueID: paired.info.uniqueID ?? address, name: paired.info.hostname, address: address,
+            let id = paired.info.uniqueID ?? address
+            context.insert(SavedHost(uniqueID: id, name: paired.info.hostname, address: address,
                                      httpsPort: paired.info.httpsPort, serverCert: paired.serverCert))
             try? context.save() // autosave is on a timer; a quick force-quit would lose the pairing
-            onPaired()
+            onPaired(id, paired.info.hostname)
         } catch {
             if !Task.isCancelled { self.error = error.localizedDescription }
         }

@@ -44,19 +44,17 @@ struct PCsView: View {
     private var sleepable: Set<String> { directory.sleepable }
 
     /// Must match the on-screen order, or up/down feel inverted.
-    private var items: [Item] { hosts.map(Item.saved) + [.add] }
-    private var focusIndex: Int { min(focus, items.count - 1) }
+    private var items: [Item] { hosts.map(Item.saved) } // none: the app shows only its welcome (RootView)
+    private var focusIndex: Int { max(0, min(focus, items.count - 1)) }
 
     var body: some View {
         NavigationStack {
             ScrollViewReader { scroller in
                 List {
                     Section { } header: { TabTitle(text: "Hosts", topInset: topInset).asListHeader() }
-                    Section("My Hosts") {
-                        if hosts.isEmpty {
-                            Text("No hosts yet.").foregroundStyle(.secondary)
-                        }
-                        ForEach(hosts) { host in
+                    // A card each, no heading: the page's title says what they are.
+                    ForEach(hosts) { host in
+                        Section {
                             let active = activeAddresses[host.uniqueID] ?? host.address
                             row(.saved(host)) {
                                 HostRow(name: host.displayName, address: active, status: statuses[host.uniqueID],
@@ -71,29 +69,32 @@ struct PCsView: View {
                                 Button("Edit…", systemImage: "pencil") { editing = host }
                                 Button("Remove Host…", systemImage: "trash", role: .destructive) { confirmRemove(host) }
                             }
-                        }
-                        .onDelete { offsets in
-                            if let index = offsets.first { confirmRemove(hosts[index]) }
-                        }
-                        row(.add) {
-                            Label("Add a New Host", systemImage: "plus.circle")
+                            // Swipe left: Delete, as across iOS (it asks first, since it also unpairs).
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                // Red, but not the destructive role: that hides the row at once, before the user confirms.
+                                Button("Delete", systemImage: "trash") { confirmRemove(host) }.tint(.red)
+                            }
                         }
                     }
                 }
                 .refreshable { await directory.checkAll(hosts, context: context, isManual: true) } // pull down: fresh status now
-                .onChange(of: focusIndex) { withAnimation { scroller.scrollTo(items[focusIndex].id) } }
+                .onChange(of: focusIndex) { if items.indices.contains(focusIndex) { withAnimation { scroller.scrollTo(items[focusIndex].id) } } }
             }
             .tint(.primary) // rows are buttons, but shouldn't look like links
-            .tracksTabBarMinimize().hidesTabBarOnPhone(gamepad.isActive && focusIndex > 0).buttonGuide([([.y], "Host Menu"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")])
+            .tracksTabBarMinimize().hidesTabBarOnPhone(gamepad.isActive && focusIndex > 0).buttonGuide([([.y], "Host Menu"), ([.view], "Add Host"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")])
             .navigationTitle("") // the title is TabTitle, placed like Home's; the bar holds only the gear
-            .toolbar { TabToolbar(hasTopBar: TabToolbar<EmptyView>.hasTopBar(insets: insets), openSettings: openSettings) { EmptyView() } }
+            .toolbar {
+                TabToolbar(hasTopBar: TabToolbar<EmptyView>.hasTopBar(insets: insets), openSettings: openSettings) {
+                    Button("Add Host", systemImage: "plus") { isAdding = true }
+                }
+            }
             .scrollEdgeEffectStyle(.soft, for: .top)
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
             .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets = $0 }
             .sheet(isPresented: $isAdding) { AddHostView() }
             .sheet(item: $pairing) { target in
                 NavigationStack {
-                    PairingView(address: target.address, name: target.name) { pairing = nil }
+                    PairingView(address: target.address, name: target.name) { _, _ in pairing = nil }
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { pairing = nil } }
                         }
@@ -102,16 +103,17 @@ struct PCsView: View {
             .onGamepad { command in
                 switch command {
                 case .up, .down: focus = FocusMove.next(focusIndex, count: items.count, columns: 1, command)
-                case .select: activate(items[focusIndex])
-                case .menu, .alternate: showMenu(items[focusIndex])
+                case .select: if items.indices.contains(focusIndex) { activate(items[focusIndex]) }
+                case .menu, .alternate: if items.indices.contains(focusIndex) { showMenu(items[focusIndex]) }
                 case .settings: openSettings()
+                case .options: isAdding = true // View: Add Host
                 case .previousTab: switchTab(-1)
                 case .nextTab: switchTab(1)
-                case .left, .right, .back, .streamMenu, .options: break
+                case .left, .right, .back, .streamMenu: break
                 }
             }
             .actionMenu($menu)
-            .sheet(item: $editing) { EditPCView(host: $0) }
+            .sheet(item: $editing) { host in EditPCView(host: host) { confirmRemove(host) } }
         }
     }
 
@@ -125,7 +127,9 @@ struct PCsView: View {
         } label: {
             label()
         }
-        .listRowBackground(isFocused ? Color.accentColor.opacity(0.25) : Color(.secondarySystemGroupedBackground))
+        // Its own rounded card, so a swipe moves a rounded card (the list's clipping went square as it slid).
+        .listRowBackground(RoundedRectangle(cornerRadius: 24, style: .continuous)
+            .fill(isFocused ? Color.accentColor.opacity(0.25) : Color(.secondarySystemGroupedBackground)))
         .animation(.snappy(duration: 0.15), value: isFocused)
         .id(item.id) // outermost: under the row background a list doesn't find it to scroll to
     }

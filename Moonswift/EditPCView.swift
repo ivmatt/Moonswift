@@ -3,11 +3,13 @@ import SwiftUI
 
 /// One PC's settings: its name in this app and its home and remote addresses. Addresses are checked before saving
 /// (the same PC must answer there). The place for any future per-PC settings. A controller moves with up/down,
-/// A edits a field (or saves), B stops editing or closes.
+/// A edits a field (or removes), X saves, B stops editing or closes.
 struct EditPCView: View {
     let host: SavedHost
+    /// Remove Host: the Hosts page asks to confirm, and unpairs.
+    var remove: () -> Void = {}
 
-    private enum Field: CaseIterable { case name, address, remote, save }
+    private enum Field: CaseIterable { case name, address, remote, remove }
     /// Why an address can't simply be saved.
     private enum Problem { case differentPC(String), unreachable(String) }
 
@@ -47,8 +49,8 @@ struct EditPCView: View {
                     Text("Used over a secure connection when the host doesn't answer on your home network. Found automatically while you're home; leave empty to remove.")
                 }
                 Section {
-                    row(.save) {
-                        Button(isSaving ? "Checking…" : "Save") { Task { await save() } }.disabled(isSaving)
+                    row(.remove) {
+                        Button("Remove Host", role: .destructive) { removeHost() }
                     }
                 }
             }
@@ -56,6 +58,10 @@ struct EditPCView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                // The standard blue checkmark; a spinner while the addresses are checked.
+                ToolbarItem(placement: .confirmationAction) {
+                    if isSaving { ArcSpinner(size: 18) } else { Button("Save", role: .confirm) { Task { await save() } } }
+                }
             }
             .onAppear {
                 name = host.customName ?? ""
@@ -66,13 +72,20 @@ struct EditPCView: View {
                 let current = Field.allCases[focus]
                 switch command {
                 case .up, .down: focus = FocusMove.next(focus, count: Field.allCases.count, columns: 1, command)
-                case .select: if current == .save { Task { await save() } } else { typing = current }
+                case .select: if current == .remove { removeHost() } else { typing = current }
+                case .alternate: if !isSaving { Task { await save() } }
                 case .back: if typing != nil { typing = nil } else { dismiss() }
                 default: break
                 }
             }
+            .buttonGuide([([.a], "Select"), ([.x], "Save"), ([.b], "Cancel")], reportsLayout: false)
             .actionMenu($menu)
         }
+    }
+
+    private func removeHost() {
+        dismiss()
+        remove()
     }
 
     private func row(_ field: Field, @ViewBuilder content: () -> some View) -> some View {
