@@ -39,6 +39,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.splashScreen) private var showsSplash = true
     @AppStorage(SettingsKey.splashWait) private var splashWait = LaunchSplash.defaultWait
     @AppStorage(SettingsKey.splashEndsOnSound) private var splashEndsOnSound = false
+    @AppStorage(SettingsKey.dualSenseHaptics) private var dualSenseHaptics = true
     @AppStorage(SettingsKey.controlCenterSide) private var controlCenterSide = ControlCenterSide.right
     @State private var focus = 0
     @State private var liveBitrateNote: String?
@@ -51,7 +52,7 @@ struct SettingsView: View {
     @State private var choice: ChoiceMenuSpec?
     @State private var rowFrames = RowFrames()
 
-    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, controllerTest, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
+    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, dualSenseHaptics, controllerTest, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
     private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
     @State private var page = Self.rememberedPage
@@ -73,7 +74,7 @@ struct SettingsView: View {
     }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures, .buttonGuide, .buttonMapping] + (live == nil ? [.controllerTest] : []) + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
+        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures, .buttonGuide, .buttonMapping, .dualSenseHaptics] + (live == nil ? [.controllerTest] : []) + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
         return (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
             + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .touch, .overlay]
     }
@@ -242,6 +243,7 @@ struct SettingsView: View {
                     row(.buttonMapping) {
                         Button("Button Mapping") { isShowingButtonMapping = true }.foregroundStyle(.primary)
                     }
+                    row(.dualSenseHaptics) { Toggle("DualSense Haptics", isOn: $dualSenseHaptics) }
                     if live == nil { // not while streaming: its trigger effects would fight the game's
                         row(.controllerTest) {
                             Button("Controller Test") { isShowingControllerTest = true }.foregroundStyle(.primary)
@@ -251,7 +253,9 @@ struct SettingsView: View {
                     Text("Controller")
                 } footer: {
                     Text("Button Guide: the strip of controller buttons along the bottom; Automatic shows it while a controller "
-                         + "is connected. Controller Test shows what your controller sends, and tries a DualSense's adaptive triggers.")
+                         + "is connected. DualSense Haptics plays the fine vibration games send a DualSense on hosts that pass it on "
+                         + "(Vibepollo); off, those games don't vibrate. Applies from the next stream. Controller Test shows what "
+                         + "your controller sends, and tries its rumble and a DualSense's adaptive triggers.")
                 }
                 if live == nil { // not while streaming
                     Section {
@@ -416,6 +420,7 @@ struct SettingsView: View {
         case .bitrate: break // left/right move the slider
         case .buttonMapping: isShowingButtonMapping = true
         case .controllerTest: isShowingControllerTest = true
+        case .dualSenseHaptics: dualSenseHaptics.toggle()
         case .about: isShowingAbout = true
         case .onlineArtwork: findsArtwork.toggle()
         case .artworkKey: isKeyFocused = true

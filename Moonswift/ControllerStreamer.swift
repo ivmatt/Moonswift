@@ -73,6 +73,8 @@ final class ControllerStreamer {
         var motors: [GCHapticsLocality: HapticMotor] = [:]
         var motionTimers: [UInt8: Timer] = [:]
         var touching = [false, false]
+        /// Stops the grips when the host's waveform haptics go quiet (or a packet is lost).
+        var waveformStop: Task<Void, Never>?
         init(index: Int, controller: GCController) { self.index = index; self.controller = controller }
     }
 
@@ -159,6 +161,21 @@ final class ControllerStreamer {
             slot.motors[.rightHandle]?.set(high)
         } else {
             slot.motors[.default]?.set(max(low, high))
+        }
+    }
+
+    /// One 5 ms piece of the host's waveform haptics (Vibepollo's DualSense extension), already measured: each grip's
+    /// motor follows its side. Pieces come about 200 times a second; if none comes for 50 ms, the grips stop.
+    func playWaveform(controller number: Int, _ frame: WaveformFrame) {
+        guard let slot = slot(number) else { return }
+        slot.motors[.leftHandle]?.set(intensity: frame.left.strength, sharpness: frame.left.sharpness)
+        slot.motors[.rightHandle]?.set(intensity: frame.right.strength, sharpness: frame.right.sharpness)
+        slot.waveformStop?.cancel()
+        slot.waveformStop = Task { [weak slot] in
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !Task.isCancelled, let slot else { return }
+            slot.motors[.leftHandle]?.set(0)
+            slot.motors[.rightHandle]?.set(0)
         }
     }
 
@@ -266,6 +283,8 @@ final class ControllerStreamer {
         if slot.motors[.leftHandle] != nil || slot.motors[.default] != nil { capabilities |= LI_CCAP_RUMBLE }
         if slot.motors[.leftTrigger] != nil { capabilities |= LI_CCAP_TRIGGER_RUMBLE }
         if isPlayStation { capabilities |= LI_CCAP_TOUCHPAD }
+        // LI_CCAP_HAPTICS_PCM (Vibepollo's extension, not in the library's public header): this pad plays waveforms.
+        if pad is GCDualSenseGamepad, WaveformFrame.isOn, slot.motors[.leftHandle] != nil { capabilities |= 0x8000 }
         if slot.controller.motion != nil { capabilities |= LI_CCAP_ACCEL }
         if slot.controller.motion?.hasRotationRate == true { capabilities |= LI_CCAP_GYRO }
         if slot.controller.light != nil { capabilities |= LI_CCAP_RGB_LED }
@@ -360,7 +379,8 @@ final class HapticMotor {
             try engine.start()
             // Intensity starts at 1 because the dynamic intensity is multiplied by it.
             let event = CHHapticEvent(eventType: .hapticContinuous,
-                                      parameters: [CHHapticEventParameter(parameterID: .hapticIntensity, value: 1)],
+                                      parameters: [CHHapticEventParameter(parameterID: .hapticIntensity, value: 1),
+                                                   CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.5)],
                                       relativeTime: 0, duration: TimeInterval(GCHapticDurationInfinite))
             player = try engine.makePlayer(with: CHHapticPattern(events: [event], parameters: []))
         } catch {
@@ -370,9 +390,12 @@ final class HapticMotor {
     }
 
     /// 0 stops the motor; anything else sets its strength out of 65535 for at most 30 seconds.
-    func set(_ amplitude: UInt16) {
+    func set(_ amplitude: UInt16) { set(intensity: Float(amplitude) / 65535, sharpness: 0.5) }
+
+    /// `intensity` 0...1 (0 stops it), for at most 30 seconds; `sharpness` 0 (soft) ... 1 (crisp).
+    func set(intensity: Float, sharpness: Float) {
         safetyStop?.cancel()
-        if amplitude != 0 {
+        if intensity > 0 {
             // Like moonlight-qt (SDL rumble with a 30 s duration): a stop the host never sends can't buzz forever.
             // Vibepollo's virtual DualSense ignores rumble reports without the "compatible vibration" flag,
             // which is how Steam's test left it stuck on. Each new rumble message restarts the clock.
@@ -381,7 +404,7 @@ final class HapticMotor {
                 if !Task.isCancelled { self?.set(0) }
             }
         }
-        if amplitude == 0 {
+        if intensity <= 0 {
             // Silence it first, so it goes quiet even if stopping the endless pattern doesn't take effect.
             let silent = CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: 0, relativeTime: 0)
             try? player.sendParameters([silent], atTime: CHHapticTimeImmediate)
@@ -389,8 +412,10 @@ final class HapticMotor {
             isRunning = false
             return
         }
-        let intensity = CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: Float(amplitude) / 65535, relativeTime: 0)
-        try? player.sendParameters([intensity], atTime: CHHapticTimeImmediate)
+        // The sharpness control is added to the pattern's 0.5.
+        try? player.sendParameters([CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: min(intensity, 1), relativeTime: 0),
+                                    CHHapticDynamicParameter(parameterID: .hapticSharpnessControl, value: sharpness - 0.5, relativeTime: 0)],
+                                   atTime: CHHapticTimeImmediate)
         if !isRunning {
             do {
                 try player.start(atTime: CHHapticTimeImmediate)

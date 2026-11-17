@@ -1132,3 +1132,39 @@ struct QuietRetryTests {
         #expect(!StreamView.shouldQuietlyRetry(connectedAfter: nil, waited: .seconds(8), hasPicture: false, alreadyRetried: false))
     }
 }
+
+struct WaveformHapticsTests {
+    /// 240 stereo frames (5 ms at 48 kHz): a sine of `hertz` at `amplitude` on the left, `rightAmplitude` on the right.
+    static func piece(hertz: Float, amplitude: Float, rightAmplitude: Float = 0) -> [UInt8] {
+        (0..<240).flatMap { frame -> [UInt8] in
+            let phase = 2 * Float.pi * hertz * Float(frame) / 48_000
+            return [amplitude, rightAmplitude].flatMap { level -> [UInt8] in
+                let sample = Int16(sin(phase) * level * 32_767)
+                return [UInt8(truncatingIfNeeded: sample), UInt8(truncatingIfNeeded: sample >> 8)]
+            }
+        }
+    }
+    static func frame(_ bytes: [UInt8]) -> WaveformFrame? { bytes.withUnsafeBytes { WaveformFrame(pcm: $0) } }
+
+    @Test func silenceIsStill() throws {
+        let frame = try #require(Self.frame([UInt8](repeating: 0, count: 960)))
+        #expect(frame.left.strength == 0 && frame.right.strength == 0)
+    }
+
+    @Test func eachSideFollowsItsOwnChannel() throws {
+        let frame = try #require(Self.frame(Self.piece(hertz: 200, amplitude: 0.6)))
+        #expect(frame.left.strength > 0.5 && frame.right.strength == 0)
+    }
+
+    @Test func higherTonesFeelSharper() throws {
+        let low = try #require(Self.frame(Self.piece(hertz: 60, amplitude: 0.6)))
+        let high = try #require(Self.frame(Self.piece(hertz: 300, amplitude: 0.6)))
+        #expect(low.left.sharpness < high.left.sharpness)
+        #expect(high.left.sharpness > 0.8)
+    }
+
+    @Test func rejectsBrokenPieces() {
+        #expect(Self.frame([]) == nil)
+        #expect(Self.frame([1, 2, 3]) == nil) // not whole stereo frames
+    }
+}

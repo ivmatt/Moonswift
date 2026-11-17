@@ -170,6 +170,14 @@ nonisolated private let audioRenderer = AudioRenderer()
                 }
             }
         }
+        // Waveform haptics (only offered to the host while set, and while DualSense Haptics is on): measured here, on the
+        // control thread, as the samples are only valid during the call; just the two sides' numbers go to the main thread.
+        if WaveformFrame.isOn {
+            listener.controllerHaptics = { number, _, pcm, frames in
+                guard let pcm, let frame = WaveformFrame(pcm: UnsafeRawBufferPointer(start: pcm, count: Int(frames) * 4)) else { return }
+                DispatchQueue.main.async { MainActor.assumeIsolated { activeControllers?.playWaveform(controller: Int(number), frame) } }
+            }
+        }
         listener.setMotionEventState = { number, type, rate in
             DispatchQueue.main.async { MainActor.assumeIsolated { activeControllers?.setMotion(controller: Int(number), type: type, rateHz: Int(rate)) } }
         }
