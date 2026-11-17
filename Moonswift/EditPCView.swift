@@ -60,7 +60,7 @@ struct EditPCView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 // The standard blue checkmark; a spinner while the addresses are checked.
                 ToolbarItem(placement: .confirmationAction) {
-                    if isSaving { ArcSpinner(size: 18) } else { Button("Save", role: .confirm) { Task { await save() } } }
+                    if isSaving { ArcSpinner(size: 18) } else { Button(role: .confirm) { Task { await save() } } /* no title: the system's checkmark */ }
                 }
             }
             .onAppear {

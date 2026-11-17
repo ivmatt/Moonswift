@@ -8,10 +8,11 @@ struct AddHostView: View {
     /// The first host: its success page leads into the app (Get Started), which is revealed as the sheet goes.
     var isFirstHost = false
 
-    private enum Step: Equatable {
+    private enum Step: Hashable {
         case ready, find, address, troubleshoot
         case pair(address: String, name: String)
         case done(hostID: String, name: String)
+        case setup
     }
 
     @Environment(\.dismiss) private var dismiss
@@ -27,6 +28,11 @@ struct AddHostView: View {
     @FocusState private var isAddressFocused: Bool
     /// The games didn't come within a while of pairing: the success page shows without them.
     @State private var hasWaitedForGames = false
+    /// Getting Started's page, and the host it follows (Back from its first page returns to that success page).
+    @State private var setupPage = 0
+    /// The way the steps (and Getting Started's pages) last moved: their slide follows it.
+    @State private var isForward = true
+    @State private var paired: (hostID: String, name: String)?
 
     /// Found PCs that aren't paired yet.
     private var found: [HostDiscovery.Found] {
@@ -35,29 +41,25 @@ struct AddHostView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                switch step {
-                case .ready: ready
-                case .find: find
-                case .address: enterAddress
-                case .troubleshoot: troubleshooting
-                case let .pair(address, name):
-                    PairingView(address: address, name: name, onBack: back) { id, name in
-                        withAnimation(.easeInOut(duration: 0.15)) { step = .done(hostID: id, name: name) }
-                    }
-                case let .done(hostID, name): done(hostID: hostID, name: name)
-                }
+            ZStack {
+                stepView
+                    .id(step) // a new view for each step, so it slides in as the last slides out
+                    .transition(Self.slide(forward: isForward))
             }
-            .transition(.opacity) // a quick fade between steps: no slide, which felt slow
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    if case .done = step { EmptyView() } else if step == .ready { Button("Cancel") { dismiss() } }
-                    else { Button("Back", systemImage: "chevron.backward", action: back) }
+                    switch step {
+                    case .ready: Button("Cancel") { dismiss() }
+                    case .done: EmptyView()
+                    default: Button("Back", systemImage: "chevron.backward", action: back)
+                    }
                 }
             }
             .tint(.primary)
+            // A swipe down closes it until the PIN shows; from then on it's seen through (pairing, then Getting Started).
+            .interactiveDismissDisabled(!isClosable)
             .onAppear { discovery.start() }
             .onDisappear { discovery.stop() }
             .buttonGuide(hints, reportsLayout: false)
@@ -73,7 +75,38 @@ struct AddHostView: View {
         case .address: [([.a], isAddressFocused ? "Connect" : addressProblem != nil ? "Troubleshooting" : "Type"), ([.b], "Back")]
         case .troubleshoot: [([.b], "Back")]
         case .pair: [([.b], "Back")]
-        case .done: [([.a], isFirstHost ? "Get Started" : "Done")]
+        case .done: [([.a], isFirstHost ? "Continue" : "Done")]
+        case .setup: []
+        }
+    }
+
+    @ViewBuilder private var stepView: some View {
+        switch step {
+        case .ready: ready
+        case .find: find
+        case .address: enterAddress
+        case .troubleshoot: troubleshooting
+        case let .pair(address, name):
+            PairingView(address: address, name: name, onBack: back) { id, name in
+                advance(to: .done(hostID: id, name: name))
+            }
+        case let .done(hostID, name): done(hostID: hostID, name: name)
+        case .setup:
+            FirstRunSetup(pageIndex: $setupPage, isForward: $isForward, hostID: paired?.hostID ?? "", backFromFirst: back) { dismiss() }
+        }
+    }
+
+    /// Forward: the next step slides in from the trailing edge as this one leaves by the leading; back, the reverse.
+    static func slide(forward: Bool) -> AnyTransition {
+        .asymmetric(insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
+                    removal: .move(edge: forward ? .leading : .trailing).combined(with: .opacity))
+    }
+
+    /// Before pairing starts: a swipe down (or B on the first page) closes it.
+    private var isClosable: Bool {
+        switch step {
+        case .ready, .find, .address, .troubleshoot: true
+        case .pair, .done, .setup: false
         }
     }
 
@@ -84,7 +117,8 @@ struct AddHostView: View {
         case .address: "Manually Add Host"
         case .troubleshoot: "Troubleshooting"
         case .pair: "Pair"
-        case .done: "All Set"
+        case .done: isFirstHost ? "Paired" : "All Set"
+        case .setup: "Getting Started"
         }
     }
 
@@ -104,14 +138,16 @@ struct AddHostView: View {
         .frame(maxWidth: 560)
         .frame(maxWidth: .infinity)
         }
-        // At the sheet's bottom, whatever the page's length.
-        .safeAreaInset(edge: .bottom) {
+        // At the sheet's bottom, whatever the page's length; the page blurs and fades under it.
+        .safeAreaBar(edge: .bottom) {
             Button { advance(to: .find) } label: { Text("Continue").frame(width: 200) }
                 .buttonStyle(.glassProminent)
                 .tint(.blue) // the page's white tint made it white on white
                 .controlSize(.large)
                 .focusRing(gamepad.isActive, cornerRadius: .infinity)
-                .padding(.bottom, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
+                .fadingBarBackground()
         }
     }
 
@@ -189,6 +225,7 @@ struct AddHostView: View {
                 .tint(.blue)
                 .controlSize(.large)
                 .disabled(isConnecting || address.trimmingCharacters(in: .whitespaces).isEmpty)
+                .frame(maxWidth: .infinity) // centred
             }
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets())
@@ -226,15 +263,15 @@ struct AddHostView: View {
     }
 
     private func tip(_ symbol: String, _ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
-            Image(systemName: symbol).frame(width: 28).foregroundStyle(.secondary)
+        HStack(alignment: .center, spacing: 14) { // like Before you start: centred on its text, in one column
+            Image(systemName: symbol).frame(width: 30).foregroundStyle(.secondary)
             Text(text).fixedSize(horizontal: false, vertical: true) // wraps, never "…"
         }
     }
 
     @ViewBuilder private func done(hostID: String, name: String) -> some View {
         let count = catalog.games(on: [hostID]).count
-        if count == 0 && !hasWaitedForGames {
+        if count == 0 && !hasWaitedForGames && !isFirstHost { // the first host's are fetched during Getting Started
             // Paired: its games next, so the success page (and the app after it) has them.
             VStack(spacing: 16) {
                 ArcSpinner(size: 34).foregroundStyle(.secondary)
@@ -254,12 +291,13 @@ struct AddHostView: View {
     private func success(name: String, count: Int) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill").font(.system(size: isFirstHost ? 88 : 64)).foregroundStyle(.green)
-            Text(isFirstHost ? "You're all set" : "\(name) is ready").font(isFirstHost ? .largeTitle.bold() : .title2.bold())
-            Text(isFirstHost ? "\(name) is paired. " + (count > 0 ? "\(count) games and apps are waiting for you." : "Its games are on their way.")
-                 : count > 0 ? "\(count) games and apps found." : "Loading its games…")
+            // "All set" only for another host: the first one has a few settings to go.
+            Text(isFirstHost ? "\(name) is paired" : "You're all set").font(isFirstHost ? .largeTitle.bold() : .title2.bold())
+            Text(isFirstHost ? "While we grab your games, let's go through a few quick settings."
+                 : "\(name) is ready" + (count > 0 ? " with \(count) games and apps." : "."))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button { dismiss() } label: { Text(isFirstHost ? "Get Started" : "Done").frame(width: 200) }
+            Button { finishPairing() } label: { Text(isFirstHost ? "Continue" : "Done").frame(width: 200) }
                 .buttonStyle(.glassProminent)
                 .tint(.blue) // the page's white tint made it white on white
                 .controlSize(.large)
@@ -271,20 +309,32 @@ struct AddHostView: View {
 
     // MARK: Moving between steps
 
-    private func advance(to next: Step) {
+    private func finishPairing() {
+        guard isFirstHost else { return dismiss() }
+        if case let .done(hostID, name) = step { paired = (hostID, name) }
+        setupPage = 0
+        advance(to: .setup)
+    }
+
+    private func advance(to next: Step, forward: Bool = true) {
         focus = 0
-        withAnimation(.easeInOut(duration: 0.15)) { step = next }
+        isForward = forward
+        withAnimation(.easeInOut(duration: 0.3)) { step = next }
     }
 
     private func back() {
         isAddressFocused = false
         switch step {
-        case .ready, .done: dismiss()
-        case .find: advance(to: .ready)
+        case .ready: dismiss()
+        case .done: break // paired: the flow goes on from here
+        case .setup:
+            if setupPage > 0 { isForward = false; withAnimation(.easeInOut(duration: 0.3)) { setupPage -= 1 } }
+            else if let paired { advance(to: .done(hostID: paired.hostID, name: paired.name), forward: false) }
+        case .find: advance(to: .ready, forward: false)
         case .address, .pair:
             addressProblem = nil // a fresh start next time
-            advance(to: .find)
-        case .troubleshoot: withAnimation(.easeInOut(duration: 0.15)) { step = .address } // the failed address and its message stay
+            advance(to: .find, forward: false)
+        case .troubleshoot: advance(to: .address, forward: false) // the failed address and its message stay
         }
     }
 
@@ -323,7 +373,8 @@ struct AddHostView: View {
             }
         case .troubleshoot: break
         case .pair: break // the pairing screen handles A (Try Again)
-        case .done: if command == .select { dismiss() }
+        case .done: if command == .select { finishPairing() }
+        case .setup: break // its own pages handle the controller
         }
     }
 }
@@ -336,13 +387,19 @@ struct HostChecklist: View {
             check("power", "Your PC is on.")
             check("play.display", "A Sunshine-based host is installed and running on it (Vibepollo recommended).")
             check("wifi", "It's on the same network as this device. Remote access can be set up after pairing.")
+            check("gamecontroller", "Your games are added in the host's app list. Moonswift shows what's there, so games "
+                  + "that aren't added won't appear here.", isImportant: true)
         }
     }
 
-    private func check(_ symbol: String, _ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
-            Image(systemName: symbol).frame(width: 28).foregroundStyle(.secondary)
-            Text(text).fixedSize(horizontal: false, vertical: true) // wraps, never "…"
+    /// `isImportant`: easy to miss, and Moonswift looks broken without it (games not added on the host).
+    private func check(_ symbol: String, _ text: String, isImportant: Bool = false) -> some View {
+        // Centred on its point, however many lines it wraps to; all in one column, whatever each symbol's width.
+        HStack(alignment: .center, spacing: 14) {
+            Image(systemName: symbol).frame(width: 30).foregroundStyle(isImportant ? Color.orange : .secondary)
+            Text(text)
+                .fontWeight(isImportant ? .semibold : nil)
+                .fixedSize(horizontal: false, vertical: true) // wraps, never "…"
         }
     }
 }
@@ -358,29 +415,41 @@ struct WelcomeView: View {
     @Environment(GamepadInput.self) private var gamepad
 
     var body: some View {
-        ContentUnavailableView {
-            Label("Welcome to Moonswift", systemImage: "play.tv")
-        } description: {
-            Text("Stream games from your PC. Start by adding it as a host.")
-        } actions: {
+        welcome
+            .background(Color(.systemBackground).ignoresSafeArea())
+            .buttonGuide([([.a], "Add a Host")], reportsLayout: false)
+            .onGamepad { if $0 == .select { add() } }
+            // As it goes, the app fades in from black (or, cancelled before pairing, the welcome stays).
+            .sheet(isPresented: $isAdding, onDismiss: finish) {
+                AddHostView(isFirstHost: true)
+            }
+    }
+
+    private var welcome: some View {
+        VStack(spacing: 22) {
+            AppIconMark(size: 132)
+            VStack(spacing: 10) {
+                Text("Welcome to Moonswift").font(.largeTitle.bold())
+                Text("Stream games from your PC. Start by adding it as a host.")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
             Button("Add a Host") { add() }
+                .font(.title3.weight(.semibold))
                 .buttonStyle(.glassProminent)
                 .tint(.blue)
                 .controlSize(.large)
                 .focusRing(gamepad.isActive, cornerRadius: .infinity)
+                .padding(.top, 6)
         }
-        // Gone once a host is paired: behind the success page it's black, and the app fades in from that.
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Gone once a host is paired: behind the sheet it's black, and the app fades in from that.
         .opacity(hosts.isEmpty ? 1 : 0)
         .animation(.easeOut(duration: 0.2), value: hosts.isEmpty)
         // Centred on the whole screen: the Duo's status column on one side made it sit off to the other.
         .ignoresSafeArea()
-        .background(Color(.systemBackground).ignoresSafeArea())
-        .buttonGuide([([.a], "Add a Host")], reportsLayout: false)
-        .onGamepad { if $0 == .select { add() } }
-        // As it goes, the app is revealed (or, cancelled before pairing, the welcome stays).
-        .sheet(isPresented: $isAdding, onDismiss: finish) {
-            AddHostView(isFirstHost: true)
-        }
     }
 
     private func add() {
@@ -388,8 +457,48 @@ struct WelcomeView: View {
         isAdding = true
     }
 
-    /// Cancelled before pairing: the welcome stays. Paired: the app fades in.
+    /// Cancelled before pairing: the welcome stays. Paired: the app fades in from black.
     private func finish() {
         if hosts.isEmpty { isSettingUp = false } else { reveal() }
+    }
+}
+
+extension View {
+    /// Behind a bar of buttons at a page's bottom: the page blurs and fades into the sheet's colour under it, starting
+    /// a little above it, rather than running into the buttons or ending at a hard edge.
+    func fadingBarBackground() -> some View {
+        background {
+            ZStack {
+                Rectangle().fill(.ultraThinMaterial)
+                Color(.systemBackground).opacity(0.55)
+            }
+            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.45)],
+                                 startPoint: .top, endPoint: .bottom))
+            .padding(.top, -28)
+            .ignoresSafeArea()
+        }
+    }
+}
+
+/// The app icon, drawn: its moon on its teal-to-navy gradient, in the icon's rounded square. (The icon itself comes
+/// from Icon Composer and can't be shown as an image.)
+struct AppIconMark: View {
+    var size: CGFloat = 120
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: size * 0.225, style: .continuous)
+            .fill(LinearGradient(colors: [Color(red: 0, green: 0.743, blue: 0.798), Color(red: 0.01, green: 0.188, blue: 0.456)],
+                                 startPoint: .top, endPoint: .bottom))
+            .frame(width: size, height: size)
+            .overlay {
+                Image("MoonswiftLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(.white)
+                    .frame(width: size * 0.56)
+                    .offset(y: -size * 0.03)
+            }
+            .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
+            .accessibilityHidden(true)
     }
 }

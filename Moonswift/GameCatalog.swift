@@ -345,6 +345,42 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         try? FileManager.default.removeItem(at: Self.folder.appending(path: "\(pcID).json"))
     }
 
+    /// Removing a host with its data: also everything kept for its games (art found online and its matches, your own
+    /// pictures, names, hidden, Show As, splash waits, controller layouts) and its favourites and play history. Games
+    /// another saved host also has keep theirs.
+    func forgetEverything(of pcID: String, keepingGamesOf others: [String]) {
+        let kept = Set(games(on: others).map(\.id))
+        let gone = games(on: [pcID]).map(\.id).filter { !kept.contains($0) }
+        for id in gone {
+            for kind in Artwork.allCases {
+                try? FileManager.default.removeItem(at: foundFile(id, kind))
+                foundCache.removeObject(forKey: foundFile(id, kind).path as NSString)
+                try? FileManager.default.removeItem(at: Self.customFolder.appending(path: "\(Self.fileKey(gameID: id)).\(kind.rawValue).jpg"))
+                artwork[kind]?[id] = nil
+            }
+            foundKinds[id] = nil
+            foundMatches[id] = nil
+            onlineArtOff.remove(id)
+            nicknames[id] = nil
+            hidden.remove(id)
+            showAs[id] = nil
+            splashWaits[id] = nil
+            padLayouts[id] = nil
+        }
+        let encoder = JSONEncoder()
+        try? encoder.encode(foundMatches).write(to: Self.foundFolder.appending(path: "matches.json"), options: .atomic)
+        try? encoder.encode(onlineArtOff).write(to: Self.foundFolder.appending(path: "off.json"), options: .atomic)
+        try? encoder.encode(nicknames).write(to: Self.customFolder.appending(path: "nicknames.json"), options: .atomic)
+        try? encoder.encode(hidden).write(to: Self.customFolder.appending(path: "hidden.json"), options: .atomic)
+        try? encoder.encode(showAs).write(to: Self.customFolder.appending(path: "showAs.json"), options: .atomic)
+        try? encoder.encode(splashWaits).write(to: Self.customFolder.appending(path: "splashWaits.json"), options: .atomic)
+        try? encoder.encode(padLayouts).write(to: Self.customFolder.appending(path: "padLayouts.json"), options: .atomic)
+        UserDefaults.standard.removeObject(forKey: "favorites.\(pcID)")
+        UserDefaults.standard.removeObject(forKey: "lastPlayed.\(pcID)")
+        histories[pcID] = nil
+        forget(pcID)
+    }
+
     /// All games of the saved PCs, one entry per title, newest played first, then by name.
     func games(on pcIDs: [String]) -> [CatalogGame] {
         _ = (apps, histories, nicknames, hidden, showAs) // read even when cached, so views still follow their changes

@@ -48,7 +48,8 @@ struct PairingView: View {
                         Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
                             .frame(width: 22)
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Some hosts let you choose what your device can do. Make sure to allow this one to:")
+                            Text("Some hosts limit what each device can do. Allow this one to:")
+                                .fixedSize(horizontal: false, vertical: true) // wraps, never "…"
                             VStack(alignment: .leading, spacing: 3) {
                                 Text("•  Launch apps")
                                 Text("•  Send controller input")
@@ -56,6 +57,7 @@ struct PairingView: View {
                             }
                             .padding(.leading, 4)
                             Text("Otherwise, games may not launch or respond.")
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .font(.subheadline.weight(.medium))
@@ -64,7 +66,6 @@ struct PairingView: View {
                     .padding(.top, 4)
                 }
                 .frame(maxWidth: 480, alignment: .leading)
-                ArcSpinner(size: 22).foregroundStyle(.secondary)
             }
         }
         .padding()

@@ -1,6 +1,7 @@
 import MoonlightCore
 import Network
 import SwiftUI
+import Synchronization
 
 /// What the library screen hands over after a successful Launch or Resume.
 struct StreamTarget: Hashable, Identifiable {
@@ -40,7 +41,7 @@ struct StreamView: View {
     @Environment(GameCatalog.self) private var catalog
     @Environment(\.scenePhase) private var scenePhase
     @Environment(GamepadInput.self) private var gamepad
-    @AppStorage("touchMode") private var touchMode = TouchMode.touchscreen
+    @AppStorage("touchMode") private var touchMode = TouchMode.automatic
     @State private var session = StreamSession()
     @State private var controllers = ControllerStreamer()
     @State private var keyboardMouse = KeyboardMouseStreamer()
@@ -62,7 +63,9 @@ struct StreamView: View {
     }
 
     /// Touch: Controller draws a controller on screen, unless a real one is connected (it takes over).
-    private var showsOnScreenPad: Bool { touchMode == .controller && !gamepad.isControllerConnected && !launcher.isMinimized }
+    /// Automatic resolved: the on-screen controller without a game controller, the touchscreen with one.
+    private var activeTouchMode: TouchMode { touchMode.resolved(controllerConnected: gamepad.isControllerConnected) }
+    private var showsOnScreenPad: Bool { activeTouchMode == .controller && !gamepad.isControllerConnected && !launcher.isMinimized }
 
     /// A swipe left set to Quick Settings pulls the panel out on that tab.
     private var pullsQuickSettings: Bool {
@@ -103,6 +106,19 @@ struct StreamView: View {
     /// The stream's loud audio when the first picture came, so only sound after it counts.
     @State private var loudAtFirstPicture = 0
     static let pictureTimeout: Duration = .seconds(15)
+    /// When this attempt first showed as connected, and whether it has been quietly quit and retried.
+    @State private var connectedAt: ContinuousClock.Instant?
+    @State private var hasQuietlyRetried = false
+
+    /// Vibepollo, sometimes: the connection is up almost at once (the splash skips "Connecting…") but no picture ever
+    /// comes, and only Quit & Retry fixes it. Seen that way, it's quit and relaunched once, behind the splash.
+    // shortcut: the cause is likely the host reusing a stale virtual display (its "retained resume reuse"); this works
+    // around it from the client. Drop it if the host is fixed.
+    nonisolated static func shouldQuietlyRetry(connectedAfter: Duration?, waited: Duration, hasPicture: Bool,
+                                               alreadyRetried: Bool) -> Bool {
+        guard !hasPicture, !alreadyRetried, let connectedAfter else { return false }
+        return connectedAfter <= .milliseconds(1500) && waited >= .seconds(5)
+    }
     // Not @AppStorage: the once-a-second loop runs on the copy of this view from when the stream started, whose
     // @AppStorage values don't follow later changes (Stream Settings). Reading UserDefaults is always current.
     private var adaptive: Bool { UserDefaults.standard.bool(forKey: SettingsKey.adaptiveBitrate) }
@@ -118,11 +134,12 @@ struct StreamView: View {
         menu == nil && panel == nil && !isEditingPad && !isShowingSettings && scenePhase == .active && !launcher.isMinimized
             && launcher.splash == nil
     }
-    /// The splash's line while it's up: what the connection is doing; nil once the picture is in.
+    /// The splash's line while it's up: what's happening, in calm words; nil once the picture is in.
     private var splashStatus: String? {
-        switch session.state {
-        case .connecting: "Connecting to your game…"
-        case .connected where !session.hasPicture: "Almost there…"
+        if isRestarting, hasQuietlyRetried { return "Refreshing the display…" } // the quiet Quit & Retry
+        return switch session.state {
+        case .connecting: "Stabilizing connection…"
+        case .connected where !session.hasPicture: "Tuning the display…"
         default: nil
         }
     }
@@ -147,10 +164,10 @@ struct StreamView: View {
                 #if DEBUG
                 if PCDirectory.fakeOnline { TestStreamPicture(title: target.title, source: readout) }
                 #endif
-                TouchInputLayer(mode: touchMode, streamSize: CGSize(width: target.width, height: target.height),
+                TouchInputLayer(mode: activeTouchMode, streamSize: CGSize(width: target.width, height: target.height),
                                 isPaused: !isPlaying || !isSendingInput, onGesture: gesture,
                                 onSwipeProgress: followSwipe, onTouch: { padWake &+= 1 }, padRouter: padRouter,
-                                allowsGestures: touchMode != .controller, // the actions row stands in for them
+                                allowsGestures: activeTouchMode != .controller, // the actions row stands in for them
                                 keyboardGestures: Set(TouchGesture.active.filter { $0.action == .keyboard }),
                                 followsSwipeLeft: Set(TouchGesture.active.filter {
                                     $0.kind == .swipeLeft && [.controlPanel, .quickSettings].contains($0.action)
@@ -485,7 +502,7 @@ struct StreamView: View {
             }
             launcher.streamEnded()
             next()
-            if let quitError { launcher.menu = .error(quitError.localizedDescription) }
+            if let quitError { launcher.menu = .error(quitError) }
         }
     }
 
@@ -540,6 +557,7 @@ struct StreamView: View {
                 session.start(host: client, target: target, renderer: renderer)
                 session.refresh() // shows "connecting" now, so the coming "connected" is a change that clears the status
                 waitingSince = .now
+                connectedAt = nil
                 status = nil // "Connecting…" and "Starting…" take over until the picture arrives
                 isRestarting = false // from here, an ending is real
             } catch {
@@ -578,6 +596,14 @@ struct StreamView: View {
             session.refresh()
             let now = ContinuousClock.now
             if stats.videoFrames > 0 { launcher.notePicture() }
+            if connectedAt == nil, stats.state == .connected { connectedAt = now }
+            if failure == nil, !isRestarting, !isLeaving, launcher.canRelaunch,
+               Self.shouldQuietlyRetry(connectedAfter: connectedAt.map { $0 - waitingSince }, waited: now - waitingSince,
+                                       hasPicture: stats.videoFrames > 0, alreadyRetried: hasQuietlyRetried) {
+                hasQuietlyRetried = true
+                liveStats.withLock { $0.append("Connected at once with no picture: quit and retry, quietly") }
+                reconnect("Starting \(target.title)…", fresh: true)
+            }
             // Connected (or still trying) with no picture: the game didn't start, or the host can't capture yet.
             if stats.videoFrames == 0, failure == nil, !isRestarting, !isLeaving, now - waitingSince > Self.pictureTimeout,
                stats.state == .connecting || stats.state == .connected {

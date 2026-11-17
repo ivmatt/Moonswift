@@ -43,7 +43,8 @@ struct ServerInfoTests {
     @Test func missingPermissionNamesItWithoutTheHostSoftware() {
         let error = ServerInfoError.hostError(code: 403, message: #"Permission denied: this device lacks the "Launch applications" permission. Enable it on the host in the Vibepollo Web UI under Client Management."#)
         let text = error.errorDescription ?? ""
-        #expect(text.contains(#"Turn on its "Launch applications" permission"#) && !text.contains("Vibepollo"))
+        #expect(text.contains(#"Turn on "Launch applications" for this device"#) && !text.contains("Vibepollo"))
+        #expect(error.title == "Permission needed")
     }
 
     @Test func garbageIsMalformed() {
@@ -565,8 +566,9 @@ private func MoonswiftDERFromPEM(_ pem: String) -> Data? { der(fromPEM: pem) }
 struct ErrorMessageTests {
     @Test func networkErrorsSayWhatToCheck() {
         #expect(ServerInfoError.unreachable(.timedOut).localizedDescription.contains("asleep"))
-        #expect(ServerInfoError.hostError(code: 401, message: "x").localizedDescription.contains("pair again"))
-        #expect(ServerInfoError.certificateChanged.localizedDescription.contains("pair again"))
+        #expect(ServerInfoError.hostError(code: 401, message: "x").localizedDescription.contains("add it again"))
+        #expect(ServerInfoError.certificateChanged.localizedDescription.contains("add it again"))
+        #expect(ServerInfoError.certificateChanged.title == "Pair again")
     }
 
     @Test func portAdviceBlamesTheRightSide() {
@@ -1108,5 +1110,18 @@ struct SteamGridDBTests {
         #expect(SteamGridDB.cleaned("Celeste (2018)") == "Celeste")
         #expect(SteamGridDB.cleaned("Hollow Knight: Silksong") == "Hollow Knight: Silksong")
         #expect(SteamGridDB.cleaned("Assassin's Creed Black Flag Resynced") == "Assassin's Creed Black Flag Resynced")
+    }
+}
+
+struct QuietRetryTests {
+    @Test func onlyAnInstantConnectionWithNoPictureIsRetried() {
+        // Connected at once, still no picture after 5 s: retried, once.
+        #expect(StreamView.shouldQuietlyRetry(connectedAfter: .seconds(1), waited: .seconds(5), hasPicture: false, alreadyRetried: false))
+        #expect(!StreamView.shouldQuietlyRetry(connectedAfter: .seconds(1), waited: .seconds(5), hasPicture: false, alreadyRetried: true))
+        // Too early to tell, a picture came, a normal (slower) connection, or not connected yet: left alone.
+        #expect(!StreamView.shouldQuietlyRetry(connectedAfter: .seconds(1), waited: .seconds(3), hasPicture: false, alreadyRetried: false))
+        #expect(!StreamView.shouldQuietlyRetry(connectedAfter: .seconds(1), waited: .seconds(8), hasPicture: true, alreadyRetried: false))
+        #expect(!StreamView.shouldQuietlyRetry(connectedAfter: .seconds(3), waited: .seconds(8), hasPicture: false, alreadyRetried: false))
+        #expect(!StreamView.shouldQuietlyRetry(connectedAfter: nil, waited: .seconds(8), hasPicture: false, alreadyRetried: false))
     }
 }

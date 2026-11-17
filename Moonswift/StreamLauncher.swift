@@ -31,7 +31,7 @@ import SwiftUI
     /// The game's art from Play until it's showing, over the host's desktop and launchers (Settings → Experience →
     /// Splash Screen).
     var splash: LaunchSplash?
-    /// "Connecting to your game…" and "Almost there…" from the stream; nil once its picture is up and it's holding.
+    /// "Stabilizing connection…" and "Tuning the display…" from the stream; nil once its picture is up and it's holding.
     var splashStatus: String?
     /// Where Home's hero is, so the splash can grow from it.
     @ObservationIgnored var homeHeroFrame: CGRect?
@@ -203,11 +203,10 @@ import SwiftUI
             } catch where isResume {
                 endSplash()
                 forgetSession(on: pc.id)
-                menu = .error("Couldn't resume \(app?.title ?? "the game") on \(pc.name). It may have closed, or the host restarted. "
-                              + error.localizedDescription)
+                menu = .error("\(app?.title ?? "The game") may have closed, or \(pc.name) restarted.", title: "Couldn't resume")
             } catch {
                 endSplash()
-                menu = .error(error.localizedDescription)
+                menu = .error(error)
             }
             busy = nil
             revision += 1
@@ -342,10 +341,10 @@ private struct StreamLauncherPresentation: ViewModifier {
                 if let splash = launcher.splash {
                     // While the host starts it, then the stream's own words; once the picture is up and it's only
                     // holding, how to skip.
-                    let working = launcher.busy.map { $0.hasPrefix("Resuming") ? "Picking up where you left off…" : "Getting your game ready…" }
+                    let working = launcher.busy.map { $0.hasPrefix("Resuming") ? "Picking up where you left off…" : "Starting your game…" }
                         ?? launcher.splashStatus
                     let canSkip = working == nil && launcher.stream != nil
-                    LaunchSplashView(splash: splash, status: working ?? "Almost there…", canSkip: canSkip) {
+                    LaunchSplashView(splash: splash, status: working ?? "Getting things ready…", canSkip: canSkip) {
                         if canSkip { launcher.endSplash() }
                     }
                     .transition(.opacity)

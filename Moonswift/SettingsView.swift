@@ -32,7 +32,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = false
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
     @AppStorage(SettingsKey.playAudioOnPC) private var playAudioOnPC = false
-    @AppStorage("touchMode") private var touchMode = TouchMode.touchscreen
+    @AppStorage("touchMode") private var touchMode = TouchMode.automatic
     @AppStorage(SettingsKey.hdr) private var hdr = false
     @AppStorage(SettingsKey.buttonGuide) private var buttonGuide = ButtonGuideMode.automatic
     @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = true
@@ -185,7 +185,8 @@ struct SettingsView: View {
                     Text("While Streaming")
                 } footer: {
                     Text("Sound always plays on this device; Play Sound on Host also plays it from the host's speakers, from the next "
-                         + "stream. Touch: Touchscreen sends your fingers as touches, Trackpad moves the pointer, and Controller "
+                         + "stream. Touch: Automatic is the on-screen controller, or the touchscreen while a real controller is "
+                         + "connected; Touchscreen sends your fingers as touches, Trackpad moves the pointer, and Controller "
                          + "puts a game controller on screen (hidden while a real one is connected). The overlay shows live "
                          + "frame rate, bitrate, delay and packet loss in a corner of the stream.")
                 }

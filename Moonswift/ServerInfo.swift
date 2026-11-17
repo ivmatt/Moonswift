@@ -45,7 +45,7 @@ nonisolated struct ServerInfo: Equatable {
     }
 }
 
-nonisolated enum ServerInfoError: LocalizedError, Equatable {
+nonisolated enum ServerInfoError: LocalizedError, Equatable, TitledError {
     case invalidAddress
     case insecureBlocked
     case unreachable(URLError.Code)
@@ -55,26 +55,36 @@ nonisolated enum ServerInfoError: LocalizedError, Equatable {
     case hostError(code: Int, message: String)
     case malformedResponse
 
+    var title: String {
+        switch self {
+        case .hostError(code: 403, let message) where message.contains("permission"): "Permission needed"
+        case .certificateChanged, .hostError(code: 401, _): "Pair again"
+        case .unreachable(.notConnectedToInternet): "No network"
+        case .unreachable: "Host not responding"
+        case .invalidAddress: "Check the address"
+        case .insecureBlocked: "Pair at home first"
+        default: "Something went wrong"
+        }
+    }
+
     var errorDescription: String? {
         switch self {
-        case .invalidAddress: "Enter an IP address or hostname, optionally with :port."
-        case .insecureBlocked: "Moonswift only uses unencrypted connections on your home network. Pair at home; afterwards the host also works remotely over a secure connection."
+        case .invalidAddress: "Enter an address like 192.168.1.50, with :port after it if your host uses another."
+        case .insecureBlocked: "Pair on your home network. After that, your host works away from home too."
         case .unreachable(.notConnectedToInternet): "This device isn't connected to a network."
         case .unreachable(.timedOut), .unreachable(.cannotConnectToHost), .unreachable(.networkConnectionLost):
-            "The host isn't responding. It may be asleep or off, or its streaming software isn't running."
-        case .unreachable(.cannotFindHost), .unreachable(.dnsLookupFailed): "This host's name couldn't be found on the network."
-        case .unreachable(let code): "Can't reach the host (network error \(code.rawValue))."
-        case .certificateChanged:
-            "This host's identity has changed, for example after its streaming software was reinstalled. Remove it and pair again."
-        case .httpStatus(let code): "The host answered with HTTP \(code)."
-        case .hostError(code: 401, _): "This host no longer recognizes this device. Remove it and pair again."
-        // The host names the missing permission; its own wording names the host's software, so it's said here instead.
+            "It may be asleep or off, or its host app isn't running."
+        case .unreachable(.cannotFindHost), .unreachable(.dnsLookupFailed): "That name wasn't found on your network."
+        case .unreachable(let code): "Couldn't reach it (network error \(code.rawValue))."
+        case .certificateChanged: "Your host changed, maybe after a reinstall. Remove it and add it again."
+        case .httpStatus(let code): "Your host sent an unexpected reply (\(code))."
+        case .hostError(code: 401, _): "Your host doesn't recognise this device anymore. Remove it and add it again."
+        // The host names the missing permission ("Launch applications"); its own wording names its software.
         case .hostError(code: 403, let message) where message.contains("permission"):
-            "This device isn't allowed to do that on the host. "
-            + (message.split(separator: "\"").dropFirst().first.map { "Turn on its \"\($0)\" permission" } ?? "Turn on its permissions")
-            + " in the host's web settings, under Client Management, or set them when pairing it."
-        case .hostError(let code, let message): "The host reported an error (\(code)): \(message)"
-        case .malformedResponse: "The host's reply wasn't understood."
+            (message.split(separator: "\"").dropFirst().first.map { "Turn on \"\($0)\" for this device" } ?? "Turn on this device's permissions")
+            + " in your host's settings, under Clients."
+        case .hostError(let code, let message): "Your host reported a problem (\(code)): \(message)"
+        case .malformedResponse: "Your host sent a reply Moonswift didn't understand."
         }
     }
 }

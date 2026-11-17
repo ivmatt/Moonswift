@@ -196,7 +196,7 @@ struct QuickSettingsPanel: View {
     @State private var focusIndex = 0
 
     private enum Row: Hashable { case bitrate, overlay, touch, layout, editLayout, more }
-    private var rows: [Row] { [.bitrate, .overlay, .touch] + (touchMode == .controller ? [.layout, .editLayout] : []) + [.more] }
+    private var rows: [Row] { [.bitrate, .overlay, .touch] + (touchMode.usesOnScreenController ? [.layout, .editLayout] : []) + [.more] }
     private var focus: Row { rows[min(focusIndex, rows.count - 1)] }
     @State private var bitrateNote: String?
     @State private var bitrateChange: Task<Void, Never>?
@@ -228,7 +228,7 @@ struct QuickSettingsPanel: View {
                     .pickerStyle(.segmented)
                 }
                 .panelRow(isFocused(.touch))
-                if touchMode == .controller {
+                if touchMode.usesOnScreenController {
                     HStack {
                         Text("Layout")
                         Spacer()

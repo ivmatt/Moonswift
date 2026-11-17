@@ -63,7 +63,7 @@ struct RootView: View {
             if hosts.isEmpty || isSettingUp {
                 WelcomeView(isSettingUp: $isSettingUp) {
                     tab = .home // whatever tab was open before the last host went
-                    withAnimation(.easeOut(duration: 0.6)) { isSettingUp = false }
+                    withAnimation(.easeInOut(duration: 1.4)) { isSettingUp = false } // slowly, from black
                 }
                 .transition(.identity) // already black by then
             } else {
@@ -224,18 +224,18 @@ struct RootView: View {
         guard let host = hosts.first(where: { request.matches(pcID: $0.uniqueID, name: $0.displayName)
                                               || request.matches(pcID: $0.uniqueID, name: $0.name) }) else {
             LaunchRouter.shared.pending = nil
-            return menu = .error("There's no host called \(request.pc) in Moonswift.")
+            return menu = .error("There's no host called \(request.pc) in Moonswift.", title: "Host not found")
         }
         guard let status = directory.statuses[host.uniqueID] else { return } // still checking
         LaunchRouter.shared.pending = nil
         guard status == .online(paired: true) else {
-            return menu = .error("\(host.displayName) isn't available. It may be asleep or off, or not paired.")
+            return menu = .error("It may be asleep or off, or not paired.", title: "\(host.displayName) isn't available")
         }
         let pc = directory.ref(host)
         Task {
             await catalog.refresh(pc, force: true)
             guard let app = request.game(in: catalog.apps[pc.id] ?? []) else {
-                return menu = .error("\(pc.name) has no game called \(request.game).")
+                return menu = .error("\(pc.name) has no game called \(request.game).", title: "Game not found")
             }
             let running = directory.playing[pc.id] ?? 0
             launcher.play(app, on: pc, running: running, runningTitle: catalog.title(of: running, on: pc.id))
@@ -295,7 +295,7 @@ extension CatalogGame {
     guard let source = game.source(directory: directory, catalog: catalog),
           let host = hosts.first(where: { $0.uniqueID == source.pcID }) else {
         let names = game.sources.compactMap { source in hosts.first { $0.uniqueID == source.pcID }?.displayName }
-        launcher.menu = .error("\(names.first ?? "Its PC") isn't available right now. It may be asleep or off.")
+        launcher.menu = .error("It may be asleep or off.", title: "\(names.first ?? "Its host") isn't available")
         return
     }
     let running = directory.playing[source.pcID] ?? 0

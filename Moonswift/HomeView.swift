@@ -41,6 +41,8 @@ struct HomeView: View {
     @State private var selectedID: String?
     @State private var focusRow = 1
     @State private var heroButton = 0 // 0 Play/Resume, 1 Quit
+    /// The last selection was a tap on a cover: the row doesn't scroll to it.
+    @State private var isTouchSelection = false
     /// An iPhone in landscape (not the Duo, whose rail is beside the page): the page is laid out as if there were no tab
     /// bar, which floats over the covers when it shows, and tucks itself away to a small button a moment after Home
     /// comes up (iOS can't shrink its bar on command, only while scrolling, which Home doesn't).
@@ -513,6 +515,7 @@ struct HomeView: View {
                                       cornerRadius: isShortAndWide ? 10 : 14)
                                 .frame(width: coverWidth)
                                 .onTapGesture { // selects only: Play starts it, so a stray second tap can't
+                                    isTouchSelection = true // it's in view already: the row stays put
                                     withAnimation(.snappy) { selectedID = game.id }
                                     focusRow = 1
                                 }
@@ -527,7 +530,10 @@ struct HomeView: View {
                 .scrollClipDisabled() // the focused cover's shadow fades out instead of ending in a hard edge
                 .fixedSize(horizontal: false, vertical: true) // as tall as the covers, not a share of the spare height
                 // Follows the selection, and the selected game when playing it moves it to the front.
+                // Not for a touch: a long press on a cover also selected it, and the row slid under the context
+                // menu's lifted cover, which stayed put until the menu closed.
                 .onChange(of: "\(selected ?? "")|\(selectedIndex)") {
+                    if isTouchSelection { isTouchSelection = false; return }
                     withAnimation { scroller.scrollTo(selected, anchor: .center) }
                 }
         }
@@ -643,9 +649,12 @@ private struct HeroCard: View {
             Text(game.title)
                 .font(.system(size: isShort ? shortTitleSize : titleSize, weight: .bold))
                 .foregroundStyle(.primary)
-                .lineLimit(2)
+                .lineLimit(3) // wraps within half the screen; shrinks only past three lines
                 .minimumScaleFactor(0.6)
+                .fixedSize(horizontal: false, vertical: true)
                 .contentTransition(.opacity)
+                // A little over half the screen at most, so a long name wraps rather than running across the art.
+                .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in width * 0.55 }
             HStack(spacing: 12) {
                 Button(action: play) {
                     Text(isRunning ? labels.resume : "Play").font(.headline).frame(width: 140)

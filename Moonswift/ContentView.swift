@@ -169,7 +169,7 @@ struct PCsView: View {
                 do {
                     try await client.sleep()
                 } catch {
-                    menu = .error(error.localizedDescription)
+                    menu = .error(error)
                 }
             }
         }])
@@ -179,11 +179,15 @@ struct PCsView: View {
         let isPaired = !host.serverCert.isEmpty
         menu = MenuSpec(title: "Remove \(host.displayName)?",
                         message: isPaired ? "This device is also unpaired on the host. Adding it again needs a new PIN." : nil,
-                        actions: [.init(title: "Remove Host", isDestructive: true) { Task { await remove(host) } }])
+                        actions: [.init(title: "Remove Host", isDestructive: true) { Task { await remove(host) } },
+                                  // Its games' art (found or yours), names and history too: a fresh start if it's added again.
+                                  .init(title: "Remove Host and Its Data", isDestructive: true) {
+                                      Task { await remove(host, withData: true) }
+                                  }])
     }
 
     /// Unpairs on the PC when it answers, then forgets it here.
-    private func remove(_ host: SavedHost) async {
+    private func remove(_ host: SavedHost, withData: Bool = false) async {
         var unpairedOnPC = host.serverCert.isEmpty // nothing to undo on a PC that was never paired
         if !unpairedOnPC {
             let client = HostClient(hostID: host.uniqueID, address: activeAddresses[host.uniqueID] ?? host.address,
@@ -191,12 +195,16 @@ struct PCsView: View {
             unpairedOnPC = (try? await client.unpair()) != nil
         }
         let name = host.displayName
-        catalog.forget(host.uniqueID)
+        if withData {
+            catalog.forgetEverything(of: host.uniqueID, keepingGamesOf: hosts.map(\.uniqueID).filter { $0 != host.uniqueID })
+        } else {
+            catalog.forget(host.uniqueID)
+        }
         context.delete(host)
         try? context.save()
         if !unpairedOnPC {
-            menu = .error("\(name) was removed here, but it couldn't be reached to unpair. It still lists this device; "
-                          + "remove it in the host's streaming software to stop it from connecting.")
+            menu = .error("It couldn't be reached to unpair, so it still lists this device. Remove it there, under Clients.",
+                          title: "\(name) removed here only")
         }
     }
 

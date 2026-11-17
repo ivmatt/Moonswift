@@ -43,39 +43,51 @@ nonisolated struct LaunchSession: Hashable, Sendable {
     let riKeyID: Int32
 }
 
-nonisolated enum PowerError: LocalizedError, Equatable {
+nonisolated enum PowerError: LocalizedError, Equatable, TitledError {
     case notAllowed, busy, failed(Int)
+
+    var title: String { self == .notAllowed ? "Permission needed" : "Couldn't sleep host" }
 
     var errorDescription: String? {
         switch self {
-        case .notAllowed: "This device isn't allowed to put the host to sleep. Turn on \"Allow this device to put the host to sleep\" for it in the streaming software's web page on the host."
-        case .busy: "The host is busy. Quit the running game and end any stream, then try again."
-        case .failed(let code): "The host didn't go to sleep (error \(code))."
+        case .notAllowed: "Allow this device to put your host to sleep, in your host's settings under Clients."
+        case .busy: "Quit the game and end any stream first, then try again."
+        case .failed(let code): "Your host didn't go to sleep (error \(code))."
         }
     }
 }
 
-nonisolated struct ClipboardError: LocalizedError, Equatable {
+nonisolated struct ClipboardError: LocalizedError, Equatable, TitledError {
     let status: Int
+
+    var title: String { status == 401 ? "Permission needed" : "Clipboard unavailable" }
 
     var errorDescription: String? {
         switch status {
-        case 401: "This device isn't allowed to use the host's clipboard. Turn on the clipboard permissions for it in the streaming software's web page on the host."
-        case 403: "The clipboard is only shared during a stream."
+        case 401: "Allow this device to use the clipboard, in your host's settings under Clients."
+        case 403: "The clipboard can only be shared during a stream."
         case 404, 405: "This host doesn't share its clipboard."
-        default: "The clipboard couldn't be shared (error \(status))."
+        default: "Couldn't share the clipboard (error \(status))."
         }
     }
 }
 
-nonisolated enum GameError: LocalizedError, Equatable {
+nonisolated enum GameError: LocalizedError, Equatable, TitledError {
     case launchFailed, quitFailed
     case permissionDenied(String)
 
+    var title: String {
+        switch self {
+        case .launchFailed: "Game didn't start"
+        case .quitFailed: "Game didn't quit"
+        case .permissionDenied: "Permission needed"
+        }
+    }
+
     var errorDescription: String? {
         switch self {
-        case .launchFailed: "The host didn't start the game."
-        case .quitFailed: "The host didn't quit the game."
+        case .launchFailed: "Your host couldn't start it. Try again, or check it opens on the PC."
+        case .quitFailed: "Your host couldn't close it. Try again, or close it on the PC."
         case .permissionDenied(let message): message
         }
     }
