@@ -133,7 +133,6 @@ nonisolated struct PCRef: Sendable {
             for await (id, status, info, address) in group {
                 #if DEBUG
                 if Self.fakeOffline { statuses[id] = .offline; reportedPlaying[id] = 0; lastChecked[id] = .now; continue }
-
                 #endif
                 // One missed check (a slow cellular wake-up, a dropped packet) isn't enough to call a PC offline. Nor is
                 // a paired PC answering only the plain request: its secure one timed out (busy right after a stream),

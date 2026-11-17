@@ -62,8 +62,6 @@ import SwiftUI
         withAnimation(.easeInOut(duration: 0.6)) { splash = nil }
     }
 
-
-
     /// `running` is the PC's running game ID (0: none) and `runningTitle` its name, for the quit question.
     func play(_ app: HostApp, on pc: PCRef, running: Int, runningTitle: String?) {
         guard busy == nil else { return }

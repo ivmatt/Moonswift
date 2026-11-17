@@ -49,7 +49,7 @@ nonisolated let liveStats = Mutex(StreamStats())
 var activeVideoRenderer: VideoRenderer?
 /// Set while controllers are being streamed; receives the host's rumble, motion and light requests.
 var activeControllers: ControllerStreamer?
-nonisolated private let audioRenderer = AudioRenderer()
+private nonisolated let audioRenderer = AudioRenderer()
 
 /// One streaming connection: starts moonlight-common-c after a successful /launch or /resume.
 @Observable final class StreamSession {
@@ -269,7 +269,7 @@ nonisolated func terminationReason(_ code: Int32) -> String {
 
 /// Sets the failure message. When the failure involved network ports, tests them against Moonlight's test server
 /// (like moonlight-ios) and adds who is blocking them: this network, or the PC's side.
-nonisolated private func reportFailure(_ state: @escaping @Sendable (String) -> StreamStats.State, _ message: String, ports: UInt32) {
+private nonisolated func reportFailure(_ state: @escaping @Sendable (String) -> StreamStats.State, _ message: String, ports: UInt32) {
     guard ports != 0 else { return liveStats.withLock { $0.state = state(message) } }
     let checking = state(message + "\n\nChecking your network…")
     liveStats.withLock { $0.state = checking }
@@ -297,7 +297,7 @@ nonisolated func portNames(_ flags: UInt32) -> String {
     return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
 }
 
-nonisolated private func videoFormatName(_ format: Int32) -> String {
+private nonisolated func videoFormatName(_ format: Int32) -> String {
     if format & VIDEO_FORMAT_MASK_H265 != 0 { return format & VIDEO_FORMAT_MASK_10BIT != 0 ? "HEVC 10-bit" : "HEVC" }
     if format & VIDEO_FORMAT_MASK_H264 != 0 { return "H.264" }
     if format & VIDEO_FORMAT_MASK_AV1 != 0 { return format & VIDEO_FORMAT_MASK_10BIT != 0 ? "AV1 10-bit" : "AV1" }

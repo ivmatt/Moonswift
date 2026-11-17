@@ -592,10 +592,10 @@ struct OnScreenKeyboardTests {
     }
 }
 
-struct GameLibraryTests {
+struct GameHistoryTests {
     @Test func savesPerPC() throws {
-        let defaults = try #require(UserDefaults(suiteName: "GameLibraryTests"))
-        defaults.removePersistentDomain(forName: "GameLibraryTests")
+        let defaults = try #require(UserDefaults(suiteName: "GameHistoryTests"))
+        defaults.removePersistentDomain(forName: "GameHistoryTests")
         let history = GameHistory(favorites: ["U2"], lastPlayed: ["U1": Date(timeIntervalSince1970: 5)])
         history.save(hostID: "pc", to: defaults)
         #expect(GameHistory.load(hostID: "pc", from: defaults) == history)

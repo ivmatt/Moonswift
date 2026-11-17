@@ -44,6 +44,7 @@ nonisolated enum ControlCenterSide: String, CaseIterable { case right = "Right",
 
 nonisolated enum SettingsKey {
     static let controlCenterSide = "controlCenterSide"
+    static let touchMode = "touchMode" // TouchMode
     static let coverShape = "coverShape"
     static let onlineArtwork = "onlineArtwork" // Bool, on by default: art from SteamGridDB, once its key is set
     static let artworkKeyVersion = "artworkKeyVersion" // Int, bumped as the SteamGridDB key changes: looks up again

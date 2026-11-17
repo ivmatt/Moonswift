@@ -193,7 +193,7 @@ nonisolated struct AV1SequenceHeader: Equatable {
 }
 
 /// Reads big-endian bit fields, AV1's f(n). Reading past the end gives zeros and sets `isPastEnd`.
-nonisolated private struct BitReader {
+private nonisolated struct BitReader {
     private let bytes: [UInt8]
     private var position = 0 // in bits
     private(set) var isPastEnd = false

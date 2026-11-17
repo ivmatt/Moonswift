@@ -931,7 +931,7 @@ struct TabBarFrames {
     var bar: CGRect
     var button: CGRect
 
-    @MainActor static func read() -> TabBarFrames? {
+    static func read() -> TabBarFrames? {
         guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first
         else { return nil }
         var bar: CGRect?, button: CGRect?
@@ -949,7 +949,7 @@ struct TabBarFrames {
         return TabBarFrames(bar: bar, button: button)
     }
 
-    @MainActor static var fallback: TabBarFrames {
+    static var fallback: TabBarFrames {
         let size = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.bounds.size }.first
             ?? CGSize(width: 912, height: 420)
         return TabBarFrames(bar: CGRect(x: (size.width - 266) / 2, y: size.height - 64, width: 266, height: 44),

@@ -7,7 +7,7 @@ import SwiftUI
 // here within a second or two, without building or installing.
 
 /// The app's shared models, as MyApp makes them in demo mode.
-@MainActor private final class PreviewModels {
+private final class PreviewModels {
     let gamepad = GamepadInput()
     let directory = PCDirectory()
     let catalog = GameCatalog()

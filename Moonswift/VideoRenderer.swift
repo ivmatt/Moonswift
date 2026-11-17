@@ -259,7 +259,7 @@ nonisolated enum HDRMetadata {
     }
 }
 
-nonisolated private extension Data {
+private nonisolated extension Data {
     mutating func appendBigEndian<T: FixedWidthInteger>(_ value: T) {
         Swift.withUnsafeBytes(of: value.bigEndian) { append(contentsOf: $0) }
     }

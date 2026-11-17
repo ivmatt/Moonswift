@@ -41,7 +41,7 @@ struct StreamView: View {
     @Environment(GameCatalog.self) private var catalog
     @Environment(\.scenePhase) private var scenePhase
     @Environment(GamepadInput.self) private var gamepad
-    @AppStorage("touchMode") private var touchMode = TouchMode.automatic
+    @AppStorage(SettingsKey.touchMode) private var touchMode = TouchMode.automatic
     @State private var session = StreamSession()
     @State private var controllers = ControllerStreamer()
     @State private var keyboardMouse = KeyboardMouseStreamer()

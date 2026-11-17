@@ -40,7 +40,7 @@ import UIKit
 enum ButtonGuideWindow {
     private static var window: UIWindow?
 
-    @MainActor static func install(center: ButtonGuideCenter, gamepad: GamepadInput, tabBar: TabBarMinimize, launcher: StreamLauncher) {
+    static func install(center: ButtonGuideCenter, gamepad: GamepadInput, tabBar: TabBarMinimize, launcher: StreamLauncher) {
         guard window == nil,
               let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
         let window = PassthroughWindow(windowScene: scene)
@@ -55,7 +55,7 @@ enum ButtonGuideWindow {
 
     /// The status bar and home indicator follow the app's screen on top (hidden during a stream), not this window,
     /// which, being the topmost, iOS asks instead: the status bar showed over games.
-    @MainActor static func refreshSystemOverlays() {
+    static func refreshSystemOverlays() {
         window?.rootViewController?.setNeedsStatusBarAppearanceUpdate()
         window?.rootViewController?.setNeedsUpdateOfHomeIndicatorAutoHidden()
         window?.rootViewController?.setNeedsUpdateOfScreenEdgesDeferringSystemGestures()

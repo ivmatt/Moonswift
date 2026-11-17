@@ -75,7 +75,7 @@ nonisolated struct KeyShortcut: Codable, Hashable, Identifiable {
 }
 
 /// Your shortcuts and which ones the control center shows, kept on this device.
-@MainActor @Observable final class KeyShortcutStore {
+@Observable final class KeyShortcutStore {
     private(set) var custom: [KeyShortcut]
     /// The control center's buttons, in order (IDs of built-in and your own).
     private(set) var pinnedIDs: [String]

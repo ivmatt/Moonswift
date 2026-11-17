@@ -285,7 +285,7 @@ extension CatalogGame {
 }
 
 /// Plays a catalog game from any screen, or explains why it can't.
-@MainActor func play(_ game: CatalogGame, hosts: [SavedHost], directory: PCDirectory, catalog: GameCatalog,
+func play(_ game: CatalogGame, hosts: [SavedHost], directory: PCDirectory, catalog: GameCatalog,
                      launcher: StreamLauncher) {
     // Another device is playing it: joining it, after asking.
     if let other = game.elsewhere(directory, catalog), let join = other.join,
@@ -304,7 +304,7 @@ extension CatalogGame {
 }
 
 /// Quits a running catalog game on its PC, or ends another device's session playing it; after asking.
-@MainActor func quit(_ game: CatalogGame, hosts: [SavedHost], directory: PCDirectory, catalog: GameCatalog,
+func quit(_ game: CatalogGame, hosts: [SavedHost], directory: PCDirectory, catalog: GameCatalog,
                      launcher: StreamLauncher) {
     if let other = game.elsewhere(directory, catalog), let end = other.end,
        let host = hosts.first(where: { $0.uniqueID == other.pcID }) {

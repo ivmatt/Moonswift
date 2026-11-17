@@ -17,4 +17,9 @@ nonisolated struct GameHistory: Equatable, Sendable {
         defaults.set(favorites.sorted(), forKey: "favorites.\(hostID)")
         defaults.set(lastPlayed, forKey: "lastPlayed.\(hostID)")
     }
+
+    static func remove(hostID: String, from defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: "favorites.\(hostID)")
+        defaults.removeObject(forKey: "lastPlayed.\(hostID)")
+    }
 }

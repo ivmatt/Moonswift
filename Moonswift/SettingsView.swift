@@ -32,7 +32,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = SettingsKey.adaptiveBitrateDefault
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
     @AppStorage(SettingsKey.playAudioOnPC) private var playAudioOnPC = false
-    @AppStorage("touchMode") private var touchMode = TouchMode.automatic
+    @AppStorage(SettingsKey.touchMode) private var touchMode = TouchMode.automatic
     @AppStorage(SettingsKey.hdr) private var hdr = ScreenInfo.supportsHDR
     @AppStorage(SettingsKey.buttonGuide) private var buttonGuide = ButtonGuideMode.automatic
     @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = true
@@ -440,7 +440,7 @@ struct SettingsView: View {
 /// A live bitrate change from a slider (Stream Settings, or the control panel's Quick Settings): "Applying…" at once,
 /// then sent once the slider or controller has rested for 600 ms (each move starts the wait again), and what the host
 /// said shown instead.
-@MainActor func applyLiveBitrate(_ kbps: Int, replacing pending: Task<Void, Never>?, send: @escaping (Int) async -> String,
+func applyLiveBitrate(_ kbps: Int, replacing pending: Task<Void, Never>?, send: @escaping (Int) async -> String,
                                  note: @escaping (String) -> Void) -> Task<Void, Never> {
     pending?.cancel()
     note("Applying…")

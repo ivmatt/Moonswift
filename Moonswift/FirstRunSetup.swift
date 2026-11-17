@@ -21,7 +21,7 @@ struct FirstRunSetup: View {
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage(SettingsKey.onlineArtwork) private var findsArtwork = true
     @AppStorage(SettingsKey.artworkKeyVersion) private var artworkKeyVersion = 0
-    @AppStorage("touchMode") private var touchMode = TouchMode.automatic
+    @AppStorage(SettingsKey.touchMode) private var touchMode = TouchMode.automatic
     @AppStorage(SettingsKey.splashScreen) private var showsSplash = true
     @AppStorage(SettingsKey.splashWait) private var splashWait = LaunchSplash.defaultWait
     @AppStorage(SettingsKey.splashEndsOnSound) private var splashEndsOnSound = false

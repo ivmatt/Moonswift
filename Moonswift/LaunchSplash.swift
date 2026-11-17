@@ -18,7 +18,7 @@ struct LaunchSplash: Equatable {
     /// Filling the screen (false: still the size and place of Home's hero, about to grow).
     var isGrown = true
 
-    @MainActor init(title: String, catalog: GameCatalog, from: CGRect?, wait: Int) {
+    init(title: String, catalog: GameCatalog, from: CGRect?, wait: Int) {
         let hero = catalog.shownHero(for: title.lowercased())
         self.title = title
         art = Self.art(for: title, catalog: catalog)
@@ -28,7 +28,7 @@ struct LaunchSplash: Equatable {
     }
 
     /// The game's hero picture, else a cover; nil for none.
-    @MainActor static func art(for title: String, catalog: GameCatalog) -> UIImage? {
+    static func art(for title: String, catalog: GameCatalog) -> UIImage? {
         let id = title.lowercased()
         return catalog.shownHero(for: id) ?? CoverShape.allCases.lazy.compactMap { catalog.shownCover(for: id, $0) }.first
     }

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The on-screen controller's layouts, kept on this device: Standard (editable, and Reset brings it back) and the ones
 /// you make.
-@MainActor @Observable final class PadLayoutStore {
+@Observable final class PadLayoutStore {
     private(set) var layouts: [PadLayout]
 
     init() {

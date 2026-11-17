@@ -384,8 +384,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
             padLayouts[id] = nil
         }
         saveSettings()
-        UserDefaults.standard.removeObject(forKey: "favorites.\(pcID)")
-        UserDefaults.standard.removeObject(forKey: "lastPlayed.\(pcID)")
+        GameHistory.remove(hostID: pcID)
         histories[pcID] = nil
         forget(pcID)
     }
