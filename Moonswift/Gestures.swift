@@ -35,7 +35,7 @@ nonisolated enum GestureAction: Hashable, Sendable {
         switch self {
         case .nothing: (nil, nil)
         case .keyboard: ("keyboard", nil)
-        case .controlPanel: ("square.grid.2x2", nil)
+        case .controlPanel: ("switch.2", nil)
         case .quickSettings: ("slider.horizontal.3", nil)
         case .overlay: ("gauge.with.dots.needle.67percent", nil)
         case .editLayout: ("square.and.pencil", nil)

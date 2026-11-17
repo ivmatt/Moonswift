@@ -39,11 +39,12 @@ import SwiftUI
     @ObservationIgnored var launchesFromHero = false
     private var showsSplash: Bool { UserDefaults.standard.object(forKey: SettingsKey.splashScreen) as? Bool ?? true }
 
-    private func showSplash(_ title: String) {
+    /// `isResume`: no Splash Wait, as the game is already past its launchers.
+    func showSplash(_ title: String, isResume: Bool = false) {
         defer { launchesFromHero = false }
         guard showsSplash else { return }
         splashStatus = nil
-        let wait = catalog.splashWaits[title.lowercased()]
+        let wait = isResume ? 0 : catalog.splashWaits[title.lowercased()]
             ?? UserDefaults.standard.object(forKey: SettingsKey.splashWait) as? Int ?? LaunchSplash.defaultWait
         var new = LaunchSplash(title: title, catalog: catalog, from: launchesFromHero ? homeHeroFrame : nil, wait: wait)
         guard new.from != nil else { return withAnimation(.easeInOut(duration: 0.35)) { splash = new } }
@@ -82,7 +83,7 @@ import SwiftUI
                                            videoFormats: settings.formats)
             }
         } else if app.id == running {
-            showSplash(app.title)
+            showSplash(app.title, isResume: true)
             perform("Resuming \(app.title)…", on: pc, streaming: app, isResume: true) { [settings = Self.settings] in
                 try await pc.client.resume(app, width: settings.width, height: settings.height, fps: settings.fps,
                                            videoFormats: settings.formats)
@@ -289,13 +290,13 @@ import SwiftUI
     private static var settings: Settings {
         let defaults = UserDefaults.standard
         let resolution = defaults.string(forKey: SettingsKey.resolution).flatMap(ResolutionOption.init) ?? .fullScreen
-        let saved = defaults.object(forKey: SettingsKey.fps) as? Int ?? 60
+        let saved = defaults.object(forKey: SettingsKey.fps) as? Int ?? ScreenInfo.defaultFPS
         let fps = StreamSettings.frameRates(screenMaximum: ScreenInfo.maximumFramesPerSecond).contains(saved) ? saved : 60
         let size = StreamSettings.size(for: resolution, nativePixels: ScreenInfo.nativePixels, safeAreaPixels: ScreenInfo.safeAreaPixels)
         let codec = defaults.string(forKey: SettingsKey.codec).flatMap(CodecOption.init) ?? .automatic
         let formats = StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware,
                                                   av1InHardware: ScreenInfo.av1InHardware,
-                                                  hdr: ScreenInfo.supportsHDR && defaults.bool(forKey: SettingsKey.hdr))
+                                                  hdr: ScreenInfo.supportsHDR && defaults.object(forKey: SettingsKey.hdr) as? Bool ?? true)
         return Settings(width: size.width, height: size.height, fps: fps,
                         bitrate: StreamSettings.effectiveBitrate(saved: defaults.integer(forKey: SettingsKey.bitrate),
                                                                  width: size.width, height: size.height, fps: fps),
@@ -321,14 +322,7 @@ private struct StreamLauncherPresentation: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .overlay {
-                if let busy = launcher.busy, launcher.splash == nil { // the splash says it itself
-                    ZStack {
-                        Color.black.opacity(0.3).ignoresSafeArea()
-                        ProgressView(busy).padding(24).background(.regularMaterial, in: .rect(cornerRadius: 16))
-                    }
-                }
-            }
+            .busyBox(launcher.splash == nil ? launcher.busy : nil) // the splash says it itself
             // Over the app rather than a full-screen cover, so it can shrink into a window and keep streaming.
             .overlay {
                 if let target = launcher.stream, let client = launcher.client {

@@ -204,6 +204,8 @@ final class TouchInputView: UIView, UIKeyInput {
     var keyboardGestures: Set<TouchGesture> = []
     /// The finger counts whose swipe left pulls out the control panel.
     var followsSwipeLeft: Set<Int> = []
+    /// The Control Center is on the left: the swipe that pulls it out goes right.
+    var pullsFromLeft = false
     var allowsFourFingers = false
     /// The hold fired: lifting the fingers afterwards isn't a swipe.
     private var didHold = false
@@ -343,7 +345,8 @@ final class TouchInputView: UIView, UIKeyInput {
             pinchSamples.removeAll { time - $0.time > 0.12 }
         }
         if followsSwipeLeft.contains(start.count) {
-            let pull = StreamGesture.leftPull(start: start, now: now)
+            let mirror = { (points: [CGPoint]) in self.pullsFromLeft ? points.map { CGPoint(x: -$0.x, y: $0.y) } : points }
+            let pull = StreamGesture.leftPull(start: mirror(start), now: mirror(now))
             pulled = pull ?? 0
             onSwipeProgress(pull)
         }
@@ -543,6 +546,7 @@ struct TouchInputLayer: UIViewRepresentable {
     var allowsGestures = true
     var keyboardGestures: Set<TouchGesture> = []
     var followsSwipeLeft: Set<Int> = []
+    var pullsFromLeft = false
     var allowsFourFingers = false
 
     func makeUIView(context: Context) -> TouchInputView { TouchInputView(frame: .zero) }
@@ -559,6 +563,7 @@ struct TouchInputLayer: UIViewRepresentable {
         padRouter?.touchView = view
         view.keyboardGestures = keyboardGestures
         view.followsSwipeLeft = followsSwipeLeft
+        view.pullsFromLeft = pullsFromLeft
         view.allowsFourFingers = allowsFourFingers
     }
 }

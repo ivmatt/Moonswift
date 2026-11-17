@@ -62,6 +62,7 @@ struct PadEditor: View {
     static let gridStep: CGFloat = 12
     @State private var resizeBase: CGFloat?
     @State private var naming: NameRequest?
+    @State private var menu: MenuSpec?
     /// The options sheet.
     @State private var isShowingOptions = false
     @State private var name = ""
@@ -93,7 +94,7 @@ struct PadEditor: View {
                     }
                     .environment(\.colorScheme, .dark)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .padding(.top, 6)
+                    .padding(.top, (PadLayout.actionStrip - 44) / 2) // the 44-point pills centred in the strip
                     Button(action: done) {
                         Image(systemName: "checkmark").font(.title3.weight(.bold)).frame(width: 44, height: 44)
                     }
@@ -108,11 +109,7 @@ struct PadEditor: View {
         }
         .onGamepad { if $0 == .back { done() } }
         .sheet(isPresented: $isShowingOptions) { options }
-        .alert(naming == .new ? "New Layout" : "Rename Layout", isPresented: Binding(get: { naming != nil }, set: { if !$0 { naming = nil } })) {
-            TextField("Name", text: $name)
-            Button("Cancel", role: .cancel) {}
-            Button("Save") { saveName() }.disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
-        }
+        .actionMenu($menu)
     }
 
     // MARK: Controls
@@ -231,9 +228,9 @@ struct PadEditor: View {
                     ForEach(store.layouts) { Text($0.name).tag($0.id) }
                 }
                 Divider()
-                Button("New Layout", systemImage: "plus") { name = ""; naming = .new }
+                Button("New Layout", systemImage: "plus") { askName(.new) }
                 Button("Duplicate", systemImage: "plus.square.on.square") { layoutID = store.add(copying: layout, name: layout.name + " Copy").id }
-                Button("Rename…", systemImage: "pencil") { name = layout.name; naming = .rename }
+                Button("Rename…", systemImage: "pencil") { askName(.rename) }
                 Button("Reset to Standard", systemImage: "arrow.counterclockwise") { reset() }
                 if layoutID != PadLayout.standard.id {
                     Button("Delete", systemImage: "trash", role: .destructive) {
@@ -304,12 +301,15 @@ struct PadEditor: View {
                     }
                     .disabled(available.isEmpty)
                     Toggle("Show on Touch", isOn: Binding(get: { layout.actionsOnTouch }, set: { value in edit { $0.actionsOnTouch = value } }))
+                    Picker("Position", selection: Binding(get: { layout.actionsPosition }, set: { value in edit { $0.actionsPosition = value } })) {
+                        ForEach(PadRowPosition.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
                 } header: {
                     Text("Actions Row")
                 } footer: {
                     Text("Buttons along the top. Control Center always comes first, so the control panel is always one tap "
                          + "away; add Quick Settings, the keyboard, Edit Layout or key shortcuts after it, and drag to reorder. Show on Touch "
-                         + "keeps the row out of sight until you touch the top strip.")
+                         + "keeps the row out of sight until you touch the top strip; Position puts it at the left, middle or right.")
                 }
                 Section {
                     Toggle("Floating Left Stick", isOn: Binding(get: { layout.floatingLeftStick }, set: { value in edit { $0.floatingLeftStick = value } }))
@@ -337,7 +337,7 @@ struct PadEditor: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { isShowingOptions = false } } }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large]) // all of it at once: half-open hid most options
         .presentationBackground(Color(white: 0.11)) // plain dark grey, not glass
         .presentationBackgroundInteraction(.enabled(upThrough: .medium)) // the controls stay movable above it
         .onGamepad { if $0 == .back { isShowingOptions = false } } // B closes this, not the editor
@@ -347,6 +347,13 @@ struct PadEditor: View {
     private func reset() {
         edit { $0.items = PadLayout.standard.items }
         selected = nil
+    }
+
+    private func askName(_ request: NameRequest) {
+        naming = request
+        name = request == .new ? "" : layout.name
+        menu = MenuSpec(title: request == .new ? "New Layout" : "Rename Layout", field: .init(placeholder: "Name", text: $name),
+                        actions: [.init(title: "Save") { saveName() }], cancelTitle: "Cancel", closable: false)
     }
 
     private func saveName() {

@@ -39,7 +39,11 @@ enum CodecOption: String, CaseIterable {
 }
 
 /// Where each setting is saved (UserDefaults, through @AppStorage).
+/// Which edge the stream's Control Center comes out of.
+nonisolated enum ControlCenterSide: String, CaseIterable { case right = "Right", left = "Left" }
+
 nonisolated enum SettingsKey {
+    static let controlCenterSide = "controlCenterSide"
     static let coverShape = "coverShape"
     static let onlineArtwork = "onlineArtwork" // Bool, on by default: art from SteamGridDB, once its key is set
     static let artworkKeyVersion = "artworkKeyVersion" // Int, bumped as the SteamGridDB key changes: looks up again
@@ -160,6 +164,8 @@ enum ScreenInfo {
 
     static var nativePixels: CGSize { scene?.screen.nativeBounds.size ?? CGSize(width: 1920, height: 1080) }
     static var maximumFramesPerSecond: Int { scene?.screen.maximumFramesPerSecond ?? 60 }
+    /// The first-run frame rate: 120 on a screen that shows it.
+    static var defaultFPS: Int { maximumFramesPerSecond >= 120 ? 120 : 60 }
     static var hevcInHardware: Bool { VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) }
     static var av1InHardware: Bool { VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1) }
     /// The screen can show HDR10 video (and HEVC is decoded in hardware, which HDR streams use).

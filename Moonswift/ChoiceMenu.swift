@@ -132,8 +132,8 @@ private struct ChoiceMenu: View {
                 Color.clear.contentShape(.rect).onTapGesture { close() }
                 panel
                     .frame(width: size.width, height: size.height, alignment: spec.opensRight ? .topLeading : .topTrailing)
-                    .clipShape(.rect(cornerRadius: isOpen ? 26 : seed.height / 2))
-                    .glassEffect(.regular, in: .rect(cornerRadius: isOpen ? 26 : seed.height / 2))
+                    .clipShape(.rect(cornerRadius: isOpen ? 28 : seed.height / 2))
+                    .glassEffect(.regular, in: .rect(cornerRadius: isOpen ? 28 : seed.height / 2))
                     .opacity(isOpen ? 1 : 0) // grows and fades in together, shrinks and fades out together
                     .position(x: spec.opensRight ? left + size.width / 2 : right - size.width / 2, y: y)
             }

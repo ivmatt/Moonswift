@@ -20,7 +20,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage(SettingsKey.resolution) private var resolution = ResolutionOption.fullScreen
-    @AppStorage(SettingsKey.fps) private var fps = 60
+    @AppStorage(SettingsKey.fps) private var fps = ScreenInfo.defaultFPS
     @AppStorage(SettingsKey.codec) private var codec = CodecOption.automatic
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
     @AppStorage(SettingsKey.onlineArtwork) private var findsArtwork = true
@@ -29,16 +29,17 @@ struct SettingsView: View {
     @State private var artworkKey = SteamGridDB.savedKey ?? ""
     @FocusState private var isKeyFocused: Bool
     @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic
-    @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = false
+    @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = true
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
     @AppStorage(SettingsKey.playAudioOnPC) private var playAudioOnPC = false
     @AppStorage("touchMode") private var touchMode = TouchMode.automatic
-    @AppStorage(SettingsKey.hdr) private var hdr = false
+    @AppStorage(SettingsKey.hdr) private var hdr = ScreenInfo.supportsHDR
     @AppStorage(SettingsKey.buttonGuide) private var buttonGuide = ButtonGuideMode.automatic
     @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = true
     @AppStorage(SettingsKey.splashScreen) private var showsSplash = true
     @AppStorage(SettingsKey.splashWait) private var splashWait = LaunchSplash.defaultWait
     @AppStorage(SettingsKey.splashEndsOnSound) private var splashEndsOnSound = false
+    @AppStorage(SettingsKey.controlCenterSide) private var controlCenterSide = ControlCenterSide.right
     @State private var focus = 0
     @State private var liveBitrateNote: String?
     @State private var bitrateChange: Task<Void, Never>?
@@ -49,7 +50,7 @@ struct SettingsView: View {
     @State private var choice: ChoiceMenuSpec?
     @State private var rowFrames = RowFrames()
 
-    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, buttonMapping, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
+    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
     private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
     @State private var page = Self.rememberedPage
@@ -71,7 +72,7 @@ struct SettingsView: View {
     }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .gestures, .buttonGuide, .buttonMapping] + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
+        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures, .buttonGuide, .buttonMapping] + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
         return (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
             + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .touch, .overlay]
     }
@@ -208,21 +209,30 @@ struct SettingsView: View {
                         }
                         row(.splashSound) { Toggle("End on Game Sound (Beta)", isOn: $splashEndsOnSound) }
                     }
+                } header: {
+                    Text("Launching")
+                } footer: {
+                    Text("Splash Screen shows the game's art from Play until the game is on screen. Splash Wait keeps it up "
+                         + "that long past the first picture, so the host's desktop and launchers don't flash by; a game's "
+                         + "Edit page can set its own, and resuming skips it. End on Game Sound lifts it as soon as the game "
+                         + "makes sound, with Splash Wait the longest it stays; a launcher's or the desktop's sounds can end it early.")
+                }
+                Section {
                     row(.pictureInPicture) {
                         Toggle("Picture in Picture", isOn: $allowsPictureInPicture)
+                    }
+                    row(.controlCenterSide) {
+                        choiceRow(.controlCenterSide, "Control Center", $controlCenterSide, ControlCenterSide.allCases, name: \.rawValue)
                     }
                     row(.gestures) {
                         Button("Gestures") { isShowingGestures = true }.foregroundStyle(.primary)
                     }
                 } header: {
-                    Text("Experience")
+                    Text("While Streaming")
                 } footer: {
-                    Text("Splash Screen shows the game's art from Play until the game is on screen. Splash Wait keeps it up "
-                         + "that long past the first picture, so the host's desktop and launchers don't flash by; a game's "
-                         + "Edit page can set its own. End on Game Sound lifts it as soon as the game makes sound, with Splash Wait "
-                         + "the longest it stays; a launcher's or the desktop's sounds can end it early. Picture in Picture: leaving the "
-                         + "app while streaming floats the game in a small window over other apps; off, leaving "
-                         + "the app pauses the stream until you come back. Applies from the next stream.")
+                    Text("Picture in Picture: leaving the app floats the game in a small window over other apps; off, leaving "
+                         + "the app pauses the stream until you come back. Control Center: the side it comes out of; on the left, "
+                         + "its swipe goes right. Applies from the next stream.")
                 }
                 Section {
                     row(.buttonGuide) {
@@ -390,6 +400,8 @@ struct SettingsView: View {
         case .touch: choices("Touch", TouchMode.allCases, current: touchMode, name: \.title) { touchMode = $0 }
         case .pictureInPicture: allowsPictureInPicture.toggle()
         case .gestures: isShowingGestures = true
+        case .controlCenterSide:
+            choices("Control Center", ControlCenterSide.allCases, current: controlCenterSide, name: \.rawValue) { controlCenterSide = $0 }
         case .splash: showsSplash.toggle()
         case .splashSound: splashEndsOnSound.toggle()
         case .splashWait: choices("Splash Wait", LaunchSplash.waitChoices, current: splashWait, name: Self.seconds) { splashWait = $0 }

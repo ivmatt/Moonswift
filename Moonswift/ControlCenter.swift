@@ -15,10 +15,13 @@ struct ControlPanel<Content: View>: View {
     static var travel: CGFloat { width + 14 }
 
     @Binding var tab: StreamPanel
+    /// On the left edge: the page icons go on its outer side, the left.
+    var isOnLeft = false
     @ViewBuilder let content: Content
 
     var body: some View {
         HStack(spacing: 8) {
+            if isOnLeft { pageIcons }
             content
                 // Modules fade out at the top and bottom as they scroll, rather than being cut off.
                 .mask {
@@ -30,19 +33,23 @@ struct ControlPanel<Content: View>: View {
                 }
                 .padding(.horizontal, -18) // the modules' own margin (room for the focus ring) reaches into the panel's
                 .frame(width: Self.contentWidth)
-            // The pages as small icons down the side, like iOS's Control Center; there's no status bar, so mid-height.
-            VStack(spacing: 18) {
-                pageIcon("square.grid.2x2.fill", "Actions", .actions)
-                pageIcon("slider.horizontal.3", "Quick Settings", .settings)
-            }
-            .frame(width: 40)
+            if !isOnLeft { pageIcons }
         }
         .padding(.vertical, 22)
-        .padding(.leading, 22)
+        .padding(isOnLeft ? .trailing : .leading, 22)
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
         .environment(\.colorScheme, .dark) // straight on the stream's dim and blur (StreamView): no box of its own
-        .padding([.vertical, .trailing], 14)
+        .padding([.vertical, isOnLeft ? .leading : .trailing], 14)
+    }
+
+    /// The pages as small icons down the side, like iOS's Control Center; there's no status bar, so mid-height.
+    private var pageIcons: some View {
+        VStack(spacing: 18) {
+            pageIcon("square.grid.2x2.fill", "Actions", .actions)
+            pageIcon("slider.horizontal.3", "Quick Settings", .settings)
+        }
+        .frame(width: 40)
     }
 
     private func pageIcon(_ symbol: String, _ title: String, _ value: StreamPanel) -> some View {
@@ -120,7 +127,7 @@ struct ActionsPanel: View {
                             .id(index)
                         }
                     }
-                    HStack(spacing: 10) {
+                    HStack(spacing: 18) {
                         ForEach(Array(icons.enumerated()), id: \.offset) { offset, icon in
                             iconButton(icon, index: tiles.count + offset)
                         }
@@ -209,11 +216,10 @@ struct QuickSettingsPanel: View {
     private enum Row: Hashable { case bitrate, overlay, touch, layout, editLayout, more }
     /// The on-screen controller is showing: Automatic without a game controller, or Controller.
     private var showsPad: Bool { touchMode.resolved(controllerConnected: gamepad.isControllerConnected) == .controller }
-    /// In screen order: the modules, then the round buttons' row.
+    /// In screen order.
     private var rows: [Row] {
-        [.bitrate, .touch] + (showsPad ? [.layout] : []) + [.overlay] + (showsPad ? [.editLayout] : []) + [.more]
+        [.bitrate, .overlay, .touch] + (showsPad ? [.layout, .editLayout] : []) + [.more]
     }
-    private static let roundRows: Set<Row> = [.overlay, .editLayout, .more]
     private var focus: Row { rows[min(focusIndex, rows.count - 1)] }
     @State private var bitrateNote: String?
     @State private var bitrateChange: Task<Void, Never>?
@@ -239,6 +245,8 @@ struct QuickSettingsPanel: View {
                 .padding(16)
                 .glassEffect(.regular, in: .rect(cornerRadius: 28))
                 .focusRing(isFocused(.bitrate), cornerRadius: 28)
+                button(.overlay, symbol: "chart.bar.xaxis", title: "Performance Overlay", value: showsPerformance ? "On" : "Off",
+                       isOn: showsPerformance) { showsPerformance.toggle() }
                 pill(.touch, symbol: "hand.tap.fill", title: "Touch", value: touchMode.title) {
                     Picker("Touch", selection: $touchMode) {
                         ForEach(TouchMode.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -251,13 +259,8 @@ struct QuickSettingsPanel: View {
                         }
                     }
                 }
-                HStack(spacing: 10) {
-                    round(.overlay, symbol: "chart.bar.xaxis", label: "Performance Overlay", isOn: showsPerformance) {
-                        showsPerformance.toggle()
-                    }
-                    if showsPad { round(.editLayout, symbol: "square.and.pencil", label: "Edit Layout", action: editLayout) }
-                    round(.more, symbol: "gearshape.fill", label: "More Settings", action: moreSettings)
-                }
+                if showsPad { button(.editLayout, symbol: "square.and.pencil", title: "Edit Layout", action: editLayout) }
+                button(.more, symbol: "gearshape.fill", title: "More Settings", action: moreSettings)
             }
             .padding(.horizontal, 18).padding(.vertical, 16) // room for the focus ring and its 5% grow, clear of the fades
         }
@@ -272,41 +275,41 @@ struct QuickSettingsPanel: View {
         Menu {
             choices()
         } label: {
-            HStack(spacing: 12) {
-                Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
-                    .frame(width: 40, height: 40)
-                    .background(.white.opacity(0.18), in: .circle)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.subheadline.weight(.semibold))
-                    Text(value).font(.footnote).foregroundStyle(.white.opacity(0.7))
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.up.chevron.down").font(.footnote.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
-            }
-            .foregroundStyle(.white)
-            .padding(.leading, 11).padding(.trailing, 18)
-            .frame(maxWidth: .infinity, minHeight: ActionsPanel.button)
-            .contentShape(.capsule)
+            pillLabel(symbol: symbol, title: title, value: value, trailing: "chevron.up.chevron.down")
         }
         .tint(.white) // white, not the accent colour a menu gives its label
         .glassEffect(.regular.interactive(), in: .capsule)
         .focusRing(isFocused(row), cornerRadius: .infinity)
     }
 
-    /// A round button; a switch is white while on, as iOS's are.
-    private func round(_ row: Row, symbol: String, label: String, isOn: Bool = false, action: @escaping () -> Void) -> some View {
+    /// The same pill as a button; a switch's icon circle is white while on, as iOS's are.
+    private func button(_ row: Row, symbol: String, title: String, value: String? = nil, isOn: Bool = false,
+                        action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 22, weight: .medium))
-                .foregroundStyle(isOn ? Color.black : .white)
-                .frame(width: ActionsPanel.button, height: ActionsPanel.button)
-                .background { if isOn { Circle().fill(.white) } }
-                .contentShape(.circle)
+            pillLabel(symbol: symbol, title: title, value: value, isOn: isOn, trailing: value == nil ? "chevron.right" : nil)
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .circle)
+        .glassEffect(.regular.interactive(), in: .capsule)
         .focusRing(isFocused(row), cornerRadius: .infinity)
-        .accessibilityLabel(label)
-        .accessibilityValue(row == .overlay ? (isOn ? "On" : "Off") : "")
+    }
+
+    private func pillLabel(symbol: String, title: String, value: String?, isOn: Bool = false, trailing: String?) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(isOn ? Color.black : .white)
+                .frame(width: 40, height: 40)
+                .background(isOn ? .white : .white.opacity(0.18), in: .circle)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.subheadline.weight(.semibold))
+                if let value { Text(value).font(.footnote).foregroundStyle(.white.opacity(0.7)) }
+            }
+            Spacer(minLength: 0)
+            if let trailing { Image(systemName: trailing).font(.footnote.weight(.semibold)).foregroundStyle(.white.opacity(0.7)) }
+        }
+        .foregroundStyle(.white)
+        .padding(.leading, 11).padding(.trailing, 18)
+        .frame(maxWidth: .infinity, minHeight: ActionsPanel.button)
+        .contentShape(.capsule)
     }
 
     private func isFocused(_ row: Row) -> Bool { gamepad.isActive && focus == row }
@@ -333,20 +336,8 @@ struct QuickSettingsPanel: View {
         case .back, .streamMenu: close()
         case .previousTab, .nextTab: tab = .actions
         case .up, .down:
-            // Down the modules, then onto the row of round buttons (from any of which up goes back to the modules).
-            let modules = rows.filter { !Self.roundRows.contains($0) }, rounds = rows.filter { Self.roundRows.contains($0) }
-            let next: Row?
-            if Self.roundRows.contains(focus) {
-                next = command == .up ? modules.last : nil
-            } else {
-                let index = modules.firstIndex(of: focus) ?? 0
-                next = command == .up ? (index > 0 ? modules[index - 1] : nil) : (index + 1 < modules.count ? modules[index + 1] : rounds.first)
-            }
-            if let next, let index = rows.firstIndex(of: next) { focusIndex = index }
-        case .left where Self.roundRows.contains(focus), .right where Self.roundRows.contains(focus): // `where` binds per pattern
-            let rounds = rows.filter { Self.roundRows.contains($0) }, index = rounds.firstIndex(of: focus) ?? 0
-            let next = rounds[min(max(index + (command == .right ? 1 : -1), 0), rounds.count - 1)]
-            if let row = rows.firstIndex(of: next) { focusIndex = row }
+            let index = rows.firstIndex(of: focus) ?? 0
+            focusIndex = min(max(index + (command == .down ? 1 : -1), 0), rows.count - 1)
         case .left, .right:
             let step = command == .right ? 1 : -1
             switch focus {

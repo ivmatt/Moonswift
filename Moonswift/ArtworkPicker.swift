@@ -231,7 +231,7 @@ struct ArtworkPicker: View {
             }
         }
         .disabled(isRematching)
-        .overlay { if isRematching { ProgressView("Getting its art…").padding(24).background(.regularMaterial, in: .rect(cornerRadius: 16)) } }
+        .busyBox(isRematching ? "Getting its art…" : nil)
     }
 
     private func openGameSearch() {

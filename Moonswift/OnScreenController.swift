@@ -38,6 +38,12 @@ nonisolated enum PadControl: String, Codable, CaseIterable {
 
 /// What's written on the buttons: an Xbox, PlayStation or Nintendo controller's. Only the labels change: a button
 /// sends what the button in its place on an Xbox controller sends, as the host expects.
+/// Where the actions row sits along the top.
+nonisolated enum PadRowPosition: String, Codable, CaseIterable {
+    case leading = "Left", center = "Center", trailing = "Right"
+    var alignment: Alignment { switch self { case .leading: .leading; case .center: .center; case .trailing: .trailing } }
+}
+
 nonisolated enum PadLabels: String, Codable, CaseIterable {
     case xbox, playstation, nintendo
 
@@ -169,12 +175,12 @@ nonisolated struct PadLayout: Codable, Hashable, Identifiable {
     /// How solid the controls are drawn, 0.2...1.
     var opacity: Double = 0.6
     /// A stick appears wherever a thumb lands on its side of the screen, outside the other controls.
-    var floatingLeftStick = false
+    var floatingLeftStick = true
     var floatingRightStick = false
-    /// Liquid Glass controls (opt in: plain ones cost less while streaming).
-    var glass = false
+    /// Liquid Glass controls, on for new layouts (plain ones cost a little less while streaming).
+    var glass = true
     /// Seconds untouched before the controls fade away (for cutscenes); 0: never. A touch brings them back.
-    var hideAfter = 0
+    var hideAfter = 5
     /// The actions row along the top keeps the top strip to itself (controls stay below it). Control Center always
     /// leads it, so there's always a way to the control panel; these follow (Quick Settings, the keyboard,
     /// shortcuts…), yours to add, remove and order.
@@ -183,10 +189,11 @@ nonisolated struct PadLayout: Codable, Hashable, Identifiable {
     /// The row stays out of sight until its strip is touched, then shows for a few seconds (less distracting over a
     /// game, especially at a high opacity).
     var actionsOnTouch = false
+    var actionsPosition = PadRowPosition.center
     /// What the row shows: Control Center, then the layout's own.
     var rowActions: [GestureAction] { [.controlPanel] + actions }
     /// The top strip's height, in points: controls sit below it.
-    static let actionStrip: CGFloat = 56
+    static let actionStrip: CGFloat = 80
 
     /// A stick that floats has no fixed place: it's drawn (and touched) only where a thumb lands.
     func isFloating(_ control: PadControl) -> Bool {
@@ -200,27 +207,27 @@ nonisolated struct PadLayout: Codable, Hashable, Identifiable {
         self.items = items
     }
 
-    /// Everything but the stick clicks: sticks low on each side, the d-pad and the A, B, X, Y diamond inside them
-    /// (evenly apart), triggers and bumpers in the top corners and View and Menu between them, all below the actions
-    /// row's strip.
+    /// Everything but the stick clicks, all within a thumb's reach of the bottom corners and laid out like a
+    /// controller: the left stick high and the d-pad low and inside it; the A, B, X, Y diamond high and the right stick
+    /// low and inside it; triggers and bumpers in an arc above each side; View and Menu just inside, between them.
+    /// Kept below the actions row's strip on a 380-point-tall screen.
     static let standard = PadLayout(id: "standard", name: "Standard", items: [
-        PadItem(control: .leftStick, .leading, .bottom, x: 110, y: 150, size: 130),
-        PadItem(control: .dpad, .leading, .bottom, x: 270, y: 100, size: 150),
-        PadItem(control: .a, .trailing, .bottom, x: 120, y: 107, size: 56),
-        PadItem(control: .b, .trailing, .bottom, x: 62, y: 165, size: 56),
-        PadItem(control: .x, .trailing, .bottom, x: 178, y: 165, size: 56),
-        PadItem(control: .y, .trailing, .bottom, x: 120, y: 223, size: 56),
-        PadItem(control: .rightStick, .trailing, .bottom, x: 280, y: 100, size: 120),
-        // Below the actions row's strip (56 points).
-        PadItem(control: .lt, .leading, .top, x: 50, y: 100, size: 72),
-        PadItem(control: .lb, .leading, .top, x: 136, y: 88, size: 72),
-        PadItem(control: .rb, .trailing, .top, x: 136, y: 88, size: 72),
-        PadItem(control: .rt, .trailing, .top, x: 50, y: 100, size: 72),
-        PadItem(control: .view, .center, .top, x: -40, y: 90, size: 44),
-        PadItem(control: .menu, .center, .top, x: 40, y: 90, size: 44),
+        PadItem(control: .leftStick, .leading, .bottom, x: 120, y: 135, size: 130),
+        PadItem(control: .dpad, .leading, .bottom, x: 265, y: 85, size: 120),
+        PadItem(control: .a, .trailing, .bottom, x: 125, y: 85, size: 54),
+        PadItem(control: .b, .trailing, .bottom, x: 70, y: 140, size: 54),
+        PadItem(control: .x, .trailing, .bottom, x: 180, y: 140, size: 54),
+        PadItem(control: .y, .trailing, .bottom, x: 125, y: 195, size: 54),
+        PadItem(control: .rightStick, .trailing, .bottom, x: 270, y: 85, size: 110),
+        PadItem(control: .lt, .leading, .bottom, x: 45, y: 262, size: 64),
+        PadItem(control: .lb, .leading, .bottom, x: 125, y: 255, size: 64),
+        PadItem(control: .rb, .trailing, .bottom, x: 125, y: 255, size: 64),
+        PadItem(control: .rt, .trailing, .bottom, x: 45, y: 262, size: 64),
+        PadItem(control: .view, .leading, .bottom, x: 235, y: 195, size: 40),
+        PadItem(control: .menu, .trailing, .bottom, x: 235, y: 195, size: 40),
     ])
 
-    private enum CodingKeys: String, CodingKey { case id, name, items, opacity, floatingLeftStick, floatingRightStick, glass, labels, hideAfter, actions, actionsOnTouch }
+    private enum CodingKeys: String, CodingKey { case id, name, items, opacity, floatingLeftStick, floatingRightStick, glass, labels, hideAfter, actions, actionsOnTouch, actionsPosition }
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(String.self, forKey: .id)
@@ -233,6 +240,7 @@ nonisolated struct PadLayout: Codable, Hashable, Identifiable {
         labels = try values.decodeIfPresent(PadLabels.self, forKey: .labels) ?? .xbox
         hideAfter = try values.decodeIfPresent(Int.self, forKey: .hideAfter) ?? 0
         actionsOnTouch = try values.decodeIfPresent(Bool.self, forKey: .actionsOnTouch) ?? false
+        actionsPosition = try values.decodeIfPresent(PadRowPosition.self, forKey: .actionsPosition) ?? .center
         // Control Center was once one of these, removable: it's always first now, apart from them.
         actions = (try values.decodeIfPresent([String].self, forKey: .actions)?.compactMap(GestureAction.init(stored:))
             ?? Self.defaultActions).filter { $0 != .controlPanel }
@@ -251,6 +259,7 @@ nonisolated struct PadLayout: Codable, Hashable, Identifiable {
         try values.encode(hideAfter, forKey: .hideAfter)
         try values.encode(actions.map(\.stored), forKey: .actions)
         try values.encode(actionsOnTouch, forKey: .actionsOnTouch)
+        try values.encode(actionsPosition, forKey: .actionsPosition)
     }
 }
 
@@ -372,6 +381,15 @@ struct ActionsRow: View {
 
     private var isShown: Bool { !layout.actionsOnTouch || isRevealed }
 
+    /// From the screen's top and side edges to the row: a button there sits concentric with the display's
+    /// rounded corner (UIKit's private `_displayCornerRadius`; 0 when it's unknown), kept inside the strip.
+    private var cornerInset: CGFloat {
+        let radius = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen
+            .value(forKey: "_displayCornerRadius") as? CGFloat ?? 0
+        let half = ActionButtonFace.size / 2
+        return min(max(radius - half, 10), PadLayout.actionStrip - ActionButtonFace.size - 4)
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             ForEach(Array(layout.rowActions.enumerated()), id: \.offset) { _, action in
@@ -388,8 +406,12 @@ struct ActionsRow: View {
         }
         .opacity(isShown ? 1 : 0)
         .animation(.easeInOut(duration: 0.25), value: isShown)
-        .frame(maxWidth: .infinity)
-        .frame(height: PadLayout.actionStrip)
+        // Its end button's centre on the screen corner's, so the row follows the curve (centred, at the same height).
+        .padding(.horizontal, layout.actionsPosition == .center ? 0 : cornerInset)
+        .padding(.top, cornerInset)
+        .frame(maxWidth: .infinity, alignment: layout.actionsPosition.alignment)
+        .frame(height: PadLayout.actionStrip, alignment: .top)
+        .ignoresSafeArea() // measured from the screen's edges, where the corner is
         .background {
             if !isShown {
                 // The whole strip, out of sight: a touch on it shows the row.
@@ -429,19 +451,21 @@ struct ActionButtonFace: View {
     let shortcuts: [KeyShortcut]
     let isGlass: Bool
     @Environment(\.actionIsPressed) private var isPressed
+    /// As tall as the layout editor's pills, which sit in the same strip.
+    static let size: CGFloat = 44
 
     var body: some View {
         let label = action.rowLabel(shortcuts)
         let isCapsule = label.text != nil
         Group {
             if let text = label.text {
-                Text(text).font(.footnote.weight(.semibold)).padding(.horizontal, 14)
+                Text(text).font(.subheadline.weight(.semibold)).padding(.horizontal, 16)
             } else if let symbol = label.symbol {
-                Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+                Image(systemName: symbol).font(.system(size: 19, weight: .semibold))
             }
         }
         .foregroundStyle(.white)
-        .frame(minWidth: 42, minHeight: 42)
+        .frame(minWidth: Self.size, minHeight: Self.size)
         .background {
             if isCapsule {
                 PadSurface(shape: Capsule(), isGlass: isGlass, isPressed: isPressed)

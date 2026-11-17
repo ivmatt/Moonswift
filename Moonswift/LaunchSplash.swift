@@ -19,13 +19,18 @@ struct LaunchSplash: Equatable {
     var isGrown = true
 
     @MainActor init(title: String, catalog: GameCatalog, from: CGRect?, wait: Int) {
-        let id = title.lowercased()
-        let hero = catalog.shownHero(for: id)
+        let hero = catalog.shownHero(for: title.lowercased())
         self.title = title
-        art = hero ?? CoverShape.allCases.lazy.compactMap { catalog.shownCover(for: id, $0) }.first
+        art = Self.art(for: title, catalog: catalog)
         self.from = hero == nil ? nil : from
         self.wait = .seconds(wait)
         endsOnSound = UserDefaults.standard.bool(forKey: SettingsKey.splashEndsOnSound)
+    }
+
+    /// The game's hero picture, else a cover; nil for none.
+    @MainActor static func art(for title: String, catalog: GameCatalog) -> UIImage? {
+        let id = title.lowercased()
+        return catalog.shownHero(for: id) ?? CoverShape.allCases.lazy.compactMap { catalog.shownCover(for: id, $0) }.first
     }
 
     static func == (a: Self, b: Self) -> Bool { a.title == b.title && a.isGrown == b.isGrown }

@@ -121,13 +121,15 @@ struct StreamView: View {
     }
     // Not @AppStorage: the once-a-second loop runs on the copy of this view from when the stream started, whose
     // @AppStorage values don't follow later changes (Stream Settings). Reading UserDefaults is always current.
-    private var adaptive: Bool { UserDefaults.standard.bool(forKey: SettingsKey.adaptiveBitrate) }
+    private var adaptive: Bool { UserDefaults.standard.object(forKey: SettingsKey.adaptiveBitrate) as? Bool ?? true }
     private var savedBitrate: Int { UserDefaults.standard.integer(forKey: SettingsKey.bitrate) }
     @State private var adaptiveController: BitrateController?
     @State private var adaptiveUnsupported = false
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
     /// Off: no floating window; leaving the app pauses the stream.
     @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = true
+    @AppStorage(SettingsKey.controlCenterSide) private var controlCenterSide = ControlCenterSide.right
+    private var isPanelOnLeft: Bool { controlCenterSide == .left }
 
     /// The game gets no input while a menu, Settings or Control Center is over it, or while it's the small window.
     private var isPlaying: Bool {
@@ -136,7 +138,7 @@ struct StreamView: View {
     }
     /// The splash's line while it's up: what's happening, in calm words; nil once the picture is in.
     private var splashStatus: String? {
-        if isRestarting, hasQuietlyRetried { return "Refreshing the display…" } // the quiet Quit & Retry
+        if isRestarting { return hasQuietlyRetried ? "Refreshing the display…" : status } // a Quit & Retry, quiet or not
         return switch session.state {
         case .connecting: "Stabilizing connection…"
         case .connected where !session.hasPicture: "Tuning the display…"
@@ -172,6 +174,7 @@ struct StreamView: View {
                                 followsSwipeLeft: Set(TouchGesture.active.filter {
                                     $0.kind == .swipeLeft && [.controlPanel, .quickSettings].contains($0.action)
                                 }.map(\.fingers)),
+                                pullsFromLeft: isPanelOnLeft,
                                 allowsFourFingers: TouchGesture.fourFingersOn)
             }
             .padding(.bottom, foldLift)
@@ -206,17 +209,14 @@ struct StreamView: View {
                 // No box around the panel: the stream darkens and blurs towards the right, under its controls.
                 // Like iOS's Control Center: the whole stream dims evenly, and a blur (not darkened) builds up gradually
                 // towards the right edge, light at the panel's left and full at its right.
-                ZStack(alignment: .trailing) {
+                ZStack(alignment: isPanelOnLeft ? .leading : .trailing) {
                     Color.black.opacity(0.4)
-                    // Starts a little before the panel.
-                    let lead: CGFloat = 60, panel = ControlPanel<EmptyView>.travel
-                    // A plain blur (no material's grey tint, which looked off), as strong as iOS's Control Center's, building
-                    // up to full a fifth of the way in and no stronger from there to the edge.
-                    ClearBlur()
+                    // Starts well before the panel and builds up over it, reaching full strength 40% of the way in.
+                    let lead: CGFloat = 180, panel = ControlPanel<EmptyView>.travel
+                    // A plain blur (no material's grey tint, which looked off) whose strength itself varies across it: a
+                    // gradient mask over a full blur showed a hard edge where the blur began.
+                    GradualBlur(fullAt: (lead + panel * 0.4) / (lead + panel), fromLeading: !isPanelOnLeft)
                         .ignoresSafeArea()
-                        .mask(LinearGradient(stops: [.init(color: .clear, location: 0),
-                                                     .init(color: .black, location: (lead + panel / 5) / (lead + panel))],
-                                             startPoint: .leading, endPoint: .trailing))
                         .frame(width: lead + panel)
                 }
                 .opacity(panelShown)
@@ -227,7 +227,7 @@ struct StreamView: View {
                     .gesture(ThreeFingerSwipe(moved: pushPanel, ended: endPush))
                     .transition(.opacity)
                     .zIndex(1) // above the video's layer as it goes, or it vanishes rather than fading
-                ControlPanel(tab: panelTab) {
+                ControlPanel(tab: panelTab, isOnLeft: isPanelOnLeft) {
                     switch panel ?? (pullsQuickSettings ? .settings : .actions) { // pulling out
                     case .actions:
                         ActionsPanel(tab: panelTab, shortcuts: shortcuts,
@@ -249,15 +249,19 @@ struct StreamView: View {
                 }
                 .gesture(ThreeFingerSwipe(moved: pushPanel, ended: endPush))
                 .allowsHitTesting(panel != nil) // not while it slides away
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                .offset(x: panel == nil && panelPull == nil ? 0 : ControlPanel<EmptyView>.travel * (1 - panelShown))
-                .transition(.move(edge: .trailing))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isPanelOnLeft ? .leading : .trailing)
+                .offset(x: panel == nil && panelPull == nil ? 0
+                           : ControlPanel<EmptyView>.travel * (1 - panelShown) * (isPanelOnLeft ? -1 : 1))
+                .transition(.move(edge: isPanelOnLeft ? .leading : .trailing))
                 .zIndex(2) // above the video's layer as it slides away, or it vanishes rather than sliding
             }
             if let status = shownStatus {
                 ZStack {
-                    // The video layer keeps its last frame: blurred and darkened, a reconnect reads as a pause. With no
-                    // frame (iOS may clear it in the background) this is simply black.
+                    // Like the launch splash: the game's art, blurred and darkened (with none, the video layer's last frame).
+                    if let art = LaunchSplash.art(for: target.title, catalog: catalog) {
+                        Color.black
+                        Color.clear.overlay { Image(uiImage: art).resizable().scaledToFill() }.clipped()
+                    }
                     DimmedBlur() // the same as the launch splash's
                     // Like the launch splash: the game large in the middle, what's happening below.
                     CenteredStatus(title: target.title, detail: status.replacing(" to \(target.title)", with: "")
@@ -308,7 +312,7 @@ struct StreamView: View {
         .onChange(of: session.state == .connected && session.hasPicture && failure == nil && status == nil && !isLeaving,
                   initial: true) { _, isLive in pictureInPicture.allowsAutomaticStart(isLive) }
         .task { await run() }
-        .task { await holdSplash() }
+        .task(id: launcher.splash != nil) { await holdSplash() } // again for a Quit & Retry's splash
         .onChange(of: splashStatus, initial: true) { _, status in launcher.splashStatus = status }
         // The on-screen controller joins the host as a controller while it shows, and leaves when it goes.
         .onChange(of: showsOnScreenPad && isSendingInput, initial: true) { _, isOn in
@@ -380,6 +384,7 @@ struct StreamView: View {
     /// Quit & Retry (`fresh`) or Reconnect, from the failure page.
     private func retry(fresh: Bool) {
         failure = nil
+        if fresh { firstPictureAt = nil; launcher.showSplash(target.title) } // like a launch: the splash and its wait
         reconnect(fresh ? "Quitting \(target.title)…" : "Reconnecting to \(target.title)…", fresh: fresh)
     }
 
@@ -415,11 +420,11 @@ struct StreamView: View {
     }
 
     /// Three fingers on the open panel (or the game beside it) moving right push it back towards the edge.
-    private func pushPanel(_ dx: CGFloat) { panelPush = max(dx, 0) }
+    private func pushPanel(_ dx: CGFloat) { panelPush = max(isPanelOnLeft ? -dx : dx, 0) }
 
     /// Far enough (60 points, like opening) and it closes; short of that it springs back out.
     private func endPush(_ dx: CGFloat) {
-        if dx >= 60 { closePanel() } else { withAnimation(.spring(duration: 0.3, bounce: 0)) { panelPush = 0 } }
+        if (isPanelOnLeft ? -dx : dx) >= 60 { closePanel() } else { withAnimation(.spring(duration: 0.3, bounce: 0)) { panelPush = 0 } }
     }
 
     private func closePanel() {
@@ -530,7 +535,7 @@ struct StreamView: View {
             try? await Task.sleep(for: .milliseconds(100))
             session.refresh()
             let now = ContinuousClock.now
-            if stats.videoFrames > 0, firstPictureAt == nil {
+            if stats.videoFrames > 0, firstPictureAt == nil, !isRestarting { // not the old session's picture
                 firstPictureAt = now
                 loudAtFirstPicture = stats.loudMilliseconds
             }
@@ -940,12 +945,12 @@ private struct LivePerformance: View {
 // shortcut: reaches into the blur view's private layers (by class and filter names) to keep only the blur and set its
 // radius; if iOS renames them, it falls back to the material's own (greyer) blur. Revisit if it ever shows no blur.
 struct ClearBlur: UIViewRepresentable {
-    var radius: CGFloat = 20
+    var radius: CGFloat = 14
 
-    func makeUIView(context: Context) -> UIVisualEffectView { Effect(radius: radius) }
-    func updateUIView(_ view: UIVisualEffectView, context: Context) {}
+    func makeUIView(context: Context) -> Effect { Effect(radius: radius) }
+    func updateUIView(_ view: Effect, context: Context) {}
 
-    private final class Effect: UIVisualEffectView {
+    final class Effect: UIVisualEffectView {
         let radius: CGFloat
 
         init(radius: CGFloat) {
@@ -956,19 +961,50 @@ struct ClearBlur: UIViewRepresentable {
 
         override func layoutSubviews() {
             super.layoutSubviews()
+            applyFilter()
+        }
+
+        // UIKit sets its own filters again after the first layout, once it's on screen: ours go back on after that.
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            applyFilter()
+            DispatchQueue.main.async { [weak self] in self?.applyFilter() }
+        }
+
+        override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+            super.traitCollectionDidChange(previous)
+            setNeedsLayout()
+        }
+
+        /// Only the blur of UIKit's filters (no saturation or tint), at our radius.
+        private func applyFilter() {
             for view in subviews {
                 guard String(describing: type(of: view)).contains("Backdrop") else { view.isHidden = true; continue }
                 let blurOnly = (view.layer.filters ?? []).compactMap { $0 as? NSObject }
                     .filter { ($0.value(forKey: "name") as? String) == "gaussianBlur" }
                 guard !blurOnly.isEmpty else { continue }
                 blurOnly.forEach { $0.setValue(radius, forKey: "inputRadius") }
-                view.layer.filters = blurOnly
+                if view.layer.filters?.count != blurOnly.count { view.layer.filters = blurOnly }
             }
         }
+    }
+}
 
-        override func traitCollectionDidChange(_ previous: UITraitCollection?) {
-            super.traitCollectionDidChange(previous)
-            setNeedsLayout() // the system resets the filters with the appearance
+/// A blur that builds up gradually across its width: one blur faded in by a mask that eases in and out (smoothstep),
+/// so there's no line where it begins or where it's full. (Core Animation's private variable blur ignored its mask
+/// here and blurred evenly, leaving a hard edge; thin strips of rising strength showed their seams.)
+struct GradualBlur: View {
+    var radius: CGFloat = 14
+    /// How far across (0 to 1) it reaches full strength, easing in from none.
+    var fullAt: CGFloat = 1
+    var fromLeading = true
+    var body: some View {
+        let stops = (0...16).map { i -> Gradient.Stop in
+            let p = CGFloat(i) / 16
+            return .init(color: .black.opacity(p * p * (3 - 2 * p)), location: p * fullAt)
         }
+        ClearBlur(radius: radius)
+            .mask(LinearGradient(stops: stops, startPoint: fromLeading ? .leading : .trailing,
+                                 endPoint: fromLeading ? .trailing : .leading))
     }
 }
