@@ -203,7 +203,25 @@ struct StreamView: View {
             }
             if panel != nil || panelPull != nil {
                 // The game stays in view; a tap on it closes the panel.
-                Color.black.opacity(0.25 * panelShown).ignoresSafeArea()
+                // No box around the panel: the stream darkens and blurs towards the right, under its controls.
+                // Like iOS's Control Center: the whole stream dims evenly, and a blur (not darkened) builds up gradually
+                // towards the right edge, light at the panel's left and full at its right.
+                ZStack(alignment: .trailing) {
+                    Color.black.opacity(0.4)
+                    // Starts a little before the panel.
+                    let lead: CGFloat = 60, panel = ControlPanel<EmptyView>.travel
+                    // A plain blur (no material's grey tint, which looked off), as strong as iOS's Control Center's, building
+                    // up to full a fifth of the way in and no stronger from there to the edge.
+                    ClearBlur()
+                        .ignoresSafeArea()
+                        .mask(LinearGradient(stops: [.init(color: .clear, location: 0),
+                                                     .init(color: .black, location: (lead + panel / 5) / (lead + panel))],
+                                             startPoint: .leading, endPoint: .trailing))
+                        .frame(width: lead + panel)
+                }
+                .opacity(panelShown)
+                .ignoresSafeArea()
+                .contentShape(.rect)
                     .onTapGesture { closePanel() }
                     .allowsHitTesting(panel != nil) // not while it fades away: the game takes touches at once
                     .gesture(ThreeFingerSwipe(moved: pushPanel, ended: endPush))
@@ -913,6 +931,44 @@ private struct LivePerformance: View {
     var body: some View {
         if let performance = readout.performance {
             PerformanceOverlay(readout: performance, adaptiveNote: readout.adaptiveNote, history: readout.fpsHistory)
+        }
+    }
+}
+
+/// A blur of what's behind it and nothing else: iOS's blur view with its tint layers hidden and, inside the blur, only the
+/// Gaussian blur kept. The materials also lift brightness and wash out colour there, which turned the stream grey.
+// shortcut: reaches into the blur view's private layers (by class and filter names) to keep only the blur and set its
+// radius; if iOS renames them, it falls back to the material's own (greyer) blur. Revisit if it ever shows no blur.
+struct ClearBlur: UIViewRepresentable {
+    var radius: CGFloat = 20
+
+    func makeUIView(context: Context) -> UIVisualEffectView { Effect(radius: radius) }
+    func updateUIView(_ view: UIVisualEffectView, context: Context) {}
+
+    private final class Effect: UIVisualEffectView {
+        let radius: CGFloat
+
+        init(radius: CGFloat) {
+            self.radius = radius
+            super.init(effect: UIBlurEffect(style: .regular))
+        }
+        required init?(coder: NSCoder) { nil }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            for view in subviews {
+                guard String(describing: type(of: view)).contains("Backdrop") else { view.isHidden = true; continue }
+                let blurOnly = (view.layer.filters ?? []).compactMap { $0 as? NSObject }
+                    .filter { ($0.value(forKey: "name") as? String) == "gaussianBlur" }
+                guard !blurOnly.isEmpty else { continue }
+                blurOnly.forEach { $0.setValue(radius, forKey: "inputRadius") }
+                view.layer.filters = blurOnly
+            }
+        }
+
+        override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+            super.traitCollectionDidChange(previous)
+            setNeedsLayout() // the system resets the filters with the appearance
         }
     }
 }

@@ -8,7 +8,9 @@ enum StreamPanel { case actions, settings }
 
 /// The panel itself: Liquid Glass down the right side, with the tabs on top; it stays put while they switch.
 struct ControlPanel<Content: View>: View {
-    static var width: CGFloat { 440 }
+    /// The modules' column, and the page icons beside it.
+    static var contentWidth: CGFloat { 316 }
+    static var width: CGFloat { contentWidth + 56 }
     /// The panel and its margin: how far it slides.
     static var travel: CGFloat { width + 14 }
 
@@ -16,16 +18,9 @@ struct ControlPanel<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 0) {
-                tabButton("Actions", .actions)
-                tabButton("Quick Settings", .settings)
-            }
-            .padding(5)
-            .glassEffect(.regular, in: .capsule)
-            .padding(.bottom, 4)
+        HStack(spacing: 8) {
             content
-                // Rows fade out at the top and bottom as they scroll, rather than being cut off.
+                // Modules fade out at the top and bottom as they scroll, rather than being cut off.
                 .mask {
                     VStack(spacing: 0) {
                         LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 14)
@@ -33,29 +28,35 @@ struct ControlPanel<Content: View>: View {
                         LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 14)
                     }
                 }
-                .padding(.horizontal, -18) // the rows' own margin (room for the focus ring) reaches into the panel's
+                .padding(.horizontal, -18) // the modules' own margin (room for the focus ring) reaches into the panel's
+                .frame(width: Self.contentWidth)
+            // The pages as small icons down the side, like iOS's Control Center; there's no status bar, so mid-height.
+            VStack(spacing: 18) {
+                pageIcon("square.grid.2x2.fill", "Actions", .actions)
+                pageIcon("slider.horizontal.3", "Quick Settings", .settings)
+            }
+            .frame(width: 40)
         }
-        .padding(22)
+        .padding(.vertical, 22)
+        .padding(.leading, 22)
         .frame(width: Self.width)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .glassEffect(.regular, in: .rect(cornerRadius: 32))
-        .environment(\.colorScheme, .dark)
+        .frame(maxHeight: .infinity)
+        .environment(\.colorScheme, .dark) // straight on the stream's dim and blur (StreamView): no box of its own
         .padding([.vertical, .trailing], 14)
     }
 
-    /// Like Settings' Stream | Interface switch: the chosen one sits in a darker capsule.
-    private func tabButton(_ title: String, _ value: StreamPanel) -> some View {
+    private func pageIcon(_ symbol: String, _ title: String, _ value: StreamPanel) -> some View {
         Button { withAnimation(.snappy(duration: 0.25)) { tab = value } } label: {
-            Text(title).font(.body.weight(.medium))
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background { if tab == value { Capsule().fill(.black.opacity(0.35)).matchedGeometryEffect(id: "tab", in: tabs) } }
-                .contentShape(.capsule)
+            Image(systemName: symbol)
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(tab == value ? Color.white : Color.white.opacity(0.4))
+                .frame(width: 40, height: 40)
+                .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.white)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(tab == value ? .isSelected : [])
     }
-
-    @Namespace private var tabs
 }
 
 /// The pinned shortcuts and the clipboard as a grid, Edit above it, Disconnect and Quit under it. Controller: the
@@ -71,15 +72,21 @@ struct ActionsPanel: View {
     let close: () -> Void
 
     @Environment(GamepadInput.self) private var gamepad
-    /// -1: Edit; 0..<tiles: the grid; then Disconnect and Quit.
+    /// -1: Edit; 0..<tiles: the shortcuts' grid; then the row of icons (copy, send, disconnect, quit).
     @State private var focus = 0
     @State private var sent: String?
 
-    private struct Tile { let name: String, detail: String, run: () -> Void }
+    private struct Tile { let keys: String, name: String, run: () -> Void }
     private var tiles: [Tile] {
-        shortcuts.pinned.map { shortcut in Tile(name: shortcut.name, detail: shortcut.keys) { press(shortcut) } }
-            + [Tile(name: "Copy from Host", detail: "Clipboard", run: copyFromHost),
-               Tile(name: "Send Clipboard", detail: "To the host", run: sendClipboard)]
+        shortcuts.pinned.map { shortcut in Tile(keys: shortcut.keys, name: shortcut.name) { press(shortcut) } }
+    }
+    /// Under the shortcuts, as icons: the clipboard both ways, then leaving.
+    private struct Icon { let symbol: String, label: String, isDestructive: Bool, run: () -> Void }
+    private var icons: [Icon] {
+        [Icon(symbol: "doc.on.clipboard", label: "Copy from Host", isDestructive: false, run: copyFromHost),
+         Icon(symbol: "arrow.up.doc.on.clipboard", label: "Send Clipboard", isDestructive: false, run: sendClipboard),
+         Icon(symbol: "rectangle.portrait.and.arrow.right", label: "Disconnect", isDestructive: false, run: disconnect),
+         Icon(symbol: "power", label: "Quit Game", isDestructive: true, run: quit)]
     }
 
     var body: some View {
@@ -97,26 +104,26 @@ struct ActionsPanel: View {
                             .focusRing(isFocused(-1), cornerRadius: .infinity)
                             .id(-1)
                     }
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                         ForEach(Array(tiles.enumerated()), id: \.offset) { index, tile in
+                            // Just the keys it presses: its name is for VoiceOver and the editor.
                             Button(action: tile.run) {
-                                VStack(spacing: 3) {
-                                    Text(tile.name).font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
-                                    Text(tile.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                                }
-                                .padding(.horizontal, 8)
-                                .frame(maxWidth: .infinity, minHeight: 54)
-                                .contentShape(.rect)
+                                Text(tile.keys).font(.headline).lineLimit(1).minimumScaleFactor(0.7)
+                                    .padding(.horizontal, 14)
+                                    .frame(maxWidth: .infinity, minHeight: Self.button)
+                                    .contentShape(.capsule)
                             }
                             .buttonStyle(.plain)
-                            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
-                            .focusRing(isFocused(index), cornerRadius: 16)
+                            .accessibilityLabel(tile.name)
+                            .glassEffect(.regular.interactive(), in: .capsule) // pills, as iOS's wider controls
+                            .focusRing(isFocused(index), cornerRadius: .infinity)
                             .id(index)
                         }
                     }
-                    VStack(spacing: 10) { // centred and not full width, so the highlight's grow stays inside the panel
-                        bottomButton("Disconnect", index: tiles.count, action: disconnect)
-                        bottomButton("Quit Game", index: tiles.count + 1, isDestructive: true, action: quit)
+                    HStack(spacing: 10) {
+                        ForEach(Array(icons.enumerated()), id: \.offset) { offset, icon in
+                            iconButton(icon, index: tiles.count + offset)
+                        }
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 14)
@@ -129,14 +136,19 @@ struct ActionsPanel: View {
         .onGamepad(handle)
     }
 
-    private func bottomButton(_ title: String, index: Int, isDestructive: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).font(.headline).frame(width: 220, height: 46).contentShape(.capsule)
+    /// iOS's Control Center sizes, scaled to the panel: round buttons this wide, pills this tall.
+    static let button: CGFloat = 62
+
+    private func iconButton(_ icon: Icon, index: Int) -> some View {
+        Button(action: icon.run) {
+            Image(systemName: icon.symbol).font(.system(size: 24, weight: .medium))
+                .frame(width: Self.button, height: Self.button).contentShape(.circle)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(isDestructive ? .red : .primary)
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .foregroundStyle(icon.isDestructive ? .red : .primary)
+        .glassEffect(.regular.interactive(), in: .circle)
         .focusRing(isFocused(index), cornerRadius: .infinity)
+        .accessibilityLabel(icon.label)
         .id(index)
     }
 
@@ -152,22 +164,21 @@ struct ActionsPanel: View {
     }
 
     private func handle(_ command: GamepadCommand) {
-        let count = tiles.count, lastRowStart = (count - 1) / 2 * 2
-        focus = min(focus, count + 1) // unpinning shortcuts shortens the grid: never past Quit, never a stale Quit
-        let inGrid = (0..<count).contains(focus)
+        let count = tiles.count, lastRowStart = max(0, (count - 1) / 2 * 2), iconCount = icons.count
+        focus = min(focus, count + iconCount - 1) // unpinning shortcuts shortens the grid: never past the last icon
+        let inGrid = (0..<count).contains(focus), inIcons = focus >= count
         switch command {
         case .back, .streamMenu: close()
         case .previousTab, .nextTab: tab = .settings
         case .up:
-            if focus == count + 1 { focus = count } else if focus == count { focus = lastRowStart }
-            else if inGrid { focus = focus >= 2 ? focus - 2 : -1 }
+            if inIcons { focus = count > 0 ? lastRowStart : -1 } else if inGrid { focus = focus >= 2 ? focus - 2 : -1 }
         case .down:
-            if focus == -1 { focus = 0 } else if inGrid { focus = focus + 2 < count ? focus + 2 : count }
-            else if focus == count { focus = count + 1 }
-        case .left: if inGrid, focus % 2 == 1 { focus -= 1 }
-        case .right: if inGrid, focus % 2 == 0, focus + 1 < count { focus += 1 }
+            if focus == -1 { focus = count > 0 ? 0 : count } else if inGrid { focus = focus + 2 < count ? focus + 2 : count }
+        case .left: if inGrid, focus % 2 == 1 { focus -= 1 } else if inIcons, focus > count { focus -= 1 }
+        case .right:
+            if inGrid, focus % 2 == 0, focus + 1 < count { focus += 1 } else if inIcons, focus < count + iconCount - 1 { focus += 1 }
         case .select:
-            if focus == -1 { editShortcuts() } else if inGrid { tiles[focus].run() } else if focus == count { disconnect() } else { quit() }
+            if focus == -1 { editShortcuts() } else if inGrid { tiles[focus].run() } else { icons[focus - count].run() }
         default: break
         }
     }
@@ -196,7 +207,13 @@ struct QuickSettingsPanel: View {
     @State private var focusIndex = 0
 
     private enum Row: Hashable { case bitrate, overlay, touch, layout, editLayout, more }
-    private var rows: [Row] { [.bitrate, .overlay, .touch] + (touchMode.usesOnScreenController ? [.layout, .editLayout] : []) + [.more] }
+    /// The on-screen controller is showing: Automatic without a game controller, or Controller.
+    private var showsPad: Bool { touchMode.resolved(controllerConnected: gamepad.isControllerConnected) == .controller }
+    /// In screen order: the modules, then the round buttons' row.
+    private var rows: [Row] {
+        [.bitrate, .touch] + (showsPad ? [.layout] : []) + [.overlay] + (showsPad ? [.editLayout] : []) + [.more]
+    }
+    private static let roundRows: Set<Row> = [.overlay, .editLayout, .more]
     private var focus: Row { rows[min(focusIndex, rows.count - 1)] }
     @State private var bitrateNote: String?
     @State private var bitrateChange: Task<Void, Never>?
@@ -206,72 +223,90 @@ struct QuickSettingsPanel: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 12) {
                 StatsLine(text: stats)
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("Bitrate")
+                        Label("Bitrate", systemImage: "speedometer").font(.headline)
                         Spacer()
                         Text("\(shown / 1000) Mbps" + (bitrate == 0 ? " · Auto" : "")).foregroundStyle(.secondary)
                     }
                     Slider(value: Binding(get: { Double(shown) }, set: { bitrate = StreamSettings.steppedBitrate(Int($0), by: 0) }),
                            in: Double(StreamSettings.bitrateRange.lowerBound)...Double(StreamSettings.bitrateRange.upperBound))
+                        .tint(.white)
                     if let bitrateNote { Text(bitrateNote).font(.caption).foregroundStyle(.secondary) }
                 }
-                .panelRow(isFocused(.bitrate))
-                Toggle("Performance Overlay", isOn: $showsPerformance).panelRow(isFocused(.overlay))
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Touch")
+                .padding(16)
+                .glassEffect(.regular, in: .rect(cornerRadius: 28))
+                .focusRing(isFocused(.bitrate), cornerRadius: 28)
+                pill(.touch, symbol: "hand.tap.fill", title: "Touch", value: touchMode.title) {
                     Picker("Touch", selection: $touchMode) {
                         ForEach(TouchMode.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
-                    .pickerStyle(.segmented)
                 }
-                .panelRow(isFocused(.touch))
-                if touchMode.usesOnScreenController {
-                    HStack {
-                        Text("Layout")
-                        Spacer()
-                        Menu {
-                            Picker("Layout", selection: $padLayoutID) {
-                                ForEach(padLayouts.layouts) { Text($0.name).tag($0.id) }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(padLayouts.layout(padLayoutID).name)
-                                Image(systemName: "chevron.up.chevron.down").font(.footnote.weight(.medium))
-                            }
-                            .foregroundStyle(.secondary)
+                if showsPad {
+                    pill(.layout, symbol: "gamecontroller.fill", title: "Controller Layout", value: padLayouts.layout(padLayoutID).name) {
+                        Picker("Controller Layout", selection: $padLayoutID) {
+                            ForEach(padLayouts.layouts) { Text($0.name).tag($0.id) }
                         }
                     }
-                    .panelRow(isFocused(.layout))
-                    Button(action: editLayout) {
-                        HStack {
-                            Text("Edit Layout")
-                            Spacer()
-                            Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                        }
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                    .panelRow(isFocused(.editLayout))
                 }
-                Button(action: moreSettings) {
-                    HStack {
-                        Text("More Settings")
-                        Spacer()
-                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    round(.overlay, symbol: "chart.bar.xaxis", label: "Performance Overlay", isOn: showsPerformance) {
+                        showsPerformance.toggle()
                     }
-                    .contentShape(.rect)
+                    if showsPad { round(.editLayout, symbol: "square.and.pencil", label: "Edit Layout", action: editLayout) }
+                    round(.more, symbol: "gearshape.fill", label: "More Settings", action: moreSettings)
                 }
-                .buttonStyle(.plain)
-                .panelRow(isFocused(.more))
             }
             .padding(.horizontal, 18).padding(.vertical, 16) // room for the focus ring and its 5% grow, clear of the fades
         }
         .scrollIndicators(.hidden)
         .onChange(of: bitrate) { applyBitrate() }
         .onGamepad(handle)
+    }
+
+    /// A pill like iOS's Focus control: an icon in its circle, the setting and its value, a menu of choices.
+    private func pill(_ row: Row, symbol: String, title: String, value: String,
+                      @ViewBuilder choices: () -> some View) -> some View {
+        Menu {
+            choices()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+                    .frame(width: 40, height: 40)
+                    .background(.white.opacity(0.18), in: .circle)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.subheadline.weight(.semibold))
+                    Text(value).font(.footnote).foregroundStyle(.white.opacity(0.7))
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.up.chevron.down").font(.footnote.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+            }
+            .foregroundStyle(.white)
+            .padding(.leading, 11).padding(.trailing, 18)
+            .frame(maxWidth: .infinity, minHeight: ActionsPanel.button)
+            .contentShape(.capsule)
+        }
+        .tint(.white) // white, not the accent colour a menu gives its label
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .focusRing(isFocused(row), cornerRadius: .infinity)
+    }
+
+    /// A round button; a switch is white while on, as iOS's are.
+    private func round(_ row: Row, symbol: String, label: String, isOn: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 22, weight: .medium))
+                .foregroundStyle(isOn ? Color.black : .white)
+                .frame(width: ActionsPanel.button, height: ActionsPanel.button)
+                .background { if isOn { Circle().fill(.white) } }
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .focusRing(isFocused(row), cornerRadius: .infinity)
+        .accessibilityLabel(label)
+        .accessibilityValue(row == .overlay ? (isOn ? "On" : "Off") : "")
     }
 
     private func isFocused(_ row: Row) -> Bool { gamepad.isActive && focus == row }
@@ -297,7 +332,21 @@ struct QuickSettingsPanel: View {
         switch command {
         case .back, .streamMenu: close()
         case .previousTab, .nextTab: tab = .actions
-        case .up, .down: focusIndex = FocusMove.next(min(focusIndex, rows.count - 1), count: rows.count, columns: 1, command)
+        case .up, .down:
+            // Down the modules, then onto the row of round buttons (from any of which up goes back to the modules).
+            let modules = rows.filter { !Self.roundRows.contains($0) }, rounds = rows.filter { Self.roundRows.contains($0) }
+            let next: Row?
+            if Self.roundRows.contains(focus) {
+                next = command == .up ? modules.last : nil
+            } else {
+                let index = modules.firstIndex(of: focus) ?? 0
+                next = command == .up ? (index > 0 ? modules[index - 1] : nil) : (index + 1 < modules.count ? modules[index + 1] : rounds.first)
+            }
+            if let next, let index = rows.firstIndex(of: next) { focusIndex = index }
+        case .left where Self.roundRows.contains(focus), .right where Self.roundRows.contains(focus): // `where` binds per pattern
+            let rounds = rows.filter { Self.roundRows.contains($0) }, index = rounds.firstIndex(of: focus) ?? 0
+            let next = rounds[min(max(index + (command == .right ? 1 : -1), 0), rounds.count - 1)]
+            if let row = rows.firstIndex(of: next) { focusIndex = row }
         case .left, .right:
             let step = command == .right ? 1 : -1
             switch focus {
