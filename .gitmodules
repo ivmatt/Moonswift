@@ -1,6 +1,7 @@
 [submodule "Packages/MoonlightCore/moonlight-common-c"]
 	path = Packages/MoonlightCore/moonlight-common-c
-	url = https://github.com/moonlight-stream/moonlight-common-c.git
+	url = https://github.com/ivmatt/moonlight-common-c.git
+	branch = moonswift
 [submodule "Packages/MoonlightCore/mbedtls"]
 	path = Packages/MoonlightCore/mbedtls
 	url = https://github.com/Mbed-TLS/mbedtls.git
