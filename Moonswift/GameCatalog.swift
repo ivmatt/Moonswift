@@ -107,7 +107,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
 
     func setOnlineArt(_ isOn: Bool, for game: CatalogGame) {
         if isOn { onlineArtOff.remove(game.id) } else { onlineArtOff.insert(game.id) }
-        try? JSONEncoder().encode(onlineArtOff).write(to: Self.foundFolder.appending(path: "off.json"), options: .atomic)
+        saveSettings()
     }
 
     /// Looks up art for each game that hasn't been, one at a time. Stops at a rejected key; a network error leaves the
@@ -168,7 +168,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         foundVersion += 1 // the same kind replaced: views showing it look again
         if onlineArtOff.contains(gameID) {
             onlineArtOff.remove(gameID)
-            try? JSONEncoder().encode(onlineArtOff).write(to: Self.foundFolder.appending(path: "off.json"), options: .atomic)
+            saveSettings()
         }
     }
 
@@ -178,7 +178,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
 
     private func saveMatch(_ match: FoundMatch, for gameID: String) {
         foundMatches[gameID] = match
-        try? JSONEncoder().encode(foundMatches).write(to: Self.foundFolder.appending(path: "matches.json"), options: .atomic)
+        saveSettings()
     }
 
     private static var foundFolder: URL {
@@ -262,34 +262,50 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         Data(base64Encoded: key.replacing("_", with: "/").replacing("-", with: "+")).flatMap { String(data: $0, encoding: .utf8) }
     }
 
+    /// Every per-game setting, each in its own small file (loaded in init). One place, so a new setting can't be
+    /// saved by one change and left behind by another (removing a host's data).
+    private func saveSettings() {
+        let encoder = JSONEncoder()
+        func save(_ value: some Encodable, _ folder: URL, _ name: String) {
+            try? encoder.encode(value).write(to: folder.appending(path: name), options: .atomic)
+        }
+        save(foundMatches, Self.foundFolder, "matches.json")
+        save(onlineArtOff, Self.foundFolder, "off.json")
+        save(nicknames, Self.customFolder, "nicknames.json")
+        save(hidden, Self.customFolder, "hidden.json")
+        save(showAs, Self.customFolder, "showAs.json")
+        save(splashWaits, Self.customFolder, "splashWaits.json")
+        save(padLayouts, Self.customFolder, "padLayouts.json")
+    }
+
     /// An empty or unchanged name removes the nickname.
     func setNickname(_ name: String, for game: CatalogGame) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         nicknames[game.id] = name.isEmpty || name == game.originalTitle ? nil : name
-        try? JSONEncoder().encode(nicknames).write(to: Self.customFolder.appending(path: "nicknames.json"), options: .atomic)
+        saveSettings()
     }
 
     func setHidden(_ isHidden: Bool, for game: CatalogGame) {
         if isHidden { hidden.insert(game.id) } else { hidden.remove(game.id) }
-        try? JSONEncoder().encode(hidden).write(to: Self.customFolder.appending(path: "hidden.json"), options: .atomic)
+        saveSettings()
     }
 
     /// nil: Automatic.
     func setShowAs(_ choice: ShowAs?, for game: CatalogGame) {
         showAs[game.id] = choice
-        try? JSONEncoder().encode(showAs).write(to: Self.customFolder.appending(path: "showAs.json"), options: .atomic)
+        saveSettings()
     }
 
     /// nil: the default from Settings.
     func setSplashWait(_ seconds: Int?, for game: CatalogGame) {
         splashWaits[game.id] = seconds
-        try? JSONEncoder().encode(splashWaits).write(to: Self.customFolder.appending(path: "splashWaits.json"), options: .atomic)
+        saveSettings()
     }
 
     /// The game (by its host's title) uses this on-screen controller layout from now on.
     func setPadLayout(_ layoutID: String, forTitle title: String) {
         padLayouts[title.lowercased()] = layoutID
-        try? JSONEncoder().encode(padLayouts).write(to: Self.customFolder.appending(path: "padLayouts.json"), options: .atomic)
+        saveSettings()
     }
 
     /// Saves a picture you picked (scaled down to what the screen needs), or removes it with nil.
@@ -367,14 +383,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
             splashWaits[id] = nil
             padLayouts[id] = nil
         }
-        let encoder = JSONEncoder()
-        try? encoder.encode(foundMatches).write(to: Self.foundFolder.appending(path: "matches.json"), options: .atomic)
-        try? encoder.encode(onlineArtOff).write(to: Self.foundFolder.appending(path: "off.json"), options: .atomic)
-        try? encoder.encode(nicknames).write(to: Self.customFolder.appending(path: "nicknames.json"), options: .atomic)
-        try? encoder.encode(hidden).write(to: Self.customFolder.appending(path: "hidden.json"), options: .atomic)
-        try? encoder.encode(showAs).write(to: Self.customFolder.appending(path: "showAs.json"), options: .atomic)
-        try? encoder.encode(splashWaits).write(to: Self.customFolder.appending(path: "splashWaits.json"), options: .atomic)
-        try? encoder.encode(padLayouts).write(to: Self.customFolder.appending(path: "padLayouts.json"), options: .atomic)
+        saveSettings()
         UserDefaults.standard.removeObject(forKey: "favorites.\(pcID)")
         UserDefaults.standard.removeObject(forKey: "lastPlayed.\(pcID)")
         histories[pcID] = nil

@@ -384,8 +384,9 @@ struct ActionsRow: View {
     /// From the screen's top and side edges to the row: a button there sits concentric with the display's
     /// rounded corner (UIKit's private `_displayCornerRadius`; 0 when it's unknown), kept inside the strip.
     private var cornerInset: CGFloat {
-        let radius = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen
-            .value(forKey: "_displayCornerRadius") as? CGFloat ?? 0
+        let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen
+        let key = "_displayCornerRadius" // value(forKey:) throws an exception, not nil, if a future iOS drops it
+        let radius = screen?.responds(to: NSSelectorFromString(key)) == true ? screen?.value(forKey: key) as? CGFloat ?? 0 : 0
         let half = ActionButtonFace.size / 2
         return min(max(radius - half, 10), PadLayout.actionStrip - ActionButtonFace.size - 4)
     }

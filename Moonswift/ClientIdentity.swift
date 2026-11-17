@@ -18,7 +18,7 @@ nonisolated struct ClientIdentity: @unchecked Sendable { // Security types are i
 
     private static func loadOrCreate() throws -> ClientIdentity {
         let key: SecKey
-        if let existing = findKey() {
+        if let existing = try findKey() {
             key = existing
         } else {
             SecItemDelete([kSecClass: kSecClassCertificate, kSecAttrLabel: certificateLabel] as CFDictionary) // can't match a new key
@@ -49,11 +49,15 @@ nonisolated struct ClientIdentity: @unchecked Sendable { // Security types are i
                               certificatePEM: pem(fromDER: der), signature: signature)
     }
 
-    private static func findKey() -> SecKey? {
+    /// nil only when there's no key yet. Any other keychain error (locked, say) throws: replacing the key on a
+    /// passing error would unpair every host.
+    private static func findKey() throws -> SecKey? {
         var item: CFTypeRef?
         let query = [kSecClass: kSecClassKey, kSecAttrApplicationTag: keyTag,
                      kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecReturnRef: true] as CFDictionary
-        guard SecItemCopyMatching(query, &item) == errSecSuccess, let item else { return nil }
+        let status = SecItemCopyMatching(query, &item)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let item else { throw ClientIdentityError("Couldn't read the key (\(status)).") }
         return (item as! SecKey)
     }
 

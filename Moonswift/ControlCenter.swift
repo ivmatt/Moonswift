@@ -360,15 +360,6 @@ struct QuickSettingsPanel: View {
     }
 }
 
-private extension View {
-    /// A panel row: full width, a little padding, and the controller's highlight when it's on it.
-    func panelRow(_ isFocused: Bool) -> some View {
-        padding(.vertical, 10).padding(.horizontal, 14)
-            .background(.white.opacity(isFocused ? 0.12 : 0), in: .rect(cornerRadius: 14))
-            .focusRing(isFocused, cornerRadius: 14)
-    }
-}
-
 /// A three-finger drag sideways over the open panel or the game beside it: how far right while it moves, and where it
 /// ended. UIKit's recognizer, so one- and two-finger touches still scroll, slide and press as usual.
 struct ThreeFingerSwipe: UIGestureRecognizerRepresentable {

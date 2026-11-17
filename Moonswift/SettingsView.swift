@@ -29,7 +29,7 @@ struct SettingsView: View {
     @State private var artworkKey = SteamGridDB.savedKey ?? ""
     @FocusState private var isKeyFocused: Bool
     @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic
-    @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = true
+    @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = SettingsKey.adaptiveBitrateDefault
     @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
     @AppStorage(SettingsKey.playAudioOnPC) private var playAudioOnPC = false
     @AppStorage("touchMode") private var touchMode = TouchMode.automatic
@@ -45,12 +45,13 @@ struct SettingsView: View {
     @State private var bitrateChange: Task<Void, Never>?
     @State private var isShowingAbout = false
     @State private var isShowingButtonMapping = false
+    @State private var isShowingControllerTest = false
     @State private var isShowingGestures = false
     /// A setting's choices, for the controller, beside its row.
     @State private var choice: ChoiceMenuSpec?
     @State private var rowFrames = RowFrames()
 
-    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
+    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, controllerTest, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
     private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
     @State private var page = Self.rememberedPage
@@ -72,7 +73,7 @@ struct SettingsView: View {
     }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures, .buttonGuide, .buttonMapping] + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
+        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures, .buttonGuide, .buttonMapping] + (live == nil ? [.controllerTest] : []) + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
         return (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
             + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .touch, .overlay]
     }
@@ -241,10 +242,16 @@ struct SettingsView: View {
                     row(.buttonMapping) {
                         Button("Button Mapping") { isShowingButtonMapping = true }.foregroundStyle(.primary)
                     }
+                    if live == nil { // not while streaming: its trigger effects would fight the game's
+                        row(.controllerTest) {
+                            Button("Controller Test") { isShowingControllerTest = true }.foregroundStyle(.primary)
+                        }
+                    }
                 } header: {
                     Text("Controller")
                 } footer: {
-                    Text("The strip of controller buttons along the bottom. Automatic shows it while a controller is connected.")
+                    Text("Button Guide: the strip of controller buttons along the bottom; Automatic shows it while a controller "
+                         + "is connected. Controller Test shows what your controller sends, and tries a DualSense's adaptive triggers.")
                 }
                 if live == nil { // not while streaming
                     Section {
@@ -321,6 +328,7 @@ struct SettingsView: View {
             .choiceMenu($choice)
             .navigationDestination(isPresented: $isShowingAbout) { AboutView() }
             .navigationDestination(isPresented: $isShowingButtonMapping) { ButtonMappingView() }
+            .navigationDestination(isPresented: $isShowingControllerTest) { ControllerTestView() }
             .navigationDestination(isPresented: $isShowingGestures) { GesturesView() }
             .onChange(of: effectiveBitrate) { _, kbps in applyLive(kbps) }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
@@ -407,6 +415,7 @@ struct SettingsView: View {
         case .splashWait: choices("Splash Wait", LaunchSplash.waitChoices, current: splashWait, name: Self.seconds) { splashWait = $0 }
         case .bitrate: break // left/right move the slider
         case .buttonMapping: isShowingButtonMapping = true
+        case .controllerTest: isShowingControllerTest = true
         case .about: isShowingAbout = true
         case .onlineArtwork: findsArtwork.toggle()
         case .artworkKey: isKeyFocused = true

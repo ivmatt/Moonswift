@@ -296,7 +296,7 @@ import SwiftUI
         let codec = defaults.string(forKey: SettingsKey.codec).flatMap(CodecOption.init) ?? .automatic
         let formats = StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware,
                                                   av1InHardware: ScreenInfo.av1InHardware,
-                                                  hdr: ScreenInfo.supportsHDR && defaults.object(forKey: SettingsKey.hdr) as? Bool ?? true)
+                                                  hdr: ScreenInfo.supportsHDR && defaults.object(forKey: SettingsKey.hdr) as? Bool ?? ScreenInfo.supportsHDR)
         return Settings(width: size.width, height: size.height, fps: fps,
                         bitrate: StreamSettings.effectiveBitrate(saved: defaults.integer(forKey: SettingsKey.bitrate),
                                                                  width: size.width, height: size.height, fps: fps),

@@ -347,7 +347,7 @@ final class ControllerStreamer {
 
 /// One rumble motor: a CoreHaptics engine on one part of the controller playing an endless pattern whose
 /// intensity follows the host (moonlight-ios's HapticContext).
-private final class HapticMotor {
+final class HapticMotor {
     private let engine: CHHapticEngine
     // The basic player, as moonlight-ios uses: a controller's haptic engine rejected the advanced one.
     private let player: any CHHapticPatternPlayer

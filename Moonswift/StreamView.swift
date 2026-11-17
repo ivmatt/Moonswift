@@ -121,7 +121,7 @@ struct StreamView: View {
     }
     // Not @AppStorage: the once-a-second loop runs on the copy of this view from when the stream started, whose
     // @AppStorage values don't follow later changes (Stream Settings). Reading UserDefaults is always current.
-    private var adaptive: Bool { UserDefaults.standard.object(forKey: SettingsKey.adaptiveBitrate) as? Bool ?? true }
+    private var adaptive: Bool { UserDefaults.standard.object(forKey: SettingsKey.adaptiveBitrate) as? Bool ?? SettingsKey.adaptiveBitrateDefault }
     private var savedBitrate: Int { UserDefaults.standard.integer(forKey: SettingsKey.bitrate) }
     @State private var adaptiveController: BitrateController?
     @State private var adaptiveUnsupported = false

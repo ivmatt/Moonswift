@@ -659,6 +659,7 @@ struct AV1Tests {
         #expect(AV1SequenceHeader.find(in: Data([0x12, 0x00])) == nil) // only a temporal delimiter
         let truncated = try #require(Data(hex: "12000a0e0200000561"))
         #expect(AV1SequenceHeader.find(in: truncated) == nil) // cut short
+        #expect(AV1SequenceHeader.find(in: Data([0x0C])) == nil) // a sequence header's first byte, its extension byte missing
     }
 }
 
@@ -748,6 +749,12 @@ struct AdaptiveTriggerTests {
         // A vibration with no frequency does nothing.
         #expect(AdaptiveTriggerEffect(type: 0x06, bytes: [0, 200, 0, 0, 0, 0, 0, 0, 0, 0]).mode == .off)
         #expect(AdaptiveTriggerEffect(type: 0x21, bytes: [1, 2]).mode == .off) // too short
+    }
+
+    @Test func controllerTestPresetsBecomeTheirEffects() {
+        #expect(TriggerPreset.allCases.map(\.effect.mode) == [.off, .feedback, .weapon, .vibration])
+        let weapon = TriggerPreset.weapon.effect
+        #expect(weapon.startPosition < weapon.endPosition && weapon.startStrength == 1) // a click partway down, full strength
     }
 }
 

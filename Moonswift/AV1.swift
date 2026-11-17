@@ -31,6 +31,7 @@ nonisolated struct AV1SequenceHeader: Equatable {
             } else {
                 size = bytes.count - payloadStart // the last OBU may run to the end
             }
+            guard size >= 0 else { return nil } // a header cut off before its extension byte
             guard payloadStart + size <= bytes.count else { return nil }
             if type == 1 { // OBU_SEQUENCE_HEADER
                 let payload = Array(bytes[payloadStart..<payloadStart + size])

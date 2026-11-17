@@ -52,6 +52,7 @@ nonisolated enum SettingsKey {
     static let codec = "codec"
     static let performanceOverlay = "performanceOverlay" // Bool: live stats in a corner of the stream
     static let adaptiveBitrate = "adaptiveBitrate" // Bool: the bitrate setting becomes a ceiling
+    static let adaptiveBitrateDefault = true // its first-run value, read from more than one place
     static let bitrate = "bitrateKbps" // 0 = automatic, else kbps
     static let playAudioOnPC = "playAudioOnPC" // Bool: sound also plays from the PC's speakers
     static let hdr = "hdr" // Bool: ask for HDR (10-bit HEVC) on HDR screens
