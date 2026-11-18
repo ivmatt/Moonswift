@@ -34,7 +34,7 @@ struct HomeView: View {
     @State private var isRealTabBarHidden = false
     @State private var standInOpacity: Double = 0
     /// Where the system draws its bar and its shrunk button, read as it tucks away.
-    @State private var tabBarFrames = TabBarFrames.fallback
+    @State private var tabBarFrames = TabBarFrames.current
     @State private var editing: CatalogGame?
     /// The selected game, by ID: playing one moves it to the front of the row, and the selection goes with it.
     /// Controller focus is on the row (1), the hero's buttons (0), or the host status pill (-1).
@@ -386,7 +386,7 @@ struct HomeView: View {
     /// The real bar goes at once and its glass copy, in the same place, shrinks into the corner button.
     private func tuckTabBarAway() {
         guard floatsTabBar, !isTabBarAway else { return } // only from the bar showing
-        tabBarFrames = TabBarFrames.read() ?? .fallback
+        tabBarFrames = .current
         withTransaction(Transaction(animation: nil)) { isTabBarAway = true; isTabBarShrunk = false; standInOpacity = 0 }
         // The copy fades in over the real bar, which then goes underneath it, and only then does it shrink.
         withAnimation(.easeOut(duration: 0.12)) { standInOpacity = 1 } completion: {
@@ -936,32 +936,15 @@ private struct TabBarMorph: View, Animatable {
     }
 }
 
-/// Where the system draws its tab bar and the round button it shrinks to, in the window, read from its views.
-/// shortcut: found by the views' type names, which iOS doesn't promise; if they change, the measured fallback (the
-/// iPhone Air's) is used. Revisit if iOS offers a way to shrink its bar from code.
+/// Where the system draws its tab bar and the round button it shrinks to, in the window.
+// shortcut: iOS doesn't publish these frames, so they're measured from the iPhone Air in landscape (centred bar, round
+// button at the left), within a point of the real ones there; other phones may be off by a few points. Revisit if
+// iOS offers a way to shrink its bar from code.
 struct TabBarFrames {
     var bar: CGRect
     var button: CGRect
 
-    static func read() -> TabBarFrames? {
-        guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first
-        else { return nil }
-        var bar: CGRect?, button: CGRect?
-        func walk(_ view: UIView) {
-            switch String(describing: type(of: view)) {
-            case "_UITabBarItemPlatterView": bar = view.convert(view.bounds, to: window)
-                bar = view.convert(view.bounds, to: window)
-            case "_UITabBarPlatterView": button = view.convert(view.bounds, to: window)
-            default: break
-            }
-            view.subviews.forEach(walk)
-        }
-        walk(window)
-        guard let bar, let button, bar.width > 0, button.width > 0 else { return nil }
-        return TabBarFrames(bar: bar, button: button)
-    }
-
-    static var fallback: TabBarFrames {
+    static var current: TabBarFrames {
         let size = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.bounds.size }.first
             ?? CGSize(width: 912, height: 420)
         return TabBarFrames(bar: CGRect(x: (size.width - 266) / 2, y: size.height - 64, width: 266, height: 44),
