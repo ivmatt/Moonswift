@@ -1,7 +1,7 @@
 import SwiftData
 import SwiftUI
 
-/// Home, after Apple's Games app, on one screen with no scrolling: one row of every game, most recently played first,
+/// Home on one screen with no scrolling: one row of every game, most recently played first,
 /// and above it a hero for the selected game (your own art behind it, if you added some), with Play, or Resume and
 /// Quit while it runs. Tap a cover to select it, and Play to play it. Controller: left/right through the row, up/down
 /// between the row and the hero's buttons, A plays (or the button), Y edits the game, X quits it, L1/R1 switch tabs,
@@ -639,6 +639,18 @@ private struct HeroCard: View {
     @ScaledMetric(relativeTo: .largeTitle) private var titleSize: CGFloat = 46
     @ScaledMetric(relativeTo: .title) private var shortTitleSize: CGFloat = 36
 
+    private var adaptiveTitleSize: CGFloat {
+        guard isShort else { return titleSize }
+
+        let count = game.title.count
+
+        if count > 28 { return 28 }
+        if count > 21 { return 32 }
+        if count > 15 { return 36 }
+
+        return shortTitleSize
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !subtitle.isEmpty {
@@ -647,9 +659,9 @@ private struct HeroCard: View {
                     .foregroundStyle(isElsewhere ? AnyShapeStyle(.orange) : isRunning ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
             }
             Text(game.title)
-                .font(.system(size: isShort ? shortTitleSize : titleSize, weight: .bold))
+                .font(.system(size: adaptiveTitleSize, weight: .bold))
                 .foregroundStyle(.primary)
-                .lineLimit(3) // wraps within half the screen; shrinks only past three lines
+                .lineLimit(2) // wraps within half the screen; shrinks only past two lines
                 .minimumScaleFactor(0.6)
                 .fixedSize(horizontal: false, vertical: true)
                 .contentTransition(.opacity)
@@ -956,3 +968,9 @@ struct TabBarFrames {
                             button: CGRect(x: 38, y: size.height - 64, width: 44, height: 44))
     }
 }
+
+#if DEBUG
+#Preview(traits: .landscapeLeft) {
+    HomeView(switchTab: { _ in }).previewModels(controller: false)
+}
+#endif

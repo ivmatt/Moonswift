@@ -21,7 +21,7 @@ private final class PreviewModels {
     }
 }
 
-private extension View {
+extension View {
     func previewModels(controller: Bool) -> some View {
         let models = PreviewModels(controller: controller)
         return environment(models.gamepad)

@@ -7,8 +7,10 @@
   },
   "groups" : [
     {
+      "blur-material" : null,
       "layers" : [
         {
+          "glass" : true,
           "hidden" : false,
           "image-name" : "Subtract.svg",
           "name" : "Subtract",
