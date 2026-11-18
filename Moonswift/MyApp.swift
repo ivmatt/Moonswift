@@ -35,7 +35,7 @@ import SwiftUI
         #endif
         // The selected tab in white (black in light mode) rather than blue. Set on the tab bar itself: a SwiftUI
         // tint on the TabView also reached the sliders, switches and menus inside the tabs.
-        // The iPad's floating tab bar ignores this: RootView tints it.
+        // The iPad's floating tab bar ignores this: RootView tints the tab view for it.
         let tabs = UITabBarAppearance()
         for item in [tabs.stackedLayoutAppearance, tabs.inlineLayoutAppearance, tabs.compactInlineLayoutAppearance] {
             item.selected.iconColor = .label

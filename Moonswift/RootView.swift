@@ -82,15 +82,6 @@ struct RootView: View {
         .background {
             (tab == .pcs ? Color(.systemGroupedBackground) : Color(.systemBackground)).ignoresSafeArea()
         }
-        // iPad: the selected tab white rather than blue (see styleFloatingTabBar); again after a tab change or rotation,
-        // which can rebuild the bar.
-        .task(id: tab) {
-            await Task.yield()
-            styleFloatingTabBar()
-            try? await Task.sleep(for: .milliseconds(350)) // again once the selection has moved
-            styleFloatingTabBar()
-        }
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { _ in Task { styleFloatingTabBar() } }
         .sheet(isPresented: $showsSettings) { SettingsView() }
         .streamLauncher(launcher)
         .actionMenu($menu)
@@ -142,18 +133,26 @@ struct RootView: View {
     private var tabs: some View {
         TabView(selection: $tab) {
             Tab(TabID.home.title, systemImage: TabID.home.symbol, value: .home) {
-                if isUnderStream { Color.black } else {
-                    HomeView(switchTab: step, openSettings: openSettings, refresh: { Task { await refresh() } },
-                             isRefreshing: isRefreshing)
+                Group {
+                    if isUnderStream { Color.black } else {
+                        HomeView(switchTab: step, openSettings: openSettings, refresh: { Task { await refresh() } },
+                                 isRefreshing: isRefreshing)
+                    }
                 }
+                .tint(.accentColor)
             }
             Tab(TabID.library.title, systemImage: TabID.library.symbol, value: .library) {
-                if isUnderStream { Color.black } else { GamesView(switchTab: step, openSettings: openSettings) }
+                Group { if isUnderStream { Color.black } else { GamesView(switchTab: step, openSettings: openSettings) } }
+                    .tint(.accentColor)
             }
             Tab(TabID.pcs.title, systemImage: TabID.pcs.symbol, value: .pcs) {
-                if isUnderStream { Color.black } else { PCsView(openSettings: openSettings, switchTab: step) }
+                Group { if isUnderStream { Color.black } else { PCsView(openSettings: openSettings, switchTab: step) } }
+                    .tint(.accentColor)
             }
         }
+        // The iPad's floating tab bar takes its colour from the tab view and ignores the UITabBar appearance (MyApp):
+        // its selected tab white (black in light mode), while each tab puts the accent colour back for its contents.
+        .tint(.primary)
     }
 
     /// A full-screen stream covers the tabs: they aren't drawn under it. Home redrew itself without end under the
@@ -186,28 +185,6 @@ struct RootView: View {
         // Spins at least a second, so a quick answer still reads as the refresh having happened.
         try? await Task.sleep(until: started + .seconds(1))
         isRefreshing = false
-    }
-
-    /// The iPad's tab bar floats across the top as its own view, which takes its colour from the tab view (blue) and
-    /// ignores the UITabBar appearance that colours the Duo's rail (MyApp). Tinting the whole tab view instead reaches
-    /// the sliders, switches and menus inside the tabs, so just this bar is tinted: the selected tab white (black in
-    /// light mode) and the others dimmed, like Apple's Games app.
-    /// shortcut: found by private class names; if iOS renames them, the iPad's tabs go back to the system look
-    /// (nothing breaks). Revisit if SwiftUI gets a way to colour only the tab bar.
-    private func styleFloatingTabBar() {
-        func labels(in view: UIView) -> [UILabel] { (view as? UILabel).map { [$0] } ?? view.subviews.flatMap(labels) }
-        func style(_ view: UIView) {
-            let name = String(describing: type(of: view))
-            if name == "_UIFloatingTabBar" { view.tintColor = .label }
-            if name == "_UIFloatingTabBarItemView" {
-                // The selected tab's title is drawn in the tint colour.
-                let isSelected = labels(in: view).contains { String(describing: type(of: $0.textColor as Any)).contains("TintColor") }
-                view.alpha = isSelected ? 1 : 0.6
-                return
-            }
-            view.subviews.forEach(style)
-        }
-        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) { scene.windows.forEach(style) }
     }
 
     private func openSettings() { showsSettings = true }
