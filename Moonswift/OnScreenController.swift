@@ -382,11 +382,13 @@ struct ActionsRow: View {
     private var isShown: Bool { !layout.actionsOnTouch || isRevealed }
 
     /// From the screen's top and side edges to the row: a button there sits concentric with the display's
-    /// rounded corner (UIKit's private `_displayCornerRadius`; 0 when it's unknown), kept inside the strip.
+    /// rounded corner, kept inside the strip.
+    // shortcut: iOS has no public display corner radius, so it's a typical value per device kind (a home indicator
+    // means rounded corners); off by a few points on some models. Revisit if UIKit ever publishes the radius.
     private var cornerInset: CGFloat {
-        let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen
-        let key = "_displayCornerRadius" // value(forKey:) throws an exception, not nil, if a future iOS drops it
-        let radius = screen?.responds(to: NSSelectorFromString(key)) == true ? screen?.value(forKey: key) as? CGFloat ?? 0 : 0
+        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+        let isRounded = (window?.safeAreaInsets.bottom ?? 0) > 0
+        let radius: CGFloat = !isRounded ? 0 : UIDevice.current.userInterfaceIdiom == .pad ? 18 : 48
         let half = ActionButtonFace.size / 2
         return min(max(radius - half, 10), PadLayout.actionStrip - ActionButtonFace.size - 4)
     }
