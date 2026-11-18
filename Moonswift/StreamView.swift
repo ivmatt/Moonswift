@@ -210,7 +210,7 @@ struct StreamView: View {
                 // Like iOS's Control Center: the whole stream dims evenly, and a blur (not darkened) builds up gradually
                 // towards the right edge, light at the panel's left and full at its right.
                 ZStack(alignment: isPanelOnLeft ? .leading : .trailing) {
-                    Color.black.opacity(0.4)
+                    Color.black.opacity(0.6)
                     // Starts well before the panel and builds up over it, reaching full strength 40% of the way in.
                     let lead: CGFloat = 180, panel = ControlPanel<EmptyView>.travel
                     // A plain blur (no material's grey tint, which looked off) whose strength itself varies across it: a
@@ -940,70 +940,33 @@ private struct LivePerformance: View {
     }
 }
 
-/// A blur of what's behind it and nothing else: iOS's blur view with its tint layers hidden and, inside the blur, only the
-/// Gaussian blur kept. The materials also lift brightness and wash out colour there, which turned the stream grey.
-// shortcut: reaches into the blur view's private layers (by class and filter names) to keep only the blur and set its
-// radius; if iOS renames them, it falls back to the material's own (greyer) blur. Revisit if it ever shows no blur.
+/// A blur of what's behind it, using iOS's lightest dark material: it darkens a little rather than washing the stream grey.
 struct ClearBlur: UIViewRepresentable {
-    var radius: CGFloat = 14
-
-    func makeUIView(context: Context) -> Effect { Effect(radius: radius) }
-    func updateUIView(_ view: Effect, context: Context) {}
-
-    final class Effect: UIVisualEffectView {
-        let radius: CGFloat
-
-        init(radius: CGFloat) {
-            self.radius = radius
-            super.init(effect: UIBlurEffect(style: .regular))
-        }
-        required init?(coder: NSCoder) { nil }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            applyFilter()
-        }
-
-        // UIKit sets its own filters again after the first layout, once it's on screen: ours go back on after that.
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            applyFilter()
-            DispatchQueue.main.async { [weak self] in self?.applyFilter() }
-        }
-
-        override func traitCollectionDidChange(_ previous: UITraitCollection?) {
-            super.traitCollectionDidChange(previous)
-            setNeedsLayout()
-        }
-
-        /// Only the blur of UIKit's filters (no saturation or tint), at our radius.
-        private func applyFilter() {
-            for view in subviews {
-                guard String(describing: type(of: view)).contains("Backdrop") else { view.isHidden = true; continue }
-                let blurOnly = (view.layer.filters ?? []).compactMap { $0 as? NSObject }
-                    .filter { ($0.value(forKey: "name") as? String) == "gaussianBlur" }
-                guard !blurOnly.isEmpty else { continue }
-                blurOnly.forEach { $0.setValue(radius, forKey: "inputRadius") }
-                if view.layer.filters?.count != blurOnly.count { view.layer.filters = blurOnly }
-            }
-        }
+    func makeUIView(context: Context) -> UIVisualEffectView {
+        UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
     }
+    func updateUIView(_ view: UIVisualEffectView, context: Context) {}
 }
 
 /// A blur that builds up gradually across its width: one blur faded in by a mask that eases in and out (smoothstep),
 /// so there's no line where it begins or where it's full. (Core Animation's private variable blur ignored its mask
 /// here and blurred evenly, leaving a hard edge; thin strips of rising strength showed their seams.)
 struct GradualBlur: View {
-    var radius: CGFloat = 14
     /// How far across (0 to 1) it reaches full strength, easing in from none.
     var fullAt: CGFloat = 1
     var fromLeading = true
+    /// The most the blur shows at full strength; below 1 lets a little of the sharp stream through and softens the
+    /// material's darkening (the public material has no radius setting).
+    var strength: CGFloat = 0.8
+    /// Extra darkening on top of the blur, faded in with it.
+    var dim: CGFloat = 0.25
     var body: some View {
         let stops = (0...16).map { i -> Gradient.Stop in
             let p = CGFloat(i) / 16
-            return .init(color: .black.opacity(p * p * (3 - 2 * p)), location: p * fullAt)
+            return .init(color: .black.opacity(strength * p * p * (3 - 2 * p)), location: p * fullAt)
         }
-        ClearBlur(radius: radius)
+        ClearBlur()
+            .overlay(.black.opacity(dim))
             .mask(LinearGradient(stops: stops, startPoint: fromLeading ? .leading : .trailing,
                                  endPoint: fromLeading ? .trailing : .leading))
     }
