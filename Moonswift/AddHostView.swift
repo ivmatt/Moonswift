@@ -36,6 +36,7 @@ struct AddHostView: View {
     @State private var window = CGSize.zero
     /// The Duo's side column is on one side only: the other gets as much, so pages centre on the screen.
     @State private var sideInsets = EdgeInsets()
+    @State private var hasAllowedPermissions = false
     private var iconSize: CGFloat { window.isShort ? 48 : 88 }
 
     /// Found PCs that aren't paired yet.
@@ -90,8 +91,8 @@ struct AddHostView: View {
         }
         .controlSize(.large)
         .frame(minHeight: 48)
-        .padding(.horizontal, 16)
-        .padding(.top, window.isShort ? 16 : 4)
+        .padding(.horizontal, 28) // clear of the screen's rounded corners, in line with the pages
+        .padding(.top, 20)
         .padding(.bottom, 4)
     }
 
@@ -103,7 +104,7 @@ struct AddHostView: View {
         case .address: [([.a], isAddressFocused ? "Connect" : addressProblem != nil ? "Troubleshooting" : "Type"), ([.b], "Back")]
         case .troubleshoot: [([.b], "Back")]
         case .pair: [([.b], "Back")]
-        case .done: [([.a], isFirstHost ? "Continue" : "Done")]
+        case .done: [([.a], focus == 0 ? "Select" : isFirstHost ? "Continue" : "Done")]
         case .setup: []
         }
     }
@@ -116,7 +117,7 @@ struct AddHostView: View {
         case .address: enterAddress.frame(maxWidth: 500)
         case .troubleshoot: troubleshooting
         case let .pair(address, name):
-            PairingView(address: address, name: name, onBack: back) { id, name in
+            PairingView(address: address, name: name, onBack: back, confirmsPermissions: false) { id, name in
                 advance(to: .done(hostID: id, name: name))
             }
         case let .done(hostID, name): done(hostID: hostID, name: name)
@@ -297,7 +298,7 @@ struct AddHostView: View {
 
     @ViewBuilder private func done(hostID: String, name: String) -> some View {
         let count = catalog.games(on: [hostID]).count
-        if count == 0 && !hasWaitedForGames && !isFirstHost { // the first host's are fetched during Getting Started
+        if isWaitingForGames(hostID) {
             // Paired: its games next, so the success page (and the app after it) has them.
             VStack(spacing: 16) {
                 ArcSpinner(size: 34).foregroundStyle(.secondary)
@@ -314,28 +315,65 @@ struct AddHostView: View {
         }
     }
 
+    /// The first host's games are fetched during Getting Started, so only another host's are waited for.
+    private func isWaitingForGames(_ hostID: String) -> Bool {
+        catalog.games(on: [hostID]).isEmpty && !hasWaitedForGames && !isFirstHost
+    }
+
     private func success(name: String, count: Int) -> some View {
-        VStack(spacing: 16) {
+        ScrollView {
+            Group {
+                if window.isShortAndWide {
+                    HStack(alignment: .top, spacing: 32) {
+                        successHeading(name: name, count: count).frame(maxWidth: .infinity)
+                        permissionsAndContinue.frame(maxWidth: .infinity)
+                    }
+                } else {
+                    VStack(spacing: 20) {
+                        successHeading(name: name, count: count)
+                        permissionsAndContinue.frame(maxWidth: 480)
+                    }
+                }
+            }
+            .padding(28)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .defaultScrollAnchor(.center, for: .alignment) // centred while it fits
+    }
+
+    private func successHeading(name: String, count: Int) -> some View {
+        VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill").font(.system(size: min(iconSize, isFirstHost ? 88 : 64))).foregroundStyle(.green)
             // "All set" only for another host: the first one has a few settings to go.
-            Text(isFirstHost ? "\(name) is paired" : "You're all set").font(isFirstHost ? .largeTitle.bold() : .title2.bold())
+            Text(isFirstHost ? "\(name) is paired" : "You're all set")
+                .font(isFirstHost && !window.isShort ? .largeTitle.bold() : .title2.bold())
+                .multilineTextAlignment(.center)
             Text(isFirstHost ? "While we grab your games, let's go through a few quick settings."
                  : "\(name) is ready" + (count > 0 ? " with \(count) games and apps." : "."))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Controller: up/down between the tick and the button, A ticks it (and moves on to the button) or presses it.
+    private var permissionsAndContinue: some View {
+        VStack(spacing: 16) {
+            PermissionsConfirmation(isConfirmed: $hasAllowedPermissions, isFocused: gamepad.isActive && focus == 0)
             Button { finishPairing() } label: { Text(isFirstHost ? "Continue" : "Done").frame(width: 200) }
                 .buttonStyle(.glassProminent)
                 .tint(.blue) // the page's white tint made it white on white
                 .controlSize(.large)
-                .focusRing(gamepad.isActive, cornerRadius: .infinity)
-                .padding(.top, 8)
+                .disabled(!hasAllowedPermissions)
+                .focusRing(gamepad.isActive && focus == 1, cornerRadius: .infinity)
         }
-        .padding(28)
     }
 
     // MARK: Moving between steps
 
     private func finishPairing() {
+        guard hasAllowedPermissions else { return }
         guard isFirstHost else { return dismiss() }
         if case let .done(hostID, name) = step { paired = (hostID, name) }
         setupPage = 0
@@ -399,7 +437,17 @@ struct AddHostView: View {
             }
         case .troubleshoot: break
         case .pair: break // the pairing screen handles A (Try Again)
-        case .done: if command == .select { finishPairing() }
+        case let .done(hostID, _):
+            guard !isWaitingForGames(hostID) else { break }
+            switch command {
+            case .up, .down: focus = focus == 0 ? 1 : 0
+            case .select:
+                if focus == 1 { finishPairing() } else {
+                    hasAllowedPermissions.toggle()
+                    if hasAllowedPermissions { focus = 1 }
+                }
+            default: break
+            }
         case .setup: break // its own pages handle the controller
         }
     }
