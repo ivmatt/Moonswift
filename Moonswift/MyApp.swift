@@ -30,7 +30,7 @@ import SwiftUI
         #if DEBUG
         if DemoMode.isOn {
             container = DemoMode.container()
-            DemoMode.seed(catalog, directory)
+            if !DemoMode.isFirstRun { DemoMode.seed(catalog, directory) }
         }
         #endif
         // The selected tab in white (black in light mode) rather than blue. Set on the tab bar itself: a SwiftUI
@@ -57,6 +57,9 @@ import SwiftUI
                 .environment(catalog)
                 .environment(launcher)
                 .onAppear { gamepad.start() }
+                #if DEBUG
+                .defaultAppStorage(DemoMode.settings)
+                #endif
         }
         .modelContainer(container)
     }

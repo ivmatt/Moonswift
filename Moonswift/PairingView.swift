@@ -15,6 +15,7 @@ struct PairingView: View {
     @State private var pin = Pairing.generatePIN()
     @State private var error: String?
     @State private var attempt = 0
+    @State private var window = CGSize.zero
 
     /// The host's web page: Sunshine-based hosts serve it one port above their main (HTTP) port, 47990 by default,
     /// so a host moved to another port is followed too.
@@ -25,9 +26,10 @@ struct PairingView: View {
     }
 
     var body: some View {
-        VStack(spacing: 24) {
+        ScrollView { // a short screen can't fit it all
+        VStack(spacing: window.isShort ? 14 : 24) {
             Text(pin)
-                .font(.system(size: 80, weight: .bold, design: .monospaced))
+                .font(.system(size: window.isShort ? 56 : 80, weight: .bold, design: .monospaced))
                 .accessibilityLabel("PIN \(pin.map(String.init).joined(separator: " "))")
             if let error {
                 Text(error).foregroundStyle(.red).multilineTextAlignment(.center)
@@ -69,6 +71,10 @@ struct PairingView: View {
             }
         }
         .padding()
+        .frame(maxWidth: .infinity)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .onGeometryChange(for: CGSize.self) { $0.fullSize } action: { window = $0 }
         .navigationTitle("Pair with \(name)")
         .task(id: attempt) { await pair() } // cancelled (and the request with it) when the view closes
         .onGamepad { command in
@@ -83,7 +89,7 @@ struct PairingView: View {
     private func step(_ number: Int, _ text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text("\(number)").font(.subheadline.weight(.bold)).frame(width: 22, height: 22).background(.quaternary, in: .circle)
-            Text(text).foregroundStyle(.secondary)
+            Text(text).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) // wraps, never "…"
         }
     }
 
@@ -94,6 +100,14 @@ struct PairingView: View {
     }
 
     private func pair() async {
+        #if DEBUG
+        if DemoMode.isFirstRun { // time to look at this page, then paired as if the PIN had been typed
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            context.insert(SavedHost(uniqueID: DemoMode.pcID, name: name, address: address, serverCert: Data([1])))
+            return onPaired(DemoMode.pcID, name)
+        }
+        #endif
         do {
             let paired = try await Pairing.pair(address: address, pin: pin)
             // Same uniqueID as an existing host updates it (unique attribute), so re-pairing refreshes it.

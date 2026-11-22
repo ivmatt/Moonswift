@@ -37,8 +37,6 @@ struct AddHostView: View {
     /// The Duo's side column is on one side only: the other gets as much, so pages centre on the screen.
     @State private var sideInsets = EdgeInsets()
     private var iconSize: CGFloat { window.isShort ? 48 : 88 }
-    /// Full screen only: an iPad's sheet doesn't start at the screen's edge, and has no side column to correct for.
-    private var titleCenter: CGFloat? { UIDevice.current.userInterfaceIdiom == .phone && window.width > 0 ? window.width / 2 : nil }
 
     /// Found PCs that aren't paired yet.
     private var found: [HostDiscovery.Found] {
@@ -49,29 +47,18 @@ struct AddHostView: View {
         NavigationStack {
             ZStack {
                 stepView
-                    .padding(.leading, max(0, sideInsets.trailing - sideInsets.leading))
-                    .padding(.trailing, max(0, sideInsets.leading - sideInsets.trailing))
+                    // As safe area, so a scrolling page still runs to the screen's edges.
+                    .safeAreaPadding(.leading, max(0, sideInsets.trailing - sideInsets.leading))
+                    .safeAreaPadding(.trailing, max(0, sideInsets.leading - sideInsets.trailing))
                     .id(step) // a new view for each step, so it slides in as the last slides out
                     .transition(Self.slide(forward: isForward))
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity) // the whole screen, even for a page shorter than it
             .onGeometryChange(for: CGSize.self) { $0.fullSize } action: { window = $0 }
             .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { sideInsets = $0 }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) { // the bar centres it beside the Duo's column: this, on the screen
-                    Text(title).font(.headline).visualEffect { [center = titleCenter] content, proxy in
-                        content.offset(x: center.map { $0 - proxy.frame(in: .global).midX } ?? 0)
-                    }
-                }
-                ToolbarItem(placement: .cancellationAction) {
-                    switch step {
-                    case .ready: Button("Cancel") { dismiss() }
-                    case .done: EmptyView()
-                    default: Button("Back", systemImage: "chevron.backward", action: back)
-                    }
-                }
-            }
+            // Its own bar: the Duo's system one scrolled away for good and couldn't centre its title on the screen.
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaBar(edge: .top) { header }
             .tint(.primary)
             // A swipe down closes it until the PIN shows; from then on it's seen through (pairing, then Getting Started).
             .interactiveDismissDisabled(!isClosable)
@@ -80,6 +67,32 @@ struct AddHostView: View {
             .buttonGuide(hints, reportsLayout: false)
             .onGamepad(handle)
         }
+    }
+
+    private var header: some View {
+        ZStack {
+            Text(title)
+                .font(.headline)
+                .padding(.leading, max(0, sideInsets.trailing - sideInsets.leading))
+                .padding(.trailing, max(0, sideInsets.leading - sideInsets.trailing))
+            HStack {
+                switch step {
+                case .ready: Button("Cancel") { dismiss() }.buttonStyle(.glass)
+                case .done: EmptyView()
+                default:
+                    Button("Back", systemImage: "chevron.backward", action: back)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.circle)
+                }
+                Spacer()
+            }
+        }
+        .controlSize(.large)
+        .frame(minHeight: 48)
+        .padding(.horizontal, 16)
+        .padding(.top, window.isShort ? 16 : 4)
+        .padding(.bottom, 4)
     }
 
     /// The button guide's hints for the step showing.
@@ -98,8 +111,9 @@ struct AddHostView: View {
     @ViewBuilder private var stepView: some View {
         switch step {
         case .ready: ready
-        case .find: find
-        case .address: enterAddress
+        // Narrower than the room, or a list's margins differ on the side of the Duo's column.
+        case .find: find.frame(maxWidth: 500)
+        case .address: enterAddress.frame(maxWidth: 500)
         case .troubleshoot: troubleshooting
         case let .pair(address, name):
             PairingView(address: address, name: name, onBack: back) { id, name in

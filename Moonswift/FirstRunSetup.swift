@@ -22,6 +22,7 @@ struct FirstRunSetup: View {
 
     @Environment(GameCatalog.self) private var catalog
     @Environment(GamepadInput.self) private var gamepad
+    @Environment(PCDirectory.self) private var directory
     @AppStorage(SettingsKey.onlineArtwork) private var findsArtwork = true
     @AppStorage(SettingsKey.artworkKeyVersion) private var artworkKeyVersion = 0
     @AppStorage(SettingsKey.touchMode) private var touchMode = TouchMode.automatic
@@ -301,6 +302,12 @@ struct FirstRunSetup: View {
         }
         .padding(28)
         .task {
+            #if DEBUG
+            if DemoMode.isFirstRun {
+                try? await Task.sleep(for: .seconds(2))
+                DemoMode.seed(catalog, directory, running: 0)
+            }
+            #endif
             let deadline = ContinuousClock.now + .seconds(20)
             while catalog.games(on: [hostID]).isEmpty, ContinuousClock.now < deadline, !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(300))

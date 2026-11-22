@@ -142,6 +142,9 @@ nonisolated struct SteamGridDB {
     private static let service = "SteamGridDB"
 
     static var savedKey: String? {
+        #if DEBUG
+        if DemoMode.isFirstRun { return nil } // the walkthrough starts without one, and never sees the real one
+        #endif
         let query = [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecReturnData: true] as CFDictionary
         var item: CFTypeRef?
         guard SecItemCopyMatching(query, &item) == errSecSuccess, let data = item as? Data else { return nil }
@@ -150,6 +153,9 @@ nonisolated struct SteamGridDB {
 
     /// Saves the key; an empty one removes it.
     static func save(key: String) {
+        #if DEBUG
+        if DemoMode.isFirstRun { return }
+        #endif
         let match = [kSecClass: kSecClassGenericPassword, kSecAttrService: service] as CFDictionary
         SecItemDelete(match)
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)

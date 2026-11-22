@@ -16,7 +16,12 @@ import Observation
     @ObservationIgnored private var browser: NWBrowser?
 
     var found: [Found] {
-        byService.values.sorted { $0.info.hostname < $1.info.hostname }
+        #if DEBUG
+        if DemoMode.isFirstRun, let info = try? ServerInfo(fields: ["hostname": "Mock PC", "uniqueid": DemoMode.pcID]) {
+            return [Found(address: DemoMode.mockAddress, info: info)]
+        }
+        #endif
+        return byService.values.sorted { $0.info.hostname < $1.info.hostname }
     }
 
     /// Stops browsing (Add PC closed): the app only searches the network while you're adding a PC.
@@ -26,6 +31,9 @@ import Observation
     }
 
     func start() {
+        #if DEBUG
+        if DemoMode.isFirstRun { return }
+        #endif
         guard browser == nil else { return }
         let browser = NWBrowser(for: .bonjour(type: "_nvstream._tcp", domain: nil), using: .tcp)
         browser.browseResultsChangedHandler = { [weak self] results, _ in

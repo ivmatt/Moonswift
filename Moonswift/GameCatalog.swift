@@ -262,9 +262,19 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         Data(base64Encoded: key.replacing("_", with: "/").replacing("-", with: "+")).flatMap { String(data: $0, encoding: .utf8) }
     }
 
+    /// Debug's first-run walkthrough (`DemoMode.isFirstRun`) changes nothing saved.
+    private static var isWalkthrough: Bool {
+        #if DEBUG
+        DemoMode.isFirstRun
+        #else
+        false
+        #endif
+    }
+
     /// Every per-game setting, each in its own small file (loaded in init). One place, so a new setting can't be
     /// saved by one change and left behind by another (removing a host's data).
     private func saveSettings() {
+        guard !Self.isWalkthrough else { return }
         let encoder = JSONEncoder()
         func save(_ value: some Encodable, _ folder: URL, _ name: String) {
             try? encoder.encode(value).write(to: folder.appending(path: name), options: .atomic)
@@ -310,6 +320,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
 
     /// Saves a picture you picked (scaled down to what the screen needs), or removes it with nil.
     func setArtwork(_ image: UIImage?, _ kind: Artwork, for game: CatalogGame) {
+        guard !Self.isWalkthrough else { return }
         let file = Self.customFolder.appending(path: "\(Self.fileKey(gameID: game.id)).\(kind.rawValue).jpg")
         let scaled = image.map { Self.scaled($0, kind) }
         if let scaled, let data = scaled.jpegData(compressionQuality: 0.85) {
@@ -365,6 +376,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     /// pictures, names, hidden, Show As, splash waits, controller layouts) and its favourites and play history. Games
     /// another saved host also has keep theirs.
     func forgetEverything(of pcID: String, keepingGamesOf others: [String]) {
+        guard !Self.isWalkthrough else { return } // the Mock PC's games can share IDs with your real ones
         let kept = Set(games(on: others).map(\.id))
         let gone = games(on: [pcID]).map(\.id).filter { !kept.contains($0) }
         for id in gone {
