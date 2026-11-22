@@ -38,6 +38,8 @@ struct AboutView: View {
             }
             Section {
                 row(0) { Button("Source Code") { openURL(Self.sourceURL) } }
+            } footer: {
+                Text("Built on moonlight-common-c, with code ported from moonlight-ios, adaptive triggers from VoidLink, and the DualSense waveform haptics protocol by Nonary.\n\nMoonswift is an independent project. It is not affiliated with or endorsed by Moonlight, Sunshine, Apollo or Vibepollo.")
             }
             Section("Open-Source Components") {
                 ForEach(Array(Self.components.enumerated()), id: \.element) { index, component in

@@ -95,4 +95,4 @@ Moonswift is an independent project. It is not affiliated with or endorsed by Mo
 
 ## License
 
-Moonswift is free software under the [GNU General Public License, version 3](https://www.gnu.org/licenses/gpl-3.0.html). The licenses of the bundled libraries are in [`Moonswift/Licenses`](Moonswift/Licenses).
+Moonswift is free software under the [GNU General Public License, version 3](LICENSE). The licenses of the bundled libraries are in [`Moonswift/Licenses`](Moonswift/Licenses).
