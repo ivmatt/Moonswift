@@ -79,19 +79,13 @@ nonisolated struct PCRef: Sendable {
 
     func isAvailable(_ id: String) -> Bool { statuses[id] == .online(paired: true) }
 
-    /// Its status isn't confirmed yet, so acting on it could be wrong.
-    func isUncertain(_ id: String) -> Bool {
-        Self.isUncertain(status: statuses[id], isRechecking: isRefreshing || rechecking.contains(id),
-                         isNotResponding: notResponding.contains(id))
-    }
+    /// Its status isn't confirmed yet, so acting on it could be wrong. A single missed check doesn't count: they're
+    /// routine on a busy host, and the buttons would keep dimming on a page where nothing happened.
+    func isUncertain(_ id: String) -> Bool { statuses[id] == nil || isRefreshing || rechecking.contains(id) }
 
     /// The one answer that dims Play, Resume and Quit and spins the status button, so they can't disagree. Never while
     /// a stream is open: checks are paused then, and the game in Picture in Picture must stay reachable.
     func isWaiting(on id: String, _ launcher: StreamLauncher) -> Bool { launcher.stream == nil && isUncertain(id) }
-
-    nonisolated static func isUncertain(status: HostStatus?, isRechecking: Bool, isNotResponding: Bool) -> Bool {
-        status == nil || isRechecking || isNotResponding
-    }
 
     func ref(_ host: SavedHost) -> PCRef {
         PCRef(id: host.uniqueID, name: host.displayName,

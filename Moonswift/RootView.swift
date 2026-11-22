@@ -104,9 +104,7 @@ struct RootView: View {
         .onChange(of: showsSettings) { updatePolling(checkNow: !showsSettings) }
         .onChange(of: scenePhase) { scenePhaseChanged() }
         .onChange(of: launcher.stream == nil) { updatePolling(checkNow: launcher.stream == nil) }
-        .task {
-            for await _ in NWPathMonitor() { recheck() } // Wi-Fi dropped, joined, or switched to cellular
-        }
+        .task { await watchNetwork() }
         .onChange(of: launcher.revision) { // launched, quit or a stream ended: what's running changed
             Task { await directory.checkAll(hosts, context: context, isManual: true) }
             for host in hosts where directory.isAvailable(host.uniqueID) {
@@ -180,6 +178,17 @@ struct RootView: View {
         if isBack { wasInBackground = false }
         updatePolling(checkNow: scenePhase == .active && !isBack)
         if isBack { recheck() }
+    }
+
+    /// Wi-Fi dropped, joined, or switched to cellular: a recheck. The monitor also reports small changes on the same
+    /// network, which only get an ordinary check, so the buttons don't dim for nothing.
+    private func watchNetwork() async {
+        var network: String?
+        for await path in NWPathMonitor() {
+            let current = "\(path.status) \(path.availableInterfaces.first?.name ?? "none")"
+            if let network, network != current { recheck() } else { checkNow() }
+            network = current
+        }
     }
 
     /// What's known may be out of date: Play, Resume and Quit wait for a fresh answer.
