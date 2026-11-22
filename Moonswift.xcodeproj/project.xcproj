@@ -32,7 +32,7 @@
         },
       ],
     },
-    { "path": "CLAUDE.MD", "target-membership": [ "Moonswift/resources" ] },
+    { "path": "CLAUDE.MD" },
     { "kind": "folder", "path": "MoonswiftTests", "target-membership": [ "MoonswiftTests" ] },
     { "kind": "group", "name": "Frameworks" },
     {

@@ -9,7 +9,6 @@ struct AboutView: View {
         let file: String // in the app bundle, from Moonswift/Licenses
     }
 
-    // shortcut: the repository must be public before release, since GPLv3 promises the source to everyone who gets the app.
     static let sourceURL = URL(string: "https://github.com/ivmatt/Moonswift")!
     static let components = [
         Component(name: "moonlight-common-c", license: "GPLv3", file: "License-moonlight-common-c"),
