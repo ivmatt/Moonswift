@@ -847,6 +847,16 @@ struct LibraryColumnsTests {
     }
 }
 
+struct LibraryRowFocusTests {
+    @Test func focusFollowsTheTileWhenTheRowChanges() {
+        let row = ["big picture", "desktop", "playnite"]
+        #expect(GamesView.followedPosition(1, from: row, to: ["desktop", "big picture", "playnite"]) == 0) // renamed, re-sorted
+        #expect(GamesView.followedPosition(1, from: row, to: ["big picture", "playnite"]) == 1) // gone: the next tile
+        #expect(GamesView.followedPosition(2, from: row, to: ["big picture", "desktop"]) == 1) // gone from the end: the last
+        #expect(GamesView.followedPosition(0, from: ["desktop"], to: []) == nil) // an empty row: the covers
+    }
+}
+
 struct FoldAvoidanceTests {
     let screen = CGSize(width: 800, height: 600)
 

@@ -158,6 +158,10 @@ struct GamesView: View {
                 }
             }
             .onChange(of: query) { if focus != Self.searchFocus { focus = 0 } }
+            .onChange(of: shortcuts.map(\.id)) { old, new in
+                guard let rowIndex, rowIndex >= 2 else { return }
+                focus = Self.followedPosition(rowIndex - 2, from: old, to: new).map { Self.rowFocus($0 + 2) } ?? 0
+            }
             .onChange(of: isSearchFocused) { if isSearchFocused { withAnimation(.snappy) { isSearching = true } } }
             .onChange(of: dictation.text) { query = dictation.text }
             .onDisappear { dictation.stop() }
@@ -220,10 +224,12 @@ struct GamesView: View {
     /// The controls a cover doesn't show: View for the filter menu, the bumpers for the other tabs. Not while typing,
     /// nor (iPhone) while the search bar is up where the guide goes.
     private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
-        isSearchFocused || (isSearching && isTabBarBelow) ? []
-            : [([.a], rowIndex == nil ? (focusedGame?.isRunning(directory) == true ? focusedGame!.runningLabels(directory, catalog).resume : "Play") : "Select"),
-               ([.y], "Edit")] + (focusedGame.map { $0.isRunning(directory) ? [([.x], $0.runningLabels(directory, catalog).quit)] : [] } ?? [])
-              + [([.view], "Filter"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")]
+        if isSearchFocused || (isSearching && isTabBarBelow) { return [] }
+        var hints: [(buttons: [ControllerHints.Button], label: String)] =
+            [([.a], rowIndex == nil ? (focusedGame?.isRunning(directory) == true ? focusedGame!.runningLabels(directory, catalog).resume : "Play") : "Select")]
+        if focusedGame != nil || focusedApp != nil { hints.append(([.y], "Edit")) }
+        if let focusedGame, focusedGame.isRunning(directory) { hints.append(([.x], focusedGame.runningLabels(directory, catalog).quit)) }
+        return hints + [([.view], "Filter"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")]
     }
 
     private var header: some View {
@@ -494,6 +500,19 @@ struct GamesView: View {
     }
 
     private var focusedGame: CatalogGame? { shown.indices.contains(focus) ? shown[focus] : nil }
+    /// The tile focused in the row above the covers.
+    private var focusedApp: CatalogGame? {
+        guard hasShortcutRow, let rowIndex, shortcuts.indices.contains(rowIndex - 2) else { return nil }
+        return shortcuts[rowIndex - 2]
+    }
+
+    /// Where focus goes when the row changes: with the same tile (a rename can re-sort it), else to the tile now in its
+    /// place or the last one. Nil when the row is empty.
+    nonisolated static func followedPosition(_ position: Int, from old: [String], to new: [String]) -> Int? {
+        guard !new.isEmpty else { return nil }
+        let same = old.indices.contains(position) ? new.firstIndex(of: old[position]) : nil
+        return same ?? min(position, new.count - 1)
+    }
 
     private func start(_ game: CatalogGame) {
         readied = nil
@@ -530,7 +549,7 @@ struct GamesView: View {
         case .select where focus == Self.searchFocus: isSearchFocused = true // the keyboard; highlights hide while typing
         case .select where focus == Self.closeFocus: closeSearch()
         case .select: if games.indices.contains(focus) { start(games[focus]) }
-        case .menu: if games.indices.contains(focus) { editing = games[focus] }
+        case .menu: if let game = focusedGame ?? focusedApp { editing = game }
         case .alternate: if let game = focusedGame, game.isRunning(directory) { quit(game) }
         case .options: focus = Self.rowFocus(0); pressPill(0)
         case .previousTab: switchTab(-1)

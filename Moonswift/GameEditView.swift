@@ -111,7 +111,7 @@ struct GameEditView: View {
                         }
                     }
                 } footer: {
-                    Text("Hidden games leave Home and Library; Library's Filter shows them again. Shortcuts sit in the row "
+                    Text("Hidden games leave Home and Library; Library's Filter shows them again. Apps sit in the row "
                          + "above your games.")
                 }
                 Section {
@@ -223,10 +223,10 @@ struct GameEditView: View {
     private func showAsTitle(_ choice: ShowAs?) -> String {
         switch choice {
         case .game: "Game"
-        case .shortcut: "Shortcut"
+        case .shortcut: "App"
         case nil:
             CatalogGame.isShortcut(nil, title: game.originalTitle, isSessionControl: game.sources[0].app.sessionControl != nil)
-                ? "Automatic (Shortcut)" : "Automatic (Game)"
+                ? "Automatic (App)" : "Automatic (Game)"
         }
     }
 

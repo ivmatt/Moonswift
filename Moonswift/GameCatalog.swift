@@ -35,7 +35,7 @@ nonisolated struct CatalogGame: Identifiable, Hashable {
 
 /// How a title is listed: with the games, or as a shortcut. No choice saved means Automatic.
 nonisolated enum ShowAs: String, Codable, CaseIterable {
-    case game, shortcut
+    case game, shortcut // shown as "App"; these names are saved in showAs.json, so renaming one would lose people's choices
 }
 
 /// Every PC's games, kept on this device so Home and Library show them at once (and while a PC is offline), and
