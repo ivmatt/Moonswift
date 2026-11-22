@@ -57,7 +57,6 @@ struct SettingsView: View {
     /// A setting's choices, for the controller, beside its row.
     @State private var choice: ChoiceMenuSpec?
     @State private var rowFrames = RowFrames()
-    @State private var screenWidth = ScreenInfo.sceneWidth
 
     private enum Row: Hashable { case reconnect, resolution, customWidth, customHeight, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, dualSenseHaptics, phoneRumble, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
@@ -353,10 +352,6 @@ struct SettingsView: View {
                 }
             }
         }
-        .presentationSizing(ScreenWideSizing(width: screenWidth - 2 * ScreenWideSizing.margin))
-        .background(FollowsSizingOnEdge())
-        // Turning or unfolding the phone resizes the sheet: its width follows the new screen.
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { _ in screenWidth = ScreenInfo.sceneWidth }
     }
 
     private func choiceRow<T: Hashable>(_ row: Row, _ title: String, _ selection: Binding<T>, _ options: [T],
@@ -480,31 +475,6 @@ struct SettingsView: View {
     private func applyLive(_ kbps: Int) {
         guard let live else { return }
         bitrateChange = applyLiveBitrate(kbps, replacing: bitrateChange, send: live.setBitrate) { liveBitrateNote = $0 }
-    }
-}
-
-/// The screen's width less a margin each side, like the one a sheet keeps at the top, so little shows behind it.
-private nonisolated struct ScreenWideSizing: PresentationSizing {
-    static let margin: CGFloat = 8
-    let width: CGFloat
-
-    func proposedSize(for root: PresentationSizingRoot, context: PresentationSizingContext) -> ProposedViewSize {
-        ProposedViewSize(width: width, height: FormPresentationSizing.form.proposedSize(for: root, context: context).height)
-    }
-}
-
-/// Lets `ScreenWideSizing` apply in landscape: a sheet resting on the bottom edge otherwise keeps its portrait width.
-private struct FollowsSizingOnEdge: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> Controller { Controller() }
-    func updateUIViewController(_ controller: Controller, context: Context) {}
-
-    final class Controller: UIViewController {
-        override func viewWillAppear(_ animated: Bool) {
-            super.viewWillAppear(animated)
-            var root: UIViewController = self
-            while let parent = root.parent { root = parent }
-            root.sheetPresentationController?.widthFollowsPreferredContentSizeWhenEdgeAttached = true
-        }
     }
 }
 

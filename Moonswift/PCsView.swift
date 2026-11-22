@@ -117,6 +117,7 @@ struct PCsView: View {
             }
             .actionMenu($menu)
             .sheet(item: $editing) { host in EditPCView(host: host) { confirmRemove(host) } }
+            .ignoresSafeArea(.keyboard) // a sheet's keyboard mustn't move the page behind it
         }
     }
 

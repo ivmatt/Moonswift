@@ -221,7 +221,7 @@ struct HomeView: View {
                     VStack(spacing: 0) {
                         TabTitle(text: "", topInset: topInset, beside: titlePill) { if isRailOnLeft, let statusPill { statusPill } }
                     .padding(.horizontal, 36)
-                            .padding(.top, -max(0, topInset - Self.windowTopInset))
+                            .padding(.top, Self.windowTopInset - pageTop)
                         // Its controls are in the session pill beside the status.
                         ContentUnavailableView("No Games Listed", systemImage: "dot.radiowaves.left.and.right",
                                                description: Text("The host lists its games again once its session ends."))
@@ -286,9 +286,9 @@ struct HomeView: View {
             .addHostCover(isPresented: $isAdding)
             .sheet(item: $editing) { GameEditView(game: $0) }
             .onGamepad(handle)
+            // A sheet's keyboard mustn't push Home's covers and hero up behind it. Inside the stack: outside, it doesn't reach the page.
+            .ignoresSafeArea(.keyboard)
         }
-        // A sheet's keyboard (Edit Game's name) mustn't push Home's covers and hero up behind it.
-        .ignoresSafeArea(.keyboard)
     }
 
     /// The button guide's buttons: the selected game's, then the page's.
@@ -311,7 +311,7 @@ struct HomeView: View {
                 // the top space the toolbar adds, so it's level with every other tab's title.
                 TabTitle(text: "", topInset: topInset, beside: titlePill) { if isRailOnLeft, let statusPill { statusPill } }
                     .padding(.horizontal, 36)
-                    .padding(.top, -max(0, topInset - Self.windowTopInset))
+                    .padding(.top, Self.windowTopInset - pageTop)
                 if let game = selectedGame, let down = game.unavailable(hosts: hosts, directory: directory) {
                     // Its host can't be reached: what's wrong and what to do, over its blurred picture; in the middle
                     // of the screen (not of the room beside the Duo's rail), or of the hero's part beside a fold.
@@ -362,7 +362,9 @@ struct HomeView: View {
             .onGeometryChange(for: FoldAvoidance.self) { FoldAvoidance(fold: $0.fold, in: $0.size) } action: { heroFold = $0 }
             // Ends above the covers, so a wide picture shows whole; on a half-open Duo, above the fold.
             // On an iPhone in landscape, down past the row's focus-ring room to the covers' top, fading out there.
-            .background { heroArt.padding(.bottom, heroFold.lift - (isShortAndWide ? 12 : 0)) }
+            .background {
+                heroArt.padding(.top, max(0, -pageTop)).padding(.bottom, heroFold.lift - (isShortAndWide ? 12 : 0))
+            }
             if let row {
                 coverRow(row.games)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { coverRowHeight = $0 }
@@ -456,6 +458,10 @@ struct HomeView: View {
                 .accessibilityHidden(true)
         }
     }
+
+    /// Where the page starts in the window. A sheet's keyboard makes iOS drop the page's top margin, so the title and
+    /// hero art are placed from the window's top instead of from this.
+    private var pageTop: CGFloat { pillFrame.frames["page"]?.minY ?? topInset }
 
     /// The tab bar runs along the bottom (the Duo's inner display in portrait), so nothing may hang below the safe area.
     /// shortcut: iOS doesn't say where its tab bar is; a bottom inset this tall is one. Revisit if the system says.
