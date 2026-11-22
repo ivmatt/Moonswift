@@ -508,7 +508,7 @@ struct GamesView: View {
 
     /// Where focus goes when the row changes: with the same tile (a rename can re-sort it), else to the tile now in its
     /// place or the last one. Nil when the row is empty.
-    nonisolated static func followedPosition(_ position: Int, from old: [String], to new: [String]) -> Int? {
+    nonisolated static func followedPosition<Item: Equatable>(_ position: Int, from old: [Item], to new: [Item]) -> Int? {
         guard !new.isEmpty else { return nil }
         let same = old.indices.contains(position) ? new.firstIndex(of: old[position]) : nil
         return same ?? min(position, new.count - 1)

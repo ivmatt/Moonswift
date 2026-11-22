@@ -2,7 +2,7 @@ import PhotosUI
 import SwiftUI
 
 /// A game's page for how Moonswift shows it: a nickname, your own hero picture and a cover for each cover shape (2:3,
-/// 3:4, square; a shape without one shows the PC's art), favourite, hidden, game or shortcut, and how long its launch splash waits. The PC's own name and art stay as they are,
+/// 3:4, square; a shape without one shows the PC's art; apps have no art options), favourite, hidden, game or app, and how long its launch splash waits. The PC's own name and art stay as they are,
 /// and Reset brings them back. Controller: up/down move between rows; A types the name, picks a picture (or offers
 /// Change and Remove for one that's set), flips Favorite or presses Reset; B saves and closes.
 struct GameEditView: View {
@@ -19,9 +19,9 @@ struct GameEditView: View {
     private enum Row: Hashable { case name, hero, cover(CoverShape), onlineArt, chooseArt, favorite, hidden, showAs, splashWait, reset }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        [.name] + (match != nil ? [.onlineArt] : []) + (hasArtworkKey && !current.isApp ? [.chooseArt] : [])
-            + [.hero, .cover(coverShape)]
-            + [.favorite, .hidden, .showAs, .splashWait, .reset]
+        let art: [Row] = current.isApp ? []
+            : (match != nil ? [.onlineArt] : []) + (hasArtworkKey ? [.chooseArt] : []) + [.hero, .cover(coverShape)]
+        return [.name] + art + [.favorite, .hidden, .showAs, .splashWait, .reset]
     }
     /// A SteamGridDB key is set: art can be chosen there. Read once: it's in the Keychain.
     @State private var hasArtworkKey = SteamGridDB.savedKey != nil
@@ -57,7 +57,7 @@ struct GameEditView: View {
                 } footer: {
                     Text("Your host calls it \(game.originalTitle). The new name only shows in Moonswift.")
                 }
-                if match != nil || (hasArtworkKey && !current.isApp) {
+                if !current.isApp && (match != nil || hasArtworkKey) {
                     Section {
                         if let match {
                             row(.onlineArt) {
@@ -66,7 +66,7 @@ struct GameEditView: View {
                                     .disabled(match.gameID == nil)
                             }
                         }
-                        if hasArtworkKey && !current.isApp {
+                        if hasArtworkKey {
                             row(.chooseArt) {
                                 Button("Choose Artwork…") { isChoosingArt = true }.foregroundStyle(.primary)
                             }
@@ -79,19 +79,21 @@ struct GameEditView: View {
                                  : "Not looked up on SteamGridDB yet."))
                     }
                 }
-                Section {
-                    row(.hero) { artworkRow("Hero", catalog.heroArt[game.id], aspect: 16 / 9, item: $heroItem, kind: .hero) }
-                    // The cover for the shape chosen in Settings: the other shapes' don't show anywhere.
-                    row(.cover(coverShape)) {
-                        artworkRow("Cover", catalog.cover(for: game.id, coverShape), aspect: coverShape.ratio,
-                                   item: Binding(get: { coverItems[coverShape] }, set: { coverItems[coverShape] = $0 }),
-                                   kind: .cover(coverShape))
+                if !current.isApp {
+                    Section {
+                        row(.hero) { artworkRow("Hero", catalog.heroArt[game.id], aspect: 16 / 9, item: $heroItem, kind: .hero) }
+                        // The cover for the shape chosen in Settings: the other shapes' don't show anywhere.
+                        row(.cover(coverShape)) {
+                            artworkRow("Cover", catalog.cover(for: game.id, coverShape), aspect: coverShape.ratio,
+                                       item: Binding(get: { coverItems[coverShape] }, set: { coverItems[coverShape] = $0 }),
+                                       kind: .cover(coverShape))
+                        }
+                    } header: {
+                        Text("Artwork and Covers")
+                    } footer: {
+                        Text("Your own pictures: the hero goes behind the game on Home, and the cover is in the shape chosen in "
+                             + "Settings (\(coverShape.rawValue)). Yours show first, then art found online, then your host's.")
                     }
-                } header: {
-                    Text("Artwork and Covers")
-                } footer: {
-                    Text("Your own pictures: the hero goes behind the game on Home, and the cover is in the shape chosen in "
-                         + "Settings (\(coverShape.rawValue)). Yours show first, then art found online, then your host's.")
                 }
                 Section {
                     row(.favorite) {
@@ -137,6 +139,8 @@ struct GameEditView: View {
             }
             // The focused row in the middle, so its section's title and notes show too.
             .onChange(of: focus) { if rows.indices.contains(focus) { withAnimation { scroller.scrollTo(rows[focus], anchor: .center) } } }
+            // Show As adds or removes the art rows above: focus stays on its row, and never past the last one.
+            .onChange(of: rows) { old, new in focus = GamesView.followedPosition(focus, from: old, to: new) ?? 0 }
             }
             .navigationTitle(game.title)
             .navigationBarTitleDisplayMode(.inline)
