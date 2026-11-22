@@ -63,6 +63,19 @@ nonisolated enum ControllerMapping {
     static func touchpadPoint(x: Float, y: Float) -> (Float, Float) { ((1 + x) / 2, 1 - (1 + y) / 2) }
 }
 
+/// When the phone's own motor plays a game's rumble.
+nonisolated enum PhoneRumble {
+    /// iPads and the simulator have no motor apps can use.
+    static var isAvailable: Bool { CHHapticEngine.capabilitiesForHardware().supportsHaptics }
+    /// Settings › Controller › Phone Rumble, on unless turned off.
+    static var isOn: Bool { UserDefaults.standard.object(forKey: SettingsKey.phoneRumble) as? Bool ?? true }
+
+    /// Only for the first player (who's holding the phone), only if their pad can't rumble, and never behind a menu.
+    static func plays(pad: Int, firstPad: Int?, padCanRumble: Bool, isOn: Bool, isPaused: Bool) -> Bool {
+        isOn && !isPaused && pad == firstPad && !padCanRumble
+    }
+}
+
 /// Sends every connected controller to the host while streaming, and applies what the host sends back:
 /// rumble, trigger rumble, motion-sensor requests and the light bar colour.
 final class ControllerStreamer {
@@ -75,6 +88,7 @@ final class ControllerStreamer {
         var touching = [false, false]
         /// Stops the grips when the host's waveform haptics go quiet (or a packet is lost).
         var waveformStop: Task<Void, Never>?
+        var canRumble: Bool { motors[.leftHandle] != nil || motors[.default] != nil }
         init(index: Int, controller: GCController) { self.index = index; self.controller = controller }
     }
 
@@ -82,12 +96,16 @@ final class ControllerStreamer {
     /// The on-screen controller (Touch: Controller), as one more pad: its slot, and what it last sent.
     private var onScreenIndex: Int?
     private var onScreenLast: PadState?
+    /// Made on the first rumble that needs it, so a stream with a rumbling controller never wakes the phone's motor.
+    private var phoneMotor: HapticMotor?
+    private var nextPhoneMotorTry = Date.distantPast
     private var observers: [any NSObjectProtocol] = []
     private var batteryTimer: Timer?
     /// While the stream menu is open, the controller drives the menu instead of the game.
     var isPaused = false {
         didSet {
             guard isPaused else { return }
+            phoneMotor?.set(0)
             slots.values.forEach(sendNeutral)
             if let onScreenIndex { onScreenLast = nil; send(onScreen: onScreenIndex, .init()) }
         }
@@ -104,6 +122,7 @@ final class ControllerStreamer {
             guard let index = onScreenIndex else { return }
             onScreenIndex = nil
             onScreenLast = nil
+            phoneMotor?.set(0)
             LiSendMultiControllerEvent(Int16(index), activeMask, 0, 0, 0, 0, 0, 0, 0) // its bit cleared: gone
             return
         }
@@ -149,12 +168,19 @@ final class ControllerStreamer {
         slots = [:]
         onScreenIndex = nil
         onScreenLast = nil
+        phoneMotor?.stop()
+        phoneMotor = nil
     }
 
     // MARK: Host requests (from the library's callbacks, delivered on the main thread)
 
     func rumble(controller number: Int, low: UInt16, high: UInt16) {
-        guard let slot = slot(number) else { return }
+        let slot = slot(number)
+        if PhoneRumble.plays(pad: number, firstPad: firstPad, padCanRumble: slot?.canRumble ?? false,
+                             isOn: PhoneRumble.isOn, isPaused: isPaused) {
+            playOnPhone(max(low, high))
+        }
+        guard let slot else { return }
         // Big (low-frequency) motor on the left grip, small (high-frequency) on the right, as on an Xbox pad.
         if slot.motors[.leftHandle] != nil {
             slot.motors[.leftHandle]?.set(low)
@@ -162,6 +188,18 @@ final class ControllerStreamer {
         } else {
             slot.motors[.default]?.set(max(low, high))
         }
+    }
+
+    private var firstPad: Int? { (slots.values.map(\.index) + (onScreenIndex.map { [$0] } ?? [])).min() }
+
+    private func playOnPhone(_ level: UInt16) {
+        if level > 0, phoneMotor?.isLost ?? true, Date.now >= nextPhoneMotorTry {
+            phoneMotor?.stop()
+            phoneMotor = HapticMotor()
+            // Making an engine blocks the main thread, so a phone that refuses isn't asked on every rumble message.
+            if phoneMotor == nil { nextPhoneMotorTry = .now + 5 }
+        }
+        phoneMotor?.set(level)
     }
 
     /// One 5 ms piece of the host's waveform haptics (Vibepollo's DualSense extension), already measured: each grip's
@@ -245,6 +283,7 @@ final class ControllerStreamer {
             pad.valueChangedHandler = { [weak self] pad, _ in
                 MainActor.assumeIsolated { self?.send(slot, pad) }
             }
+            phoneMotor?.set(0) // the first player may have changed
             sendArrival(slot, pad)
             sendBattery(slot)
             send(slot, pad)
@@ -256,6 +295,7 @@ final class ControllerStreamer {
         for (id, slot) in slots where !connected.contains(id) {
             slots[id] = nil
             release(slot)
+            phoneMotor?.set(0) // the first player may have changed
             // An empty event with the pad's bit cleared tells the host it's gone.
             LiSendMultiControllerEvent(Int16(slot.index), activeMask, 0, 0, 0, 0, 0, 0, 0)
         }
@@ -280,7 +320,7 @@ final class ControllerStreamer {
             : slot.controller.productCategory.localizedCaseInsensitiveContains("switch") ? LI_CTYPE_NINTENDO
             : LI_CTYPE_UNKNOWN
         var capabilities = LI_CCAP_ANALOG_TRIGGERS
-        if slot.motors[.leftHandle] != nil || slot.motors[.default] != nil { capabilities |= LI_CCAP_RUMBLE }
+        if slot.canRumble { capabilities |= LI_CCAP_RUMBLE }
         if slot.motors[.leftTrigger] != nil { capabilities |= LI_CCAP_TRIGGER_RUMBLE }
         if isPlayStation { capabilities |= LI_CCAP_TOUCHPAD }
         // LI_CCAP_HAPTICS_PCM (Vibepollo's extension, not in the library's public header): this pad plays waveforms.
@@ -364,17 +404,33 @@ final class ControllerStreamer {
     }
 }
 
-/// One rumble motor: a CoreHaptics engine on one part of the controller playing an endless pattern whose
-/// intensity follows the host (moonlight-ios's HapticContext).
+/// One rumble motor: a CoreHaptics engine on one part of the controller, or the phone itself, playing an endless
+/// pattern whose intensity follows the host (moonlight-ios's HapticContext).
 final class HapticMotor {
     private let engine: CHHapticEngine
     // The basic player, as moonlight-ios uses: a controller's haptic engine rejected the advanced one.
     private let player: any CHHapticPatternPlayer
     private var isRunning = false
     private var safetyStop: Task<Void, Never>?
+    /// The phone's engine was stopped or reset by iOS; its player is dead, so make a new motor.
+    private(set) var isLost = false
 
-    init?(controller: GCController, locality: GCHapticsLocality) {
+    convenience init?(controller: GCController, locality: GCHapticsLocality) {
         guard let engine = controller.haptics?.createEngine(withLocality: locality) else { return nil }
+        self.init(engine: engine)
+    }
+
+    /// The phone's own motor.
+    convenience init?() {
+        guard PhoneRumble.isAvailable, let engine = try? CHHapticEngine() else { return nil }
+        engine.playsHapticsOnly = true // leaves the stream's audio session alone
+        self.init(engine: engine)
+        // CoreHaptics calls these on its own queue: @Sendable keeps Swift from asserting they're on the main actor.
+        engine.stoppedHandler = { @Sendable [weak self] _ in Task { @MainActor in self?.isLost = true } }
+        engine.resetHandler = { @Sendable [weak self] in Task { @MainActor in self?.isLost = true } }
+    }
+
+    private init?(engine: CHHapticEngine) {
         do {
             try engine.start()
             // Intensity starts at 1 because the dynamic intensity is multiplied by it.

@@ -40,6 +40,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.splashWait) private var splashWait = LaunchSplash.defaultWait
     @AppStorage(SettingsKey.splashEndsOnSound) private var splashEndsOnSound = false
     @AppStorage(SettingsKey.dualSenseHaptics) private var dualSenseHaptics = true
+    @AppStorage(SettingsKey.phoneRumble) private var phoneRumble = true
     @AppStorage(SettingsKey.controlCenterSide) private var controlCenterSide = ControlCenterSide.right
     @State private var focus = 0
     @State private var liveBitrateNote: String?
@@ -51,7 +52,7 @@ struct SettingsView: View {
     @State private var choice: ChoiceMenuSpec?
     @State private var rowFrames = RowFrames()
 
-    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, dualSenseHaptics, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
+    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, dualSenseHaptics, phoneRumble, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
     private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
     @State private var page = Self.rememberedPage
@@ -73,7 +74,7 @@ struct SettingsView: View {
     }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures] + (ButtonGuideMode.isAvailable ? [.buttonGuide] : []) + [.buttonMapping, .dualSenseHaptics] + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
+        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures] + (ButtonGuideMode.isAvailable ? [.buttonGuide] : []) + [.buttonMapping, .dualSenseHaptics] + (PhoneRumble.isAvailable ? [.phoneRumble] : []) + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
         return (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
             + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .touch, .overlay]
     }
@@ -238,13 +239,18 @@ struct SettingsView: View {
                         Button("Button Mapping") { isShowingButtonMapping = true }.foregroundStyle(.primary)
                     }
                     row(.dualSenseHaptics) { Toggle("DualSense Haptics", isOn: $dualSenseHaptics) }
+                    if PhoneRumble.isAvailable {
+                        row(.phoneRumble) { Toggle("Phone Rumble", isOn: $phoneRumble) }
+                    }
                 } header: {
                     Text("Controller")
                 } footer: {
                     Text((ButtonGuideMode.isAvailable ? "Button Guide: the strip of controller buttons along the bottom; "
                           + "Automatic shows it while a controller is connected. " : "")
                          + "DualSense Haptics plays the fine vibration games send a DualSense on hosts that pass it on "
-                         + "(Vibepollo); off, those games don't vibrate. Applies from the next stream.")
+                         + "(Vibepollo); off, those games don't vibrate. Applies from the next stream."
+                         + (PhoneRumble.isAvailable ? " Phone Rumble plays game rumble on this phone when the first "
+                            + "player's controller has no motor, including the on-screen controller." : ""))
                 }
                 if live == nil { // not while streaming
                     Section {
@@ -387,6 +393,7 @@ struct SettingsView: View {
         case .bitrate: break // left/right move the slider
         case .buttonMapping: isShowingButtonMapping = true
         case .dualSenseHaptics: dualSenseHaptics.toggle()
+        case .phoneRumble: phoneRumble.toggle()
         case .about: isShowingAbout = true
         case .onlineArtwork: findsArtwork.toggle()
         case .artworkKey: isKeyFocused = true

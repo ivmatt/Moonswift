@@ -1219,3 +1219,18 @@ struct WaveformHapticsTests {
         #expect(Self.frame([1, 2, 3]) == nil) // not whole stereo frames
     }
 }
+
+struct PhoneRumbleTests {
+    private func plays(pad: Int = 0, firstPad: Int? = 0, padCanRumble: Bool = false,
+                       isOn: Bool = true, isPaused: Bool = false) -> Bool {
+        PhoneRumble.plays(pad: pad, firstPad: firstPad, padCanRumble: padCanRumble, isOn: isOn, isPaused: isPaused)
+    }
+
+    @Test func playsForFirstPlayerWithoutMotor() { #expect(plays()) }
+    @Test func firstPlayerNeedNotBeSlotZero() { #expect(plays(pad: 2, firstPad: 2)) }
+    @Test func controllerWithMotorKeepsItsRumble() { #expect(!plays(padCanRumble: true)) }
+    @Test func secondPlayerNeverShakesThePhone() { #expect(!plays(pad: 1, firstPad: 0)) }
+    @Test func unknownPadDoesNothing() { #expect(!plays(firstPad: nil)) }
+    @Test func switchOffSilencesIt() { #expect(!plays(isOn: false)) }
+    @Test func silentBehindMenus() { #expect(!plays(isPaused: true)) }
+}

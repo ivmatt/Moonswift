@@ -12,6 +12,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 - Navigate every screen with a controller (on iPad, with a button guide in your controller's own glyphs)
 - Several controllers at once, with rumble, motion and touchpad
 - DualSense adaptive triggers and waveform haptics
+- Phone Rumble: game rumble on the iPhone when the controller has no motor, including the on-screen controller
 - Button remapping
 
 **Streaming**

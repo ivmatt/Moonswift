@@ -55,6 +55,7 @@ nonisolated enum SettingsKey {
     static let adaptiveBitrate = "adaptiveBitrate" // Bool: the bitrate setting becomes a ceiling
     static let adaptiveBitrateDefault = true // its first-run value, read from more than one place
     static let dualSenseHaptics = "dualSenseHaptics" // Bool, on by default: take the host's waveform haptics
+    static let phoneRumble = "phoneRumble" // Bool, on by default: the phone rumbles when the first player's pad can't
     static let bitrate = "bitrateKbps" // 0 = automatic, else kbps
     static let playAudioOnPC = "playAudioOnPC" // Bool: sound also plays from the PC's speakers
     static let hdr = "hdr" // Bool: ask for HDR (10-bit HEVC) on HDR screens
