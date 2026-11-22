@@ -259,7 +259,7 @@ private struct HostRow: View {
                     Text("\(Image(systemName: "play.fill")) \(isElsewhere ? "Playing \(playing) on another device" : "Streaming \(playing)")")
                         .font(.caption).foregroundStyle(isElsewhere ? .orange : .green)
                 }
-                if !isFine { Text(line.short).font(.caption).foregroundStyle(.secondary) }
+                if !isFine { Text(line.text).font(.caption).foregroundStyle(.secondary) }
                 Text(address).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -269,7 +269,7 @@ private struct HostRow: View {
             Image(systemName: "chevron.right").foregroundStyle(.tertiary) // opens its Edit page, or pairing
         }
         .accessibilityElement(children: .combine)
-        .accessibilityValue([isFine ? "Online" : line.short,
+        .accessibilityValue([isFine ? "Online" : line.text,
                              isPaired ? "Paired" : "Needs pairing"].joined(separator: ", "))
     }
 }

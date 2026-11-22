@@ -202,7 +202,7 @@ struct HomeView: View {
     private func openStatusMenu() {
         let info = hosts.map { host in
             let line = PCStatusButton.line(host, directory: directory, catalog: catalog, now: .now)
-            return ChoiceMenuSpec.Info(header: host.displayName, text: line.text, dot: PCStatusButton.color(line))
+            return ChoiceMenuSpec.Info(header: host.displayName, text: line.text, detail: line.detail, dot: PCStatusButton.color(line))
         }
         statusMenu = ChoiceMenuSpec(source: "status", options: ["Refresh"], selected: -1,
                                     anchor: (pillFrame.frames["status"] ?? .zero).offsetBy(dx: -(pillFrame.frames["page"]?.minX ?? 0),

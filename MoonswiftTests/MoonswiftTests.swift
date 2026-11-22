@@ -861,18 +861,19 @@ struct PCStatusLineTests {
 
     @Test func eachStateReadsAndRanksAsItShould() {
         #expect(line(nil).health == .checking)
-        #expect(line(.offline) == .init(text: "Offline · showing saved games", health: .offline))
-        #expect(line(.offline, saved: false).text == "Offline")
-        #expect(line(.online(paired: false)).health == .problem)
-        #expect(line(.online(paired: true)) == .init(text: "Up to date · checked 5s ago", health: .fine))
-        #expect(line(.online(paired: true), ago: 1).text == "Up to date · checked just now")
-        #expect(line(.online(paired: true), ago: 125).text == "Up to date · checked 2m ago")
-        #expect(line(.online(paired: true), ago: nil).text == "Up to date")
+        #expect(line(.offline) == .init(text: "Offline", detail: "Showing saved games", health: .offline))
+        #expect(line(.offline, saved: false) == .init(text: "Offline", health: .offline))
+        #expect(line(.online(paired: false)) == .init(text: "Not paired", detail: "Pair it again in Hosts", health: .problem))
+        #expect(line(.online(paired: true)) == .init(text: "Online", detail: "Checked 5s ago", health: .fine))
+        #expect(line(.online(paired: true), ago: 1).detail == "Checked just now")
+        #expect(line(.online(paired: true), ago: 125).detail == "Checked 2m ago")
+        #expect(line(.online(paired: true), ago: nil) == .init(text: "Online", health: .fine))
         #expect(PCStatusLine.make(status: .online(paired: true), isNotResponding: false, isFetching: false, fetchFailed: false,
-                                  hasSavedGames: true, checkedAgo: 5, connection: "Remote").text == "Up to date · Remote · checked 5s ago")
+                                  hasSavedGames: true, checkedAgo: 5, connection: "Remote")
+                == .init(text: "Online · Remote", detail: "Checked 5s ago", health: .fine))
         #expect(line(.online(paired: true), fetching: true).text == "Getting games…")
-        #expect(line(.online(paired: true), failed: true).health == .problem)
-        #expect(line(.online(paired: false)).short == "Not paired" && line(.offline).short == "Offline")
+        #expect(line(.online(paired: true), failed: true)
+                == .init(text: "Couldn't get games", detail: "Showing saved ones", health: .problem))
     }
 
     @Test func oneMissedAnswerDoesntChangeTheButton() {

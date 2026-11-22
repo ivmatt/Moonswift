@@ -10,11 +10,11 @@ nonisolated struct PCStatusLine: Equatable {
     }
 
     let text: String
+    /// The smaller line under it, in Home's status menu.
+    var detail: String?
     let health: Health
     /// A missed answer: still counted as it was, but worth a word in the details.
     var isWaiting = false
-    /// Without the details: "Not paired", for a Hosts row.
-    var short: String { text.components(separatedBy: " · ")[0] }
 
     /// `checkedAgo` is the seconds since it last answered (nil: not known, as in demo mode); `connection` is
     /// "Local" or "Remote" when known.
@@ -22,14 +22,14 @@ nonisolated struct PCStatusLine: Equatable {
                      hasSavedGames: Bool, checkedAgo: Int?, connection: String? = nil) -> PCStatusLine {
         switch status {
         case nil: return .init(text: "Checking…", health: .checking)
-        case .offline: return .init(text: hasSavedGames ? "Offline · showing saved games" : "Offline", health: .offline)
-        case .online(paired: false): return .init(text: "Not paired · pair it again in Hosts", health: .problem)
+        case .offline: return .init(text: "Offline", detail: hasSavedGames ? "Showing saved games" : nil, health: .offline)
+        case .online(paired: false): return .init(text: "Not paired", detail: "Pair it again in Hosts", health: .problem)
         case .online(paired: true):
             if isNotResponding { return .init(text: "Not responding…", health: .fine, isWaiting: true) }
-            if fetchFailed { return .init(text: "Couldn't get its games · showing saved ones", health: .problem) }
+            if fetchFailed { return .init(text: "Couldn't get games", detail: "Showing saved ones", health: .problem) }
             if isFetching { return .init(text: "Getting games…", health: .fine) }
-            let ago = checkedAgo.map { $0 < 2 ? " · checked just now" : $0 < 60 ? " · checked \($0)s ago" : " · checked \($0 / 60)m ago" }
-            return .init(text: "Up to date" + (connection.map { " · \($0)" } ?? "") + (ago ?? ""), health: .fine)
+            let ago = checkedAgo.map { $0 < 2 ? "Checked just now" : $0 < 60 ? "Checked \($0)s ago" : "Checked \($0 / 60)m ago" }
+            return .init(text: "Online" + (connection.map { " · \($0)" } ?? ""), detail: ago, health: .fine)
         }
     }
 }
@@ -95,13 +95,18 @@ struct PCStatusButton: View {
             ForEach(hosts) { host in
                 let line = line(host, now: .now)
                 Section(host.displayName) {
-                    Label {
-                        Text(line.text)
-                    } icon: {
-                        // A system menu paints a plain symbol in its text colour; an image with its own colour keeps it.
-                        Image(uiImage: (UIImage(systemName: "circle.fill") ?? UIImage())
-                            .withTintColor(UIColor(Self.color(line)), renderingMode: .alwaysOriginal))
+                    // A system menu paints a plain symbol in its text colour; an image with its own colour keeps it.
+                    let dot = Image(uiImage: (UIImage(systemName: "circle.fill") ?? UIImage())
+                        .withTintColor(UIColor(Self.color(line)), renderingMode: .alwaysOriginal))
+                    // Only a button's label gets a subtitle in a system menu: its second Text, with no `if` between them.
+                    Group {
+                        if let detail = line.detail {
+                            Button {} label: { Text(line.text); Text(detail); dot }
+                        } else {
+                            Button {} label: { Text(line.text); dot }
+                        }
                     }
+                    .disabled(true) // information, not an action
                 }
             }
             Divider()
@@ -141,7 +146,10 @@ struct PCStatusButton: View {
         .animation(.default, value: worst)
         .animation(.spring(duration: 0.35), value: isSpinning)
         .accessibilityLabel("Host Status")
-        .accessibilityValue(hosts.map { "\($0.displayName): \(line($0, now: .now).text)" }.joined(separator: ", "))
+        .accessibilityValue(hosts.map { host in
+            let line = line(host, now: .now)
+            return "\(host.displayName): \([line.text, line.detail].compactMap(\.self).joined(separator: ", "))"
+        }.joined(separator: ", "))
     }
 
     /// A host's dot in the menu.

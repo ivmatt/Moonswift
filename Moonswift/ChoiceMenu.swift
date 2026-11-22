@@ -31,6 +31,7 @@ struct ChoiceMenuSpec {
     struct Info {
         let header: String
         let text: String
+        var detail: String?
         let dot: Color
     }
 
@@ -161,7 +162,11 @@ private struct ChoiceMenu: View {
                     .padding(.horizontal, 14)
                 HStack(spacing: 10) {
                     Circle().fill(info.dot).frame(width: 12, height: 12).frame(width: 16)
-                    Text(info.text).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(info.text)
+                        if let detail = info.detail { Text(detail).font(.caption).lineLimit(1) }
+                    }
+                    .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 14)
