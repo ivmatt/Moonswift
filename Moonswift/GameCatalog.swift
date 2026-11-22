@@ -505,6 +505,20 @@ struct CoverArt: View {
     /// The name to put on the placeholder: a nickname, if you gave one.
     var title: String? = nil
     @State private var image: UIImage?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize // redraws the title when the text size changes
+
+    /// The largest size, down to half, whose longest word fits on one line, because SwiftUI splits a word that doesn't.
+    /// Measured at each size: the system font's letter spacing widens as it shrinks, so scaling by a ratio falls short.
+    nonisolated static func titleSize(_ title: String, base: CGFloat, width: CGFloat) -> CGFloat {
+        let words = title.split(whereSeparator: \.isWhitespace).map(String.init)
+        var size = base
+        while size > base / 2 {
+            let font = UIFont.systemFont(ofSize: size, weight: .semibold)
+            if words.allSatisfy({ ceil($0.size(withAttributes: [.font: font]).width) <= width }) { break }
+            size -= 0.5
+        }
+        return max(size, base / 2)
+    }
 
     var body: some View {
         Rectangle().fill(.quaternary)
@@ -519,8 +533,16 @@ struct CoverArt: View {
                                             Color(hue: (hue + 0.08).truncatingRemainder(dividingBy: 1), saturation: 0.6, brightness: 0.3)],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                         .overlay {
-                            Text(title ?? app.title).font(.headline).multilineTextAlignment(.center).foregroundStyle(.white.opacity(0.9))
-                                .minimumScaleFactor(0.5).padding(8)
+                            GeometryReader { proxy in
+                                let shown = title ?? app.title
+                                let base = UIFont.preferredFont(forTextStyle: .headline).pointSize
+                                Text(shown).font(.system(size: Self.titleSize(shown, base: base, width: proxy.size.width - 16), weight: .semibold))
+                                    .multilineTextAlignment(.center).foregroundStyle(.white.opacity(0.9))
+                                    .minimumScaleFactor(0.5)
+                                    .padding(.horizontal, 8).padding(.bottom, 8)
+                                    .padding(.top, min(30, proxy.size.height * 0.3)) // clear of the favorite star
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top) // Home's row can run off the screen's bottom
+                            }
                         }
                 }
             }

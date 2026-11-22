@@ -4,6 +4,7 @@ import Foundation
 import MoonlightCore
 import Security
 import Testing
+import UIKit
 @testable import Moonswift
 
 struct ServerInfoTests {
@@ -1269,4 +1270,22 @@ struct PhoneRumbleTests {
     @Test func unknownPadDoesNothing() { #expect(!plays(firstPad: nil)) }
     @Test func switchOffSilencesIt() { #expect(!plays(isOn: false)) }
     @Test func silentBehindMenus() { #expect(!plays(isPaused: true)) }
+}
+
+struct CoverTitleTests {
+    private func wordWidth(_ word: String, size: CGFloat = 17) -> CGFloat {
+        ceil(word.size(withAttributes: [.font: UIFont.systemFont(ofSize: size, weight: .semibold)]).width)
+    }
+
+    @Test func wordsThatFitKeepTheirSize() {
+        #expect(CoverArt.titleSize("Moss Knight", base: 17, width: wordWidth("Knight")) == 17)
+    }
+    @Test func longestWordFitsAtTheChosenSize() {
+        let width = wordWidth("Observatory") * 0.8
+        let size = CoverArt.titleSize("Pocket Observatory", base: 17, width: width)
+        #expect(size < 17)
+        #expect(wordWidth("Observatory", size: size) <= width)
+    }
+    @Test func neverShrinksPastHalf() { #expect(CoverArt.titleSize("Observatory", base: 17, width: 1) == 8.5) }
+    @Test func emptyTitleKeepsItsSize() { #expect(CoverArt.titleSize("", base: 17, width: 50) == 17) }
 }
