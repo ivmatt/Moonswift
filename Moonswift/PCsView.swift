@@ -91,7 +91,7 @@ struct PCsView: View {
             .scrollEdgeEffectStyle(.soft, for: .top)
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
             .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets = $0 }
-            .sheet(isPresented: $isAdding) { AddHostView() }
+            .addHostCover(isPresented: $isAdding)
             .sheet(item: $pairing) { target in
                 NavigationStack {
                     PairingView(address: target.address, name: target.name) { _, _ in pairing = nil }

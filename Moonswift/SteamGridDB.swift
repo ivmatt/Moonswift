@@ -27,6 +27,31 @@ nonisolated struct SteamGridDB {
 
     private static let base = URL(string: "https://www.steamgriddb.com/api/v2")!
 
+    /// What setup knows about a key it's been given.
+    enum KeyCheck: Equatable, Sendable {
+        case empty, checking, works, rejected
+        /// The service couldn't be asked. Not the key's fault, so it doesn't hold setup up.
+        case unreachable
+
+        /// A key that's blank, or wasn't turned down, can be saved (blank removes one).
+        var canBeSaved: Bool { self == .empty || self == .works || self == .unreachable }
+
+        /// The Artwork page can be left: with the host's art, or online art and a key that wasn't turned down.
+        func allowsContinue(findsArtwork: Bool) -> Bool { !findsArtwork || self == .works || self == .unreachable }
+    }
+
+    /// Asks the service whether it takes this key, with a search any key can do.
+    static func check(key: String) async -> KeyCheck {
+        do {
+            _ = try await SteamGridDB(key: key).matches("portal")
+            return .works
+        } catch Failure.unauthorized {
+            return .rejected
+        } catch {
+            return .unreachable
+        }
+    }
+
     /// The best match for a game's name, or nil when there's none.
     func search(_ name: String) async throws -> Match? { try await matches(name).first }
 

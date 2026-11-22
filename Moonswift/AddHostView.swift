@@ -33,6 +33,9 @@ struct AddHostView: View {
     /// The way the steps (and Getting Started's pages) last moved: their slide follows it.
     @State private var isForward = true
     @State private var paired: (hostID: String, name: String)?
+    /// The whole screen or sheet, safe areas included, so a keyboard or toolbar doesn't change the layout.
+    @State private var window = CGSize.zero
+    private var iconSize: CGFloat { window.isShort ? 48 : 88 }
 
     /// Found PCs that aren't paired yet.
     private var found: [HostDiscovery.Found] {
@@ -46,6 +49,10 @@ struct AddHostView: View {
                     .id(step) // a new view for each step, so it slides in as the last slides out
                     .transition(Self.slide(forward: isForward))
             }
+            .onGeometryChange(for: CGSize.self) { proxy in
+                CGSize(width: proxy.size.width + proxy.safeAreaInsets.leading + proxy.safeAreaInsets.trailing,
+                       height: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom)
+            } action: { window = $0 }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -92,7 +99,8 @@ struct AddHostView: View {
             }
         case let .done(hostID, name): done(hostID: hostID, name: name)
         case .setup:
-            FirstRunSetup(pageIndex: $setupPage, isForward: $isForward, hostID: paired?.hostID ?? "", backFromFirst: back) { dismiss() }
+            FirstRunSetup(pageIndex: $setupPage, isForward: $isForward, hostID: paired?.hostID ?? "", window: window,
+                          backFromFirst: back) { dismiss() }
         }
     }
 
@@ -128,7 +136,7 @@ struct AddHostView: View {
         ScrollView { // the Air in landscape is too short for it all
         VStack(alignment: .leading, spacing: 20) {
             Image(systemName: "link")
-                .font(.system(size: 88, weight: .semibold))
+                .font(.system(size: iconSize, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 8)
@@ -245,7 +253,7 @@ struct AddHostView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Image(systemName: "wrench.and.screwdriver")
-                    .font(.system(size: 88, weight: .semibold))
+                    .font(.system(size: iconSize, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
                     .padding(.bottom, 8)
@@ -290,7 +298,7 @@ struct AddHostView: View {
 
     private func success(name: String, count: Int) -> some View {
         VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle.fill").font(.system(size: isFirstHost ? 88 : 64)).foregroundStyle(.green)
+            Image(systemName: "checkmark.circle.fill").font(.system(size: min(iconSize, isFirstHost ? 88 : 64))).foregroundStyle(.green)
             // "All set" only for another host: the first one has a few settings to go.
             Text(isFirstHost ? "\(name) is paired" : "You're all set").font(isFirstHost ? .largeTitle.bold() : .title2.bold())
             Text(isFirstHost ? "While we grab your games, let's go through a few quick settings."
@@ -420,9 +428,7 @@ struct WelcomeView: View {
             .buttonGuide([([.a], "Add a Host")], reportsLayout: false)
             .onGamepad { if $0 == .select { add() } }
             // As it goes, the app fades in from black (or, cancelled before pairing, the welcome stays).
-            .sheet(isPresented: $isAdding, onDismiss: finish) {
-                AddHostView(isFirstHost: true)
-            }
+            .addHostCover(isPresented: $isAdding, isFirstHost: true, onDismiss: finish)
     }
 
     private var welcome: some View {
@@ -464,6 +470,16 @@ struct WelcomeView: View {
 }
 
 extension View {
+    /// Add Host: the whole screen on an iPhone, where a sheet only wastes room; a sheet on the iPad's big screen.
+    @ViewBuilder func addHostCover(isPresented: Binding<Bool>, isFirstHost: Bool = false,
+                                   onDismiss: (() -> Void)? = nil) -> some View {
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            fullScreenCover(isPresented: isPresented, onDismiss: onDismiss) { AddHostView(isFirstHost: isFirstHost) }
+        } else {
+            sheet(isPresented: isPresented, onDismiss: onDismiss) { AddHostView(isFirstHost: isFirstHost) }
+        }
+    }
+
     /// Behind a bar of buttons at a page's bottom: the page blurs and fades into the sheet's colour under it, starting
     /// a little above it, rather than running into the buttons or ending at a hard edge.
     func fadingBarBackground() -> some View {

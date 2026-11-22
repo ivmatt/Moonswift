@@ -1112,7 +1112,29 @@ struct ShowAsTests {
     }
 }
 
+struct SetupLayoutTests {
+    @Test func twoColumnsOnlyOnShortWideScreens() {
+        #expect(CGSize(width: 844, height: 390).isShortAndWide) // iPhone 17e in landscape
+        #expect(!CGSize(width: 678, height: 466).isShortAndWide) // the Duo: short, but squarer
+        #expect(CGSize(width: 678, height: 466).isShort)
+        #expect(!CGSize(width: 1180, height: 820).isShortAndWide) // iPad
+        #expect(!CGSize.zero.isShort) // not measured yet
+    }
+}
+
 struct SteamGridDBTests {
+    @Test func artworkNeedsAWorkingKeyOrTheHostsArt() {
+        typealias Check = SteamGridDB.KeyCheck
+        for check in [Check.empty, .checking, .works, .rejected, .unreachable] {
+            #expect(check.allowsContinue(findsArtwork: false)) // the host's art needs no key
+        }
+        #expect(Check.works.allowsContinue(findsArtwork: true))
+        #expect(Check.unreachable.allowsContinue(findsArtwork: true)) // the service being down doesn't trap anyone
+        for check in [Check.empty, .checking, .rejected] { #expect(!check.allowsContinue(findsArtwork: true)) }
+        #expect(!Check.rejected.canBeSaved && !Check.checking.canBeSaved)
+        #expect(Check.works.canBeSaved && Check.unreachable.canBeSaved && Check.empty.canBeSaved)
+    }
+
     @Test func namesAreCleanedForSearch() {
         #expect(SteamGridDB.cleaned("DOOM™ Eternal") == "DOOM Eternal")
         #expect(SteamGridDB.cleaned("Control - Ultimate Edition") == "Control")

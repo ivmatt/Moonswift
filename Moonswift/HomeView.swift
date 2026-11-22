@@ -283,7 +283,7 @@ struct HomeView: View {
                 focusRow = 0
                 heroButton = 0
             }
-            .sheet(isPresented: $isAdding) { AddHostView() }
+            .addHostCover(isPresented: $isAdding)
             .sheet(item: $editing) { GameEditView(game: $0) }
             .onGamepad(handle)
         }
@@ -461,10 +461,10 @@ struct HomeView: View {
         return homeHeight > 0 ? min(preferred, (homeHeight * share * coverShape.ratio).rounded()) : preferred
     }
     /// An iPhone in landscape: smaller covers with tighter corners, and the hero's fade nearer them.
-    private var isShortAndWide: Bool { homeHeight > 0 && homeHeight < 520 && homeWidth > homeHeight * 1.8 }
+    private var isShortAndWide: Bool { CGSize(width: homeWidth, height: homeHeight).isShortAndWide }
 
     /// Home is short (the Duo's outer display): the hero's title is set smaller.
-    private var isShort: Bool { homeHeight > 0 && homeHeight < 520 }
+    private var isShort: Bool { CGSize(width: homeWidth, height: homeHeight).isShort }
 
     /// Moves the status pill the rest of the way to the hero title's line. Its measured place includes the move so
     /// far, so once it's there there's nothing left to move.
@@ -620,6 +620,13 @@ struct HomeView: View {
         default: break
         }
     }
+}
+
+extension CGSize {
+    /// A phone in landscape, the Duo included.
+    nonisolated var isShort: Bool { height > 0 && height < 520 }
+    /// Short and much wider than tall, like most iPhones in landscape; the Duo's squarer screen isn't.
+    nonisolated var isShortAndWide: Bool { isShort && width > height * 1.8 }
 }
 
 /// The selected game: what it is, and Play, or Resume and Quit while it runs. Its art, if any, is behind it
