@@ -116,7 +116,10 @@ struct RootView: View {
         // Art from SteamGridDB for games that have none looked up yet: as games appear, or the key or switch changes.
         // Not during a stream, whose network it would share.
         .task(id: "\(findsArtwork)|\(artworkKeyVersion)|\(launcher.stream == nil)|\(catalog.games(on: hosts.map(\.uniqueID)).count)") {
-            guard findsArtwork, launcher.stream == nil, !DemoMode.isOn, let key = SteamGridDB.savedKey else { return }
+            #if DEBUG
+            if DemoMode.isOn { return }
+            #endif
+            guard findsArtwork, launcher.stream == nil, let key = SteamGridDB.savedKey else { return }
             await catalog.findArtwork(for: catalog.games(on: hosts.map(\.uniqueID)), key: key)
         }
         // The PC says it's gone (PCDirectory): no Resume for it here either.

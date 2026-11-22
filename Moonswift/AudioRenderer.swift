@@ -40,7 +40,11 @@ nonisolated final class AudioRenderer: @unchecked Sendable { // the library call
         }
         engine.attach(source)
         do {
-            try engine.connectNode(source, to: engine.mainMixerNode, format: output) // iOS 27: throws instead of crashing
+            if #available(iOS 27, *) {
+                try engine.connectNode(source, to: engine.mainMixerNode, format: output) // throws instead of crashing
+            } else {
+                engine.connect(source, to: engine.mainMixerNode, format: output)
+            }
             try engine.start()
         } catch {
             return false

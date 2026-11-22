@@ -8,6 +8,7 @@ extension GeometryProxy {
         #if DEBUG
         if let fake = FakeFold.current { return fake.rect(in: self) }
         #endif
+        guard #available(iOS 27.1, *) else { return nil } // no foldable iPhone runs anything older
         let bounds = CGRect(origin: .zero, size: size)
         return reservedRegions(kind: .division).lazy.filter(\.isActive).map { $0.frame.intersection(bounds) }
             .first { FoldAvoidance.isFold($0, in: self.size) }
