@@ -16,6 +16,8 @@ import SwiftData
     /// The host's public address, for when the local one doesn't answer (away from home). Learned with STUN
     /// while on the home network, or typed in. Only ever used over pinned HTTPS.
     var remoteAddress: String?
+    /// The network adapter this device reaches the PC through, for Wake-on-LAN. Learned while it's online and paired.
+    var macAddress: String?
 
     init(uniqueID: String, name: String, address: String, httpsPort: Int = 47984, serverCert: Data = Data()) {
         self.uniqueID = uniqueID

@@ -670,6 +670,22 @@ struct PowerActionTests {
         #expect(try !ServerInfo(fields: base.merging(["SleepAllowed": "0"]) { $1 }).canSleep) // not granted on the PC
         #expect(try !ServerInfo(fields: ["hostname": "PC"]).canSleep) // other hosts
     }
+
+    @Test func wakePacketIsSixFFsThenTheMACSixteenTimes() throws {
+        let mac: [UInt8] = [0xAA, 0xBB, 0x0C, 0x1D, 0xEE, 0xFF]
+        let packet = try #require(wakePacket(mac: "aa:bb:0c:1d:ee:ff"))
+        #expect(packet.count == 102)
+        #expect(Array(packet.prefix(6)) == [UInt8](repeating: 0xFF, count: 6))
+        #expect(Array(packet.dropFirst(6)) == (0..<16).flatMap { _ in mac })
+    }
+
+    @Test func badMACsAreRejected() throws {
+        for mac in ["", "00:00:00:00:00:00", "aa:bb:cc:dd:ee", "aa:bb:cc:dd:ee:ff:00", "aa:bb:cc:dd:ee:gg", "+a:bb:cc:dd:ee:ff", "a:bb:cc:dd:ee:ff"] {
+            #expect(macBytes(mac) == nil)
+        }
+        #expect(try ServerInfo(fields: ["hostname": "PC", "mac": "00:00:00:00:00:00"]).macAddress == nil)
+        #expect(try ServerInfo(fields: ["hostname": "PC", "mac": "aa:bb:cc:dd:ee:ff"]).macAddress == "aa:bb:cc:dd:ee:ff")
+    }
 }
 
 struct StreamGestureTests {

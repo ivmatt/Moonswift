@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The Hosts tab: saved hosts with live status and the game each is running, "Add a New Host" and Settings. Tapping a
 /// host opens its Edit page (name, addresses), or pairing for one that needs it. Touch or controller: up/down to
-/// move, A to open, Y/X (or a long press) for a host's menu: Sleep, Edit or Remove.
+/// move, A to open, Y/X (or a long press) for a host's menu: Wake, Sleep, Edit or Remove.
 struct PCsView: View {
     var openSettings: () -> Void = {}
     var switchTab: (Int) -> Void = { _ in }
@@ -63,6 +63,9 @@ struct PCsView: View {
                                         isElsewhere: catalog.remoteSession(on: host.uniqueID).map { !$0.isOwn } ?? false)
                             }
                             .contextMenu { // touch's way to the PC menu (a controller uses Y)
+                                if offersWake(host) {
+                                    Button("Wake Host", systemImage: "power") { wake(host) }
+                                }
                                 if sleepable.contains(host.uniqueID) {
                                     Button("Sleep Host…", systemImage: "moon.zzz") { confirmSleep(host) }
                                 }
@@ -151,6 +154,7 @@ struct PCsView: View {
     private func showMenu(_ item: Item) {
         guard case .saved(let host) = item else { return }
         var actions: [MenuSpec.Action] = []
+        if offersWake(host) { actions.append(.init(title: "Wake Host") { wake(host) }) }
         if sleepable.contains(host.uniqueID) { actions.append(.init(title: "Sleep Host…") { confirmSleep(host) }) }
         actions.append(.init(title: "Edit…") { editing = host })
         actions.append(.init(title: "Remove Host…", isDestructive: true) { confirmRemove(host) })
@@ -158,10 +162,17 @@ struct PCsView: View {
         menu = MenuSpec(title: host.displayName, message: message, actions: actions)
     }
 
+    private func offersWake(_ host: SavedHost) -> Bool { directory.canWake(host) && !directory.waking.contains(host.uniqueID) }
+
+    private func wake(_ host: SavedHost) {
+        let name = host.displayName
+        Task { if await !directory.wake(host) { menu = .wakeFailed(name) } }
+    }
+
     /// The PC only sleeps when asked deliberately, once per confirmation; a failure needs a new confirmation.
     private func confirmSleep(_ host: SavedHost) {
         let name = host.displayName
-        menu = MenuSpec(title: "Put \(name) to sleep?", message: "Quit any running game first. Wake it with its power button or keyboard.",
+        menu = MenuSpec(title: "Put \(name) to sleep?", message: "Quit any running game first. Wake it from this app on the same network, or with its power button.",
                         actions: [.init(title: "Sleep") {
             let client = HostClient(hostID: host.uniqueID, address: activeAddresses[host.uniqueID] ?? host.address,
                                     httpsPort: host.httpsPort, serverCert: host.serverCert)

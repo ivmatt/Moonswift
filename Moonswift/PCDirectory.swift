@@ -29,6 +29,7 @@ nonisolated struct PCRef: Sendable {
         return playing
     }
     private(set) var sleepable: Set<String> = [] // PCs that let this device put them to sleep
+    private(set) var waking: Set<String> = [] // PCs sent a wake packet and not back yet
     /// When each PC last answered, or was last found offline: Home's status says "checked 5s ago".
     private(set) var lastChecked: [String: Date] = [:]
     /// PCs that missed one check: they keep their status (one miss isn't enough), and Home's status says "Not
@@ -92,6 +93,23 @@ nonisolated struct PCRef: Sendable {
               client: HostClient(hostID: host.uniqueID, address: activeAddresses[host.uniqueID] ?? host.address,
                                  httpsPort: host.httpsPort, serverCert: host.serverCert),
               localAddress: host.address, remoteAddress: host.remoteAddress)
+    }
+
+    /// Offline, with a saved MAC and a home-network address: a wake packet has somewhere to go.
+    func canWake(_ host: SavedHost) -> Bool {
+        statuses[host.uniqueID] == .offline && host.macAddress != nil && isHomeNetworkHost(hostAddress(host.address))
+    }
+
+    /// Sends the wake packet, then waits up to a minute for the regular checks to find the PC. False: it never answered.
+    func wake(_ host: SavedHost) async -> Bool {
+        let id = host.uniqueID
+        guard canWake(host), !waking.contains(id), let mac = host.macAddress else { return true }
+        waking.insert(id)
+        defer { waking.remove(id) }
+        await sendWake(mac: mac, to: host.address)
+        let deadline = ContinuousClock.now + .seconds(60)
+        while statuses[id] == .offline, ContinuousClock.now < deadline { try? await Task.sleep(for: .seconds(1)) }
+        return statuses[id] != .offline || isPaused // nothing was checked in the background, so it can't say it failed
     }
 
     /// Like moonlight-ios's DiscoveryWorker: ask every saved host for /serverinfo on a loop.
@@ -166,7 +184,13 @@ nonisolated struct PCRef: Sendable {
                 if info?.canSleep == true { sleepable.insert(id) } else if info != nil { sleepable.remove(id) }
                 guard let host = hosts.first(where: { $0.uniqueID == id }) else { continue }
                 if let info, host.name != info.hostname { host.name = info.hostname } // PC was renamed
-                if status == .online(paired: true), address == host.address { learnPublicIP(for: host, context: context) }
+                if status == .online(paired: true), address == host.address {
+                    learnPublicIP(for: host, context: context)
+                    if let mac = info?.macAddress, mac != host.macAddress {
+                        host.macAddress = mac
+                        try? context.save()
+                    }
+                }
             }
         }
     }

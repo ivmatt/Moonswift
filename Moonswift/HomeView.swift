@@ -295,7 +295,8 @@ struct HomeView: View {
     private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
         guard !games.isEmpty else { return [] }
         let labels = selectedGame?.runningLabels(directory, catalog) ?? (resume: "Resume", quit: "Quit")
-        let a = focusRow == -1 ? "Open" : focusRow == 0 && heroButton == 1 ? labels.quit
+        let a = focusRow == -1 ? "Open" : selectedGame.flatMap(wakeTarget) != nil ? "Wake"
+            : focusRow == 0 && heroButton == 1 ? labels.quit
             : selectedGame?.isRunning(directory) == true ? labels.resume : "Play"
         return [([.a], a), ([.y], "Edit")] + (selectedGame?.isRunning(directory) == true ? [([.x], labels.quit)] : [])
             + [([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")]
@@ -314,19 +315,33 @@ struct HomeView: View {
                 if let game = selectedGame, let down = game.unavailable(hosts: hosts, directory: directory) {
                     // Its host can't be reached: what's wrong and what to do, over its blurred picture; in the middle
                     // of the screen (not of the room beside the Duo's rail), or of the hero's part beside a fold.
-                    VStack(spacing: 6) {
-                        Image(systemName: "pc").font(.system(size: 44)).padding(.bottom, 4)
-                        Text("\(down.pc) \(down.reason)").font(.title3.weight(.semibold))
-                        Text(down.reason == "is offline" ? "Turn it on or wake it, and check it's on the same network as this device."
-                             : "It no longer knows this device. Pair it again from Hosts.")
-                            .font(.subheadline).foregroundStyle(.secondary)
+                    let target = wakeTarget(game)
+                    VStack(spacing: 10) {
+                        VStack(spacing: 6) {
+                            Image(systemName: "pc").font(.system(size: 44)).padding(.bottom, 4)
+                            Text("\(down.pc) \(down.reason)").font(.title3.weight(.semibold))
+                            Text(down.reason != "is offline" ? "It no longer knows this device. Pair it again from Hosts."
+                                 : target == nil ? "Turn it on, and check it's on the same network as this device."
+                                 : "Wake it, or check it's on the same network as this device.")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                        if let target {
+                            let isWaking = directory.waking.contains(target.uniqueID)
+                            Button { wake(target) } label: {
+                                Text(isWaking ? "Waking…" : "Wake \(target.displayName)").font(.headline).frame(minWidth: 140)
+                            }
+                            .buttonStyle(.glass)
+                            .controlSize(.large)
+                            .disabled(isWaking)
+                            .focusRing(gamepad.isActive && focusRow == 0, cornerRadius: .infinity)
+                        }
                     }
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 36)
                     .frame(maxWidth: heroFold.maxWidth ?? .infinity, maxHeight: .infinity)
                     .padding(.leading, heroFold.maxWidth == nil ? -railInsets.leading : 0)
                     .padding(.trailing, heroFold.maxWidth == nil ? -railInsets.trailing : 0)
-                    .accessibilityElement(children: .combine)
                     .transition(.opacity)
                 } else if let game = selectedGame {
                     HeroCard(game: game, subtitle: heroSubtitle(game), isShort: isShort,
@@ -555,6 +570,17 @@ struct HomeView: View {
         play(game, hosts: hosts, directory: directory, catalog: catalog, launcher: launcher)
     }
 
+    /// The PC to wake when every PC with this game is offline.
+    private func wakeTarget(_ game: CatalogGame) -> SavedHost? {
+        guard game.unavailable(hosts: hosts, directory: directory)?.reason == "is offline" else { return nil }
+        return game.sources.lazy.compactMap { source in hosts.first { $0.uniqueID == source.pcID } }.first { directory.canWake($0) }
+    }
+
+    private func wake(_ host: SavedHost) {
+        let name = host.displayName
+        Task { if await !directory.wake(host) { launcher.menu = .wakeFailed(name) } }
+    }
+
     /// Quits it on the PC that's running it, after asking.
     private func quit(_ game: CatalogGame) {
         Moonswift.quit(game, hosts: hosts, directory: directory, catalog: catalog, launcher: launcher)
@@ -610,6 +636,7 @@ struct HomeView: View {
             }
         case .select:
             if focusRow == -1 { topButton == 1 && sessionHost != nil ? openSessionMenu() : openStatusMenu() }
+            else if let host = wakeTarget(game) { wake(host) }
             else if focusRow == 0, heroButton == 1, isRunning { quit(game) } else { pressPlay(game) }
         case .alternate: if isRunning { quit(game) }
         case .menu: editing = game

@@ -58,6 +58,7 @@ struct PCStatusButton: View {
     /// One host's status line; with no `now`, without when it was last checked.
     static func line(_ host: SavedHost, directory: PCDirectory, catalog: GameCatalog, now: Date?) -> PCStatusLine {
         let id = host.uniqueID
+        if directory.waking.contains(id), directory.statuses[id] == .offline { return .init(text: "Waking…", health: .checking) }
         return .make(status: directory.statuses[id], isNotResponding: directory.notResponding.contains(id),
                      isFetching: catalog.fetching.contains(id), fetchFailed: catalog.fetchFailed.contains(id),
                      hasSavedGames: !(catalog.apps[id] ?? []).isEmpty,
@@ -70,6 +71,7 @@ struct PCStatusButton: View {
 
     private var word: String {
         if isSpinning { return "Checking…" }
+        if !directory.waking.isEmpty { return "Waking…" }
         return switch worst {
         case .fine: "Online"
         case .checking: "Checking…"

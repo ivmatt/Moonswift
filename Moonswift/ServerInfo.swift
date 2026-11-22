@@ -21,6 +21,8 @@ nonisolated struct ServerInfo: Equatable {
     /// The PC can be put to sleep from this device: Vibepollo's power actions, with sleep allowed for this device in its
     /// web UI. Only reported over paired HTTPS.
     let canSleep: Bool
+    /// For Wake-on-LAN. Only reported over paired HTTPS; other replies carry an all-zero placeholder, which reads as nil.
+    let macAddress: String?
 
     /// Parses `<root status_code="200"><hostname>…</hostname>…</root>`.
     init(xml: Data) throws(ServerInfoError) {
@@ -42,7 +44,35 @@ nonisolated struct ServerInfo: Equatable {
         gfeVersion = fields["GfeVersion"]
         codecModeSupport = fields["ServerCodecModeSupport"].flatMap { Int($0) } ?? 0
         canSleep = fields["PowerActionVersion"] == "1" && fields["SleepSupported"] == "1" && fields["SleepAllowed"] == "1"
+        macAddress = fields["mac"].flatMap { macBytes($0) == nil ? nil : $0 }
     }
+}
+
+/// The six bytes of "aa:bb:cc:dd:ee:ff"; nil for anything else, and for the all-zero placeholder.
+nonisolated func macBytes(_ mac: String) -> [UInt8]? {
+    let parts = mac.split(separator: ":", omittingEmptySubsequences: false)
+    guard parts.count == 6, parts.allSatisfy({ $0.count == 2 && $0.allSatisfy(\.isHexDigit) }) else { return nil }
+    let bytes = parts.compactMap { UInt8($0, radix: 16) }
+    return bytes.count == 6 && bytes.contains { $0 != 0 } ? bytes : nil
+}
+
+/// The standard Wake-on-LAN "magic packet": six 0xFF bytes, then the MAC address 16 times.
+nonisolated func wakePacket(mac: String) -> Data? {
+    macBytes(mac).map { bytes in Data(repeating: 0xFF, count: 6) + Data((0..<16).flatMap { _ in bytes }) }
+}
+
+/// Sends the wake packet straight to the PC's home address, a few times since UDP can drop it.
+// shortcut: no broadcast, which iOS allows only with Apple's multicast entitlement; add it once that's approved.
+nonisolated func sendWake(mac: String, to address: String) async {
+    let host = hostAddress(address)
+    guard let packet = wakePacket(mac: mac), isHomeNetworkHost(host) else { return }
+    let connection = NWConnection(host: NWEndpoint.Host(host), port: 9, using: .udp)
+    connection.start(queue: .global())
+    for _ in 0..<3 {
+        connection.send(content: packet, completion: .idempotent)
+        try? await Task.sleep(for: .milliseconds(200))
+    }
+    connection.cancel()
 }
 
 nonisolated enum ServerInfoError: LocalizedError, Equatable, TitledError {

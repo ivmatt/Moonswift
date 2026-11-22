@@ -28,6 +28,11 @@ struct MenuSpec {
         MenuSpec(title: title, message: message, actions: [], cancelTitle: "OK", closable: false) // OK is enough
     }
 
+    static func wakeFailed(_ name: String) -> MenuSpec {
+        .error("Check that this device is on its network and that Wake-on-LAN is on in the PC's settings.",
+               title: "\(name) didn't wake")
+    }
+
     /// An error's own short title ("Permission needed") when it has one, and its message.
     static func error(_ error: Error) -> MenuSpec {
         .error(error.localizedDescription, title: (error as? TitledError)?.title ?? "Something went wrong")
