@@ -94,7 +94,9 @@ struct PCStatusButton: View {
                     Label {
                         Text(line.text)
                     } icon: {
-                        Image(systemName: "circle.fill").symbolRenderingMode(.palette).foregroundStyle(Self.color(line))
+                        // A system menu paints a plain symbol in its text colour; an image with its own colour keeps it.
+                        Image(uiImage: (UIImage(systemName: "circle.fill") ?? UIImage())
+                            .withTintColor(UIColor(Self.color(line)), renderingMode: .alwaysOriginal))
                     }
                 }
             }
