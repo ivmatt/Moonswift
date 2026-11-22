@@ -1,10 +1,10 @@
 import SwiftUI
 
 /// After the first host is paired: one setting a page (online artwork, touch controls, the splash screen), each with
-/// its default already chosen and a Skip that keeps it (Artwork has none: it needs a working key or the host's art).
+/// its default already chosen (Artwork needs a working key or the host's art to move on).
 /// Then, with online artwork and a key, a moment of "final touches" while the first games' art comes in. Choices are
 /// the same saved settings Settings shows. Two columns on short, wide screens.
-/// Controller: up/down move, A picks (or continues, on Continue), X skips, B goes back a page.
+/// Controller: up/down move, A picks (or continues, on Continue), B goes back a page.
 struct FirstRunSetup: View {
     /// Which page shows: Add Host keeps it, so its toolbar's Back steps through the pages too.
     @Binding var pageIndex: Int
@@ -60,8 +60,7 @@ struct FirstRunSetup: View {
     }
 
     private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
-        if isFinishing { return [] }
-        return page == .artwork ? [([.a], "Select"), ([.b], "Back")] : [([.a], "Select"), ([.x], "Skip"), ([.b], "Back")]
+        isFinishing ? [] : [([.a], "Select"), ([.b], "Back")]
     }
 
     /// Side by side on a short, wide screen, so the choices aren't pushed below the fold of the page; else one column.
@@ -272,21 +271,14 @@ struct FirstRunSetup: View {
     }
 
     private var buttons: some View {
-        HStack(spacing: 14) {
-            if page != .artwork {
-                Button("Skip", action: next)
-                    .buttonStyle(.glass)
-                    .controlSize(.large)
-            }
-            Button { next() } label: { Text("Continue").frame(width: 160) }
-                .buttonStyle(.glassProminent)
-                .tint(.blue)
-                .controlSize(.large)
-                .disabled(!canContinue)
-                .focusRing(focused(rowCount - 1), cornerRadius: .infinity)
-        }
-        .frame(maxWidth: .infinity)
-        .id(rowCount - 1)
+        Button { next() } label: { Text("Continue").frame(width: 160) }
+            .buttonStyle(.glassProminent)
+            .tint(.blue)
+            .controlSize(.large)
+            .disabled(!canContinue)
+            .focusRing(focused(rowCount - 1), cornerRadius: .infinity)
+            .frame(maxWidth: .infinity)
+            .id(rowCount - 1)
     }
 
     // MARK: Final touches
@@ -384,7 +376,6 @@ struct FirstRunSetup: View {
             case .splash:
                 if focus < 2 { showsSplash = focus == 0 } else if focus == 3 { splashEndsOnSound.toggle() }
             }
-        case .alternate: if page != .artwork { next() }
         case .back: back()
         default: break
         }

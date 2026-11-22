@@ -320,26 +320,37 @@ struct AddHostView: View {
         catalog.games(on: [hostID]).isEmpty && !hasWaitedForGames && !isFirstHost
     }
 
-    private func success(name: String, count: Int) -> some View {
-        ScrollView {
-            Group {
-                if window.isShortAndWide {
-                    HStack(alignment: .top, spacing: 32) {
-                        successHeading(name: name, count: count).frame(maxWidth: .infinity)
-                        permissionsAndContinue.frame(maxWidth: .infinity)
+    @ViewBuilder private func success(name: String, count: Int) -> some View {
+        if window.isShortAndWide {
+            // The heading stays put, centred, while the column beside it scrolls.
+            HStack(spacing: 32) {
+                successHeading(name: name, count: count).frame(maxWidth: .infinity)
+                ScrollView { permissionsAndContinue.padding(.vertical, 20) }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .scrollEdgeEffectHidden(true, for: .top)
+                    .defaultScrollAnchor(.center, for: .alignment)
+                    // Fades out below the title bar rather than sliding up beside the title.
+                    .mask {
+                        VStack(spacing: 0) {
+                            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 16)
+                            Color.black.padding(.bottom, -40) // on past the home indicator's margin
+                        }
                     }
-                } else {
-                    VStack(spacing: 20) {
-                        successHeading(name: name, count: count)
-                        permissionsAndContinue.frame(maxWidth: 480)
-                    }
-                }
+                    .frame(maxWidth: .infinity)
             }
-            .padding(28)
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 28)
+        } else {
+            ScrollView {
+                VStack(spacing: 20) {
+                    successHeading(name: name, count: count)
+                    permissionsAndContinue.frame(maxWidth: 480)
+                }
+                .padding(28)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .defaultScrollAnchor(.center, for: .alignment) // centred while it fits
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .defaultScrollAnchor(.center, for: .alignment) // centred while it fits
     }
 
     private func successHeading(name: String, count: Int) -> some View {
