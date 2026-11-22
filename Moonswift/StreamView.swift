@@ -229,7 +229,7 @@ struct StreamView: View {
                                      close: closePanel)
                     case .settings:
                         QuickSettingsPanel(tab: panelTab,
-                                           stats: { [readout] in readout.statsLine },
+                                           connection: { [readout] in readout.connection },
                                            target: target, showsPerformance: $showsPerformance, touchMode: $touchMode,
                                            setBitrate: setLiveBitrate,
                                            padLayouts: padLayouts, padLayoutID: padLayoutID,
@@ -303,6 +303,12 @@ struct StreamView: View {
         .onChange(of: session.state == .connected && session.hasPicture && failure == nil && status == nil && !isLeaving,
                   initial: true) { _, isLive in pictureInPicture.allowsAutomaticStart(isLive) }
         .task { await run() }
+        .task(id: client.address) { // a reconnect may reach the PC at its other address
+            readout.connection = nil
+            let address = client.address
+            let connection = await Task.detached { connectionLabel(for: address) }.value
+            if !Task.isCancelled { readout.connection = connection }
+        }
         .task(id: launcher.splash != nil) { await holdSplash() } // again for a Quit & Retry's splash
         .onChange(of: splashStatus, initial: true) { _, status in launcher.splashStatus = status }
         // The on-screen controller joins the host as a controller while it shows, and leaves when it goes.
@@ -633,12 +639,9 @@ struct StreamView: View {
             let window = PerformanceWindow(from: previous.counters, to: counters, seconds: (now - previous.time) / .seconds(1))
             previous = (counters, now)
 
-            readout.videoLabel = stats.videoLabel
-            readout.rates = "\(window.fps.formatted(.number.precision(.fractionLength(0)))) fps, "
-                + "\(window.mbps.formatted(.number.precision(.fractionLength(1)))) Mbps"
             readout.performance = PerformanceOverlay.Readout(window: window, targetFPS: target.fps, video: stats.videoLabel,
                                                      rtt: hasRTT ? (Int(rtt), Int(rttVariance)) : nil,
-                                                     isRemote: !isHomeNetworkHost(hostAddress(client.address)))
+                                                     connection: readout.connection)
             if isLive {
                 readout.fpsHistory = Array((readout.fpsHistory + [window.fps]).suffix(60))
                 adaptStep(window.sample(rttMs: hasRTT ? Int(rtt) : nil, isPoor: stats.isPoor), now: (now - started) / .seconds(1))
@@ -838,13 +841,10 @@ private struct StreamFailurePage: View {
 /// The stream's once-a-second numbers. Kept out of the stream screen's own state and read only by the views that
 /// show them, so the screen (and any menu open over it) doesn't redraw every second.
 @Observable final class StreamReadout {
-    var videoLabel: String?
-    var rates = ""
+    var connection: String? // "Local" or "Remote", once known
     var performance: PerformanceOverlay.Readout?
     var adaptiveNote: String?
     var fpsHistory: [Double] = [] // the last minute, for the HUD's graph
-
-    var statsLine: String { [videoLabel, rates].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ") }
 }
 
 /// The performance overlay, reading the readout itself so only it redraws as the numbers change.

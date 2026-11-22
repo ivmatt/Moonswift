@@ -456,6 +456,17 @@ struct RemoteAccessTests {
         }
     }
 
+    @Test func connectionLabelMatchesTheStreamingCore() {
+        for address in ["10.0.4.20", "192.168.1.5", "192.168.1.5:47989", "172.20.0.1", "169.254.83.107",
+                        "fe80::1%en0", "[fd4c:2e47::1]", "[fd4c:2e47::1]:47989"] {
+            #expect(connectionLabel(for: address) == "Local", "\(address) should be Local")
+        }
+        for address in ["100.101.102.103", "216.240.36.174", "216.240.36.174:47989", "172.32.0.1", "127.0.0.1",
+                        "2001:4860::8888", ""] {
+            #expect(connectionLabel(for: address) == "Remote", "\(address) should be Remote")
+        }
+    }
+
     @Test func plainHTTPToAPublicAddressIsRefusedBeforeSending() async {
         await #expect(throws: ServerInfoError.insecureBlocked) {
             try await hostData(URL(string: "http://203.0.113.7:47989/serverinfo")!, timeout: 1)
@@ -568,13 +579,13 @@ struct PerformanceTests {
 
     @Test func overlayShowsWhatItKnows() {
         let quiet = PerformanceWindow(from: StreamCounters(), to: StreamCounters(), seconds: 1)
-        let readout = PerformanceOverlay.Readout(window: quiet, targetFPS: 60, video: "HEVC 1920×1080 @ 60", rtt: nil, isRemote: true)
-        #expect(readout.video == "HEVC 1920×1080 @ 60" && readout.isRemote)
+        let readout = PerformanceOverlay.Readout(window: quiet, targetFPS: 60, video: "HEVC 1920×1080 @ 60", rtt: nil, connection: "Remote")
+        #expect(readout.video == "HEVC 1920×1080 @ 60" && readout.connection == "Remote")
         #expect(readout.rttText == "–")
         #expect(readout.latencyText == "host – · net – · queue – ms") // no frames: no averages
         #expect(readout.lossText == "0 lost (0.0%) · 0.0% repaired")
         #expect(readout.lossHealth == .good)
-        let local = PerformanceOverlay.Readout(window: quiet, targetFPS: 120, video: nil, rtt: (3, 1), isRemote: false)
+        let local = PerformanceOverlay.Readout(window: quiet, targetFPS: 120, video: nil, rtt: (3, 1), connection: "Local")
         #expect(local.video == "Waiting for video…")
         #expect(local.rttText == "3 ± 1 ms" && local.rttHealth == .good)
         #expect(PerformanceOverlay.Readout.health(fps: 119, target: 120) == .good)
@@ -857,6 +868,8 @@ struct PCStatusLineTests {
         #expect(line(.online(paired: true), ago: 1).text == "Up to date · checked just now")
         #expect(line(.online(paired: true), ago: 125).text == "Up to date · checked 2m ago")
         #expect(line(.online(paired: true), ago: nil).text == "Up to date")
+        #expect(PCStatusLine.make(status: .online(paired: true), isNotResponding: false, isFetching: false, fetchFailed: false,
+                                  hasSavedGames: true, checkedAgo: 5, connection: "Remote").text == "Up to date · Remote · checked 5s ago")
         #expect(line(.online(paired: true), fetching: true).text == "Getting games…")
         #expect(line(.online(paired: true), failed: true).health == .problem)
         #expect(line(.online(paired: false)).short == "Not paired" && line(.offline).short == "Offline")

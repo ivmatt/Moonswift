@@ -7,7 +7,7 @@ struct PerformanceOverlay: View {
     /// One second's figures.
     nonisolated struct Readout {
         let video: String
-        let isRemote: Bool
+        let connection: String? // "Local" or "Remote", once known
         let fps: Double
         let targetFPS: Int
         let mbps: Double
@@ -18,9 +18,9 @@ struct PerformanceOverlay: View {
         let fecFailed: Int
         let hostMs: Double?, networkMs: Double?, queueMs: Double?
 
-        init(window: PerformanceWindow, targetFPS: Int, video: String?, rtt: (ms: Int, variance: Int)?, isRemote: Bool) {
+        init(window: PerformanceWindow, targetFPS: Int, video: String?, rtt: (ms: Int, variance: Int)?, connection: String?) {
             self.video = video ?? "Waiting for video…"
-            self.isRemote = isRemote
+            self.connection = connection
             fps = window.fps
             self.targetFPS = targetFPS
             mbps = window.mbps
@@ -112,7 +112,7 @@ struct PerformanceOverlay: View {
                     Text(readout.rtt.map { "\($0.ms) ms" } ?? "– ms").foregroundStyle(color(readout.rttHealth))
                 }
             } else {
-                Text(readout.video + (readout.isRemote ? " · Remote" : " · Local"))
+                Text(readout.video + (readout.connection.map { " · \($0)" } ?? ""))
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)

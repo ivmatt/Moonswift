@@ -16,9 +16,10 @@ nonisolated struct PCStatusLine: Equatable {
     /// Without the details: "Not paired", for a Hosts row.
     var short: String { text.components(separatedBy: " · ")[0] }
 
-    /// `checkedAgo` is the seconds since it last answered (nil: not known, as in demo mode).
+    /// `checkedAgo` is the seconds since it last answered (nil: not known, as in demo mode); `connection` is
+    /// "Local" or "Remote" when known.
     static func make(status: HostStatus?, isNotResponding: Bool, isFetching: Bool, fetchFailed: Bool,
-                     hasSavedGames: Bool, checkedAgo: Int?) -> PCStatusLine {
+                     hasSavedGames: Bool, checkedAgo: Int?, connection: String? = nil) -> PCStatusLine {
         switch status {
         case nil: return .init(text: "Checking…", health: .checking)
         case .offline: return .init(text: hasSavedGames ? "Offline · showing saved games" : "Offline", health: .offline)
@@ -28,7 +29,7 @@ nonisolated struct PCStatusLine: Equatable {
             if fetchFailed { return .init(text: "Couldn't get its games · showing saved ones", health: .problem) }
             if isFetching { return .init(text: "Getting games…", health: .fine) }
             let ago = checkedAgo.map { $0 < 2 ? " · checked just now" : $0 < 60 ? " · checked \($0)s ago" : " · checked \($0 / 60)m ago" }
-            return .init(text: "Up to date" + (ago ?? ""), health: .fine)
+            return .init(text: "Up to date" + (connection.map { " · \($0)" } ?? "") + (ago ?? ""), health: .fine)
         }
     }
 }
@@ -62,7 +63,8 @@ struct PCStatusButton: View {
         return .make(status: directory.statuses[id], isNotResponding: directory.notResponding.contains(id),
                      isFetching: catalog.fetching.contains(id), fetchFailed: catalog.fetchFailed.contains(id),
                      hasSavedGames: !(catalog.apps[id] ?? []).isEmpty,
-                     checkedAgo: now.flatMap { now in directory.lastChecked[id].map { Int(now.timeIntervalSince($0)) } })
+                     checkedAgo: now.flatMap { now in directory.lastChecked[id].map { Int(now.timeIntervalSince($0)) } },
+                     connection: directory.connection(of: id))
     }
 
     private var worst: PCStatusLine.Health { hosts.map { line($0, now: .now).health }.max() ?? .fine }

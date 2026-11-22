@@ -57,7 +57,8 @@ struct PCsView: View {
                         Section {
                             let active = activeAddresses[host.uniqueID] ?? host.address
                             row(.saved(host)) {
-                                HostRow(name: host.displayName, address: active, status: statuses[host.uniqueID],
+                                HostRow(name: host.displayName, address: directory.connection(of: host.uniqueID).map { "\($0) · \(active)" } ?? active,
+                                        status: statuses[host.uniqueID],
                                         line: PCStatusButton.line(host, directory: directory, catalog: catalog, now: nil),
                                         wasPaired: !host.serverCert.isEmpty, playing: playingTitle(host),
                                         isElsewhere: catalog.remoteSession(on: host.uniqueID).map { !$0.isOwn } ?? false)

@@ -15,6 +15,7 @@ nonisolated struct PCRef: Sendable {
 @Observable final class PCDirectory {
     private(set) var statuses: [String: HostStatus] = [:] // by uniqueID; missing = not checked yet
     private(set) var activeAddresses: [String: String] = [:] // by uniqueID: the address that last answered
+    private var connections: [String: String] = [:] // by uniqueID: "Local" or "Remote", while paired and answering
     /// What each PC last said it's running, by uniqueID (0 or missing: nothing).
     private(set) var reportedPlaying: [String: Int] = [:]
     /// The game this device streamed and hasn't quit (`StreamLauncher.session`): running, even when one check comes
@@ -52,6 +53,7 @@ nonisolated struct PCRef: Sendable {
     #if DEBUG
     func setDemo(pcID: String, running: Int) {
         statuses[pcID] = .online(paired: true)
+        connections[pcID] = "Local"
         lastChecked[pcID] = .now
         reportedPlaying[pcID] = running
     }
@@ -79,6 +81,9 @@ nonisolated struct PCRef: Sendable {
     }
 
     func isAvailable(_ id: String) -> Bool { statuses[id] == .online(paired: true) }
+
+    /// "Local" or "Remote", only while that's known: an old answer could be from the network before a switch.
+    func connection(of id: String) -> String? { isUncertain(id) || notResponding.contains(id) ? nil : connections[id] }
 
     /// Its status isn't confirmed yet, so acting on it could be wrong. A single missed check doesn't count: they're
     /// routine on a busy host, and the buttons would keep dimming on a page where nothing happened.
@@ -148,15 +153,17 @@ nonisolated struct PCRef: Sendable {
         let confirming = rechecking // only a check started after a PC was marked can clear it
         let targets = hosts.map { (id: $0.uniqueID, address: $0.address, remote: $0.remoteAddress,
                                    httpsPort: $0.httpsPort, serverCert: $0.serverCert) }
-        await withTaskGroup(of: (String, HostStatus, ServerInfo?, String?).self) { group in
+        await withTaskGroup(of: (String, HostStatus, ServerInfo?, String?, String?).self) { group in
             for target in targets {
                 group.addTask {
                     let result = await checkHost(address: target.address, remoteAddress: target.remote,
                                                  httpsPort: target.httpsPort, serverCert: target.serverCert)
-                    return (target.id, result.status, result.info, result.address)
+                    // Only a paired answer proves it's this PC, and not another device at the same home address.
+                    let connection = result.status == .online(paired: true) ? result.address.map(connectionLabel) : nil
+                    return (target.id, result.status, result.info, result.address, connection)
                 }
             }
-            for await (id, status, info, address) in group {
+            for await (id, status, info, address, connection) in group {
                 if confirming.contains(id) { rechecking.remove(id) }
                 // One missed check (a slow cellular wake-up, a dropped packet) isn't enough to call a PC offline. Nor is
                 // a paired PC answering only the plain request: its secure one timed out (busy right after a stream),
@@ -172,6 +179,7 @@ nonisolated struct PCRef: Sendable {
                 lastChecked[id] = .now
                 statuses[id] = status
                 activeAddresses[id] = address
+                connections[id] = connection
                 let game = info?.currentGame ?? 0
                 let reading = Self.reading(game: game, shown: reportedPlaying[id] ?? 0, emptyInARow: idleReadings[id] ?? 0,
                                            isManual: isManual)

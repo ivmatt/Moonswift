@@ -37,7 +37,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 **Hosts**
 - Find hosts on your network automatically, or add one by address
 - PIN pairing with pinned certificates
-- A remote address for playing away from home
+- A remote address for playing away from home, with a Local or Remote label on each host and in the Control Center
 - Wake a sleeping PC on the same network (needs Wake-on-LAN turned on for the PC, ideally over Ethernet)
 - Layouts that keep content off the fold on iPhone Duo
 

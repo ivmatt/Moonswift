@@ -226,6 +226,29 @@ nonisolated func isHomeNetworkHost(_ host: String) -> Bool {
     return !name.isEmpty && (name.hasSuffix(".local") || !name.contains("."))
 }
 
+/// "Local" or "Remote": how this device reaches a host, by the streaming core's own test (`isPrivateNetworkAddress`),
+/// so the label matches how the stream is tuned. Unlike `isHomeNetworkHost`, Tailscale counts as Remote. A name is
+/// looked up, which can block: call it off the main thread.
+// shortcut: a name with both private and public addresses reads by its first one; use the connected one if that comes up.
+nonisolated func connectionLabel(for address: String) -> String {
+    let host = hostAddress(address).trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        .split(separator: "%").first.map(String.init) ?? ""
+    var results: UnsafeMutablePointer<addrinfo>?
+    guard getaddrinfo(host, nil, nil, &results) == 0, let info = results?.pointee else { return "Remote" }
+    defer { freeaddrinfo(results) }
+    let b: [UInt8] = switch info.ai_family {
+    case AF_INET: info.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { withUnsafeBytes(of: $0.pointee.sin_addr, Array.init) }
+    case AF_INET6: info.ai_addr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { withUnsafeBytes(of: $0.pointee.sin6_addr, Array.init) }
+    default: []
+    }
+    let isLocal = switch b.count {
+    case 4: b[0] == 10 || (b[0] == 172 && (16...31).contains(b[1])) || (b[0] == 192 && b[1] == 168) || (b[0] == 169 && b[1] == 254)
+    case 16: b[0] & 0xFE == 0xFC || (b[0] == 0xFE && b[1] & 0x80 == 0x80) // ULA, link-local, site-local
+    default: false
+    }
+    return isLocal ? "Local" : "Remote"
+}
+
 /// The addresses to try for a host, in order: the local one first, then its public one if it has a different one.
 nonisolated func candidateAddresses(local: String, remote: String?) -> [String] {
     guard let remote = remote?.trimmingCharacters(in: .whitespaces), !remote.isEmpty,
