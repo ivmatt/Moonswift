@@ -267,9 +267,6 @@ import SwiftUI
 
     /// The home or public address that answers now, trying a few times while a new network settles.
     private static func answeringAddress(_ pc: PCRef) async -> String? {
-        #if DEBUG
-        if PCDirectory.fakeOnline { return pc.localAddress } // the test stream needs no host to answer
-        #endif
         for attempt in 1...3 {
             let result = await checkHost(address: pc.localAddress, remoteAddress: pc.remoteAddress,
                                          httpsPort: pc.client.httpsPort, serverCert: pc.client.serverCert)

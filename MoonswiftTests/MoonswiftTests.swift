@@ -750,12 +750,6 @@ struct AdaptiveTriggerTests {
         #expect(AdaptiveTriggerEffect(type: 0x06, bytes: [0, 200, 0, 0, 0, 0, 0, 0, 0, 0]).mode == .off)
         #expect(AdaptiveTriggerEffect(type: 0x21, bytes: [1, 2]).mode == .off) // too short
     }
-
-    @Test func controllerTestPresetsBecomeTheirEffects() {
-        #expect(TriggerPreset.allCases.map(\.effect.mode) == [.off, .feedback, .weapon, .vibration])
-        let weapon = TriggerPreset.weapon.effect
-        #expect(weapon.startPosition < weapon.endPosition && weapon.startStrength == 1) // a click partway down, full strength
-    }
 }
 
 struct SessionControlTests {

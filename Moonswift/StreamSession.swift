@@ -67,12 +67,6 @@ private nonisolated let audioRenderer = AudioRenderer()
         guard startTask == nil else { return }
         liveStats.withLock { $0 = StreamStats() }
         activeVideoRenderer = renderer
-        #if DEBUG
-        if PCDirectory.fakeOnline { // Hosts Online: a test stream, connected at once, its "picture" drawn by StreamView
-            liveStats.withLock { $0.state = .connected; $0.videoFrames = 1; $0.video = "Test stream (no host)" }
-            return
-        }
-        #endif
         let launch = target.launch, width = target.width, height = target.height, fps = target.fps, bitrate = target.bitrate
         let videoFormats = target.videoFormats
         startTask = Task.detached {

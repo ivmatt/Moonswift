@@ -46,13 +46,12 @@ struct SettingsView: View {
     @State private var bitrateChange: Task<Void, Never>?
     @State private var isShowingAbout = false
     @State private var isShowingButtonMapping = false
-    @State private var isShowingControllerTest = false
     @State private var isShowingGestures = false
     /// A setting's choices, for the controller, beside its row.
     @State private var choice: ChoiceMenuSpec?
     @State private var rowFrames = RowFrames()
 
-    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, dualSenseHaptics, controllerTest, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
+    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, dualSenseHaptics, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
     private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
     @State private var page = Self.rememberedPage
@@ -74,7 +73,7 @@ struct SettingsView: View {
     }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures, .buttonGuide, .buttonMapping, .dualSenseHaptics] + (live == nil ? [.controllerTest] : []) + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
+        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures, .buttonGuide, .buttonMapping, .dualSenseHaptics] + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
         return (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
             + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .touch, .overlay]
     }
@@ -98,13 +97,6 @@ struct SettingsView: View {
         StreamSettings.size(for: resolution, nativePixels: ScreenInfo.nativePixels, safeAreaPixels: ScreenInfo.safeAreaPixels)
     }
     private var automaticBitrate: Int { StreamSettings.bitrate(width: size.width, height: size.height, fps: fps) }
-
-    #if DEBUG
-    @AppStorage(PCDirectory.debugOfflineKey) private var debugOffline = false
-    @AppStorage(PCDirectory.debugOnlineKey) private var debugOnline = false
-    @AppStorage(FakeStreamFailure.key) private var fakeFailure = FakeStreamFailure.off
-    @Environment(PCDirectory.self) private var directory
-    #endif
 
     var body: some View {
         NavigationStack {
@@ -244,18 +236,12 @@ struct SettingsView: View {
                         Button("Button Mapping") { isShowingButtonMapping = true }.foregroundStyle(.primary)
                     }
                     row(.dualSenseHaptics) { Toggle("DualSense Haptics", isOn: $dualSenseHaptics) }
-                    if live == nil { // not while streaming: its trigger effects would fight the game's
-                        row(.controllerTest) {
-                            Button("Controller Test") { isShowingControllerTest = true }.foregroundStyle(.primary)
-                        }
-                    }
                 } header: {
                     Text("Controller")
                 } footer: {
                     Text("Button Guide: the strip of controller buttons along the bottom; Automatic shows it while a controller "
                          + "is connected. DualSense Haptics plays the fine vibration games send a DualSense on hosts that pass it on "
-                         + "(Vibepollo); off, those games don't vibrate. Applies from the next stream. Controller Test shows what "
-                         + "your controller sends, and tries its rumble and a DualSense's adaptive triggers.")
+                         + "(Vibepollo); off, those games don't vibrate. Applies from the next stream.")
                 }
                 if live == nil { // not while streaming
                     Section {
@@ -285,27 +271,6 @@ struct SettingsView: View {
                 Section {
                     row(.about) { Button("About Moonswift") { isShowingAbout = true }.foregroundStyle(.primary) }
                 }
-                #if DEBUG
-                if live == nil {
-                    Section {
-                        Toggle("Hosts Offline", isOn: $debugOffline)
-                            .onChange(of: debugOffline) {
-                                if debugOffline { debugOnline = false }
-                                if DemoMode.isOn { directory.setDemo(pcID: DemoMode.pcID, running: 1) }
-                            }
-                        Toggle("Hosts Online", isOn: $debugOnline)
-                            .onChange(of: debugOnline) { if debugOnline { debugOffline = false } }
-                        Picker("Fail Next Stream", selection: $fakeFailure) {
-                            ForEach(FakeStreamFailure.allCases, id: \.self) { Text($0.rawValue) }
-                        }
-                    } header: {
-                        Text("Developer")
-                    } footer: {
-                        Text("Debug builds only. Hosts Offline acts as if every host were offline; Hosts Online, as if every saved host "
-                             + "were online and paired, with its saved games (streams can't start). Fail Next Stream shows that failure page 2 seconds into the next stream, once.")
-                    }
-                }
-                #endif
                 }
             }
             // The focused row stays in view as the controller moves down the list.
@@ -332,7 +297,6 @@ struct SettingsView: View {
             .choiceMenu($choice)
             .navigationDestination(isPresented: $isShowingAbout) { AboutView() }
             .navigationDestination(isPresented: $isShowingButtonMapping) { ButtonMappingView() }
-            .navigationDestination(isPresented: $isShowingControllerTest) { ControllerTestView() }
             .navigationDestination(isPresented: $isShowingGestures) { GesturesView() }
             .onChange(of: effectiveBitrate) { _, kbps in applyLive(kbps) }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
@@ -419,7 +383,6 @@ struct SettingsView: View {
         case .splashWait: choices("Splash Wait", LaunchSplash.waitChoices, current: splashWait, name: Self.seconds) { splashWait = $0 }
         case .bitrate: break // left/right move the slider
         case .buttonMapping: isShowingButtonMapping = true
-        case .controllerTest: isShowingControllerTest = true
         case .dualSenseHaptics: dualSenseHaptics.toggle()
         case .about: isShowingAbout = true
         case .onlineArtwork: findsArtwork.toggle()

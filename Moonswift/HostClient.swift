@@ -104,9 +104,6 @@ nonisolated struct HostClient: Sendable {
     static let permissionDeniedAppID = 114514
 
     func serverInfo() async throws -> ServerInfo {
-        #if DEBUG
-        if PCDirectory.fakeOnline { return try ServerInfo(fields: ["hostname": "Test Host"]) } // nothing running
-        #endif
         return try await fetchPairedServerInfo(address: address, httpsPort: httpsPort, serverCert: serverCert)
     }
 
@@ -204,20 +201,11 @@ nonisolated struct HostClient: Sendable {
     }
 
     func quit() async throws {
-        #if DEBUG
-        if PCDirectory.fakeOnline { return }
-        #endif
         let fields = try parseHostResponse(await data("/cancel", timeout: 60))
         guard fields["cancel"] == "1" else { throw GameError.quitFailed }
     }
 
     private func start(_ path: String, app: HostApp, width: Int, height: Int, fps: Int, videoFormats: Int32) async throws -> LaunchSession {
-        #if DEBUG
-        if PCDirectory.fakeOnline { // a test stream (StreamSession): nothing asked of the host
-            try? await Task.sleep(for: .milliseconds(600)) // a moment, as a real launch takes, for the splash
-            return LaunchSession(rtspURL: nil, riKey: Data(count: 16), riKeyID: 0)
-        }
-        #endif
         let key = Pairing.randomBytes(16), keyID = Int32.random(in: .min ... .max)
         let query = Self.launchQuery(app: app, width: width, height: height, fps: fps, rikey: key, rikeyID: keyID,
                                      playAudioOnPC: UserDefaults.standard.bool(forKey: SettingsKey.playAudioOnPC),

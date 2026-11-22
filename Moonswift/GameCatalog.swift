@@ -335,7 +335,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     /// Fetches a PC's game list when it hasn't been for a while (or `force`), retrying once.
     func refresh(_ pc: PCRef, force: Bool = false) async {
         #if DEBUG
-        if DemoMode.isOn || PCDirectory.fakeOnline { return } // pretend hosts keep their saved games
+        if DemoMode.isOn { return } // pretend hosts keep their saved games
         #endif
         if !force, let last = lastRefresh[pc.id], Date.now.timeIntervalSince(last) < 30 { return }
         lastRefresh[pc.id] = .now

@@ -12,7 +12,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 - Navigate every screen with a controller, with a button guide in your controller's own glyphs
 - Several controllers at once, with rumble, motion and touchpad
 - DualSense adaptive triggers and waveform haptics
-- Button remapping and a built-in controller test
+- Button remapping
 
 **Streaming**
 - H.264, HEVC and AV1 (on devices that decode it in hardware), with HDR
