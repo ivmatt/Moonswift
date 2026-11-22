@@ -78,6 +78,7 @@ To run on your own device, open `Moonswift.xcodeproj` in Xcode, then set your ow
 
 | File | What it's for |
 |---|---|
+| [PRIVACY.md](PRIVACY.md) | What data the app handles and where it goes |
 
 ## Credits
 

@@ -10,6 +10,7 @@ struct AboutView: View {
     }
 
     static let sourceURL = URL(string: "https://github.com/ivmatt/Moonswift")!
+    static let privacyURL = URL(string: "https://github.com/ivmatt/Moonswift/blob/main/PRIVACY.md")!
     static let components = [
         Component(name: "moonlight-common-c", license: "GPLv3", file: "License-moonlight-common-c"),
         Component(name: "ENet", license: "MIT", file: "License-ENet"),
@@ -37,12 +38,13 @@ struct AboutView: View {
             }
             Section {
                 row(0) { Button("Source Code") { openURL(Self.sourceURL) } }
+                row(1) { Button("Privacy Policy") { openURL(Self.privacyURL) } }
             } footer: {
                 Text("Built on moonlight-common-c, with code ported from moonlight-ios, adaptive triggers from VoidLink, and the DualSense waveform haptics protocol by Nonary.\n\nMoonswift is an independent project. It is not affiliated with or endorsed by Moonlight, Sunshine, Apollo or Vibepollo.")
             }
             Section("Open-Source Components") {
                 ForEach(Array(Self.components.enumerated()), id: \.element) { index, component in
-                    row(index + 1) {
+                    row(index + 2) {
                         Button { opened = component } label: {
                             LabeledContent(component.name, value: component.license).foregroundStyle(.primary)
                         }
@@ -54,8 +56,13 @@ struct AboutView: View {
         .navigationDestination(item: $opened) { LicenseText(component: $0) }
         .onGamepad { command in
             switch command {
-            case .up, .down: focus = FocusMove.next(focus, count: Self.components.count + 1, columns: 1, command)
-            case .select: if focus == 0 { openURL(Self.sourceURL) } else { opened = Self.components[focus - 1] }
+            case .up, .down: focus = FocusMove.next(focus, count: Self.components.count + 2, columns: 1, command)
+            case .select:
+                switch focus {
+                case 0: openURL(Self.sourceURL)
+                case 1: openURL(Self.privacyURL)
+                default: opened = Self.components[focus - 2]
+                }
             case .back: dismiss()
             default: break
             }
