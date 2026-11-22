@@ -229,7 +229,6 @@ struct StreamView: View {
                                      close: closePanel)
                     case .settings:
                         QuickSettingsPanel(tab: panelTab,
-                                           connection: { [readout] in readout.connection },
                                            target: target, showsPerformance: $showsPerformance, touchMode: $touchMode,
                                            setBitrate: setLiveBitrate,
                                            padLayouts: padLayouts, padLayoutID: padLayoutID,

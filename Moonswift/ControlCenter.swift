@@ -194,8 +194,6 @@ struct ActionsPanel: View {
 /// What changes without a reconnect: bitrate, the performance overlay and the trackpad; More Settings for the rest.
 struct QuickSettingsPanel: View {
     @Binding var tab: StreamPanel
-    /// "Local" or "Remote", once known. Read by its own line, so only that line redraws (not the panel and its menus).
-    let connection: () -> String?
     let target: StreamTarget
     @Binding var showsPerformance: Bool
     @Binding var touchMode: TouchMode
@@ -229,7 +227,6 @@ struct QuickSettingsPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                ConnectionLine(text: connection)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Label("Bitrate", systemImage: "speedometer").font(.headline)
@@ -380,13 +377,5 @@ struct ThreeFingerSwipe: UIGestureRecognizerRepresentable {
         case .cancelled, .failed: ended(0)
         default: break
         }
-    }
-}
-
-private struct ConnectionLine: View {
-    let text: () -> String?
-
-    var body: some View {
-        if let text = text() { Text(text).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 14) }
     }
 }
