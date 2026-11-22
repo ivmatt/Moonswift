@@ -286,9 +286,9 @@ struct HomeView: View {
             .addHostCover(isPresented: $isAdding)
             .sheet(item: $editing) { GameEditView(game: $0) }
             .onGamepad(handle)
+            // A sheet's keyboard mustn't push Home's covers and hero up behind it. Inside the stack: outside, it doesn't reach the page.
+            .ignoresSafeArea(.keyboard)
         }
-        // A sheet's keyboard (Edit Game's name) mustn't push Home's covers and hero up behind it.
-        .ignoresSafeArea(.keyboard)
     }
 
     /// The button guide's buttons: the selected game's, then the page's.
