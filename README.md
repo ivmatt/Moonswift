@@ -47,7 +47,7 @@ Changing the bitrate during a stream, sharing the clipboard, putting the PC to s
 
 ## Requirements
 
-- iPhone or iPad on iOS or iPadOS 27.2 or later
+- iPhone or iPad on iOS or iPadOS 26.6 or later
 - A PC running a Sunshine-based host
 - Xcode 27.2 or later, to build from source
 
