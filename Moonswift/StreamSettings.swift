@@ -11,6 +11,8 @@ enum ResolutionOption: String, CaseIterable {
     /// Only the area clear of the camera cutout and home indicator, so nothing is hidden.
     case safeArea
     case p720, p1080, p4k
+    /// A typed width and height.
+    case custom
 
     var title: String {
         switch self {
@@ -19,6 +21,7 @@ enum ResolutionOption: String, CaseIterable {
         case .p720: "720p"
         case .p1080: "1080p"
         case .p4k: "4K"
+        case .custom: "Custom"
         }
     }
 }
@@ -49,6 +52,8 @@ nonisolated enum SettingsKey {
     static let onlineArtwork = "onlineArtwork" // Bool, on by default: art from SteamGridDB, once its key is set
     static let artworkKeyVersion = "artworkKeyVersion" // Int, bumped as the SteamGridDB key changes: looks up again
     static let resolution = "resolution"
+    static let customWidth = "customWidth" // Int pixels for the Custom resolution; missing until Custom is first picked
+    static let customHeight = "customHeight"
     static let fps = "fps"
     static let codec = "codec"
     static let performanceOverlay = "performanceOverlay" // Bool: live stats in a corner of the stream
@@ -76,15 +81,31 @@ nonisolated enum StreamSettings {
     static let liveBitrateLimit = 500_000
 
     /// Pixel size for a resolution option, landscape. `safeAreaPixels` is the screen minus its cutout and
-    /// home-indicator insets, in pixels.
-    static func size(for option: ResolutionOption, nativePixels: CGSize, safeAreaPixels: CGSize) -> (width: Int, height: Int) {
+    /// home-indicator insets, in pixels. `custom` is the saved Custom size, fitted to `videoFormats`.
+    static func size(for option: ResolutionOption, nativePixels: CGSize, safeAreaPixels: CGSize,
+                     custom: (width: Int, height: Int), videoFormats: Int32) -> (width: Int, height: Int) {
         switch option {
         case .fullScreen: matchScreen(nativePixels: nativePixels)
         case .safeArea: matchScreen(nativePixels: safeAreaPixels)
         case .p720: (1280, 720)
         case .p1080: (1920, 1080)
         case .p4k: (3840, 2160)
+        case .custom: custom.width > 0 && custom.height > 0
+            ? customSize(width: custom.width, height: custom.height, videoFormats: videoFormats)
+            : matchScreen(nativePixels: nativePixels)
         }
+    }
+
+    /// A typed size made safe to ask for: even, at least 256, and at most 4096 on H.264 or 8192 on HEVC and AV1.
+    static func customSize(width: Int, height: Int, videoFormats: Int32) -> (width: Int, height: Int) {
+        let largest = videoFormats & (VIDEO_FORMAT_H265 | VIDEO_FORMAT_AV1_MAIN8) != 0 ? 8192 : 4096
+        func fit(_ side: Int) -> Int { min(max(side, 256), largest) / 2 * 2 }
+        return (fit(width), fit(height))
+    }
+
+    /// The number typed into a Width or Height field; blank or invalid text keeps the saved one.
+    static func side(typed: String, saved: Int) -> Int {
+        Int(typed.trimmingCharacters(in: .whitespaces)).flatMap { $0 > 0 ? $0 : nil } ?? saved
     }
 
     /// The screen's own pixel size in landscape, so the picture fills it: rounded down to a multiple of 8

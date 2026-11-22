@@ -20,6 +20,12 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage(SettingsKey.resolution) private var resolution = ResolutionOption.fullScreen
+    @AppStorage(SettingsKey.customWidth) private var customWidth = 0
+    @AppStorage(SettingsKey.customHeight) private var customHeight = 0
+    /// The Custom size as typed; saved when the field is left or submitted, so a half-typed number never reaches a stream.
+    @State private var widthText = ""
+    @State private var heightText = ""
+    @FocusState private var typingSide: Row?
     @AppStorage(SettingsKey.fps) private var fps = ScreenInfo.defaultFPS
     @AppStorage(SettingsKey.codec) private var codec = CodecOption.automatic
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
@@ -52,7 +58,7 @@ struct SettingsView: View {
     @State private var choice: ChoiceMenuSpec?
     @State private var rowFrames = RowFrames()
 
-    private enum Row: Hashable { case reconnect, resolution, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, dualSenseHaptics, phoneRumble, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
+    private enum Row: Hashable { case reconnect, resolution, customWidth, customHeight, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, dualSenseHaptics, phoneRumble, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
     private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
     @State private var page = Self.rememberedPage
@@ -75,7 +81,8 @@ struct SettingsView: View {
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
         guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures] + (ButtonGuideMode.isAvailable ? [.buttonGuide] : []) + [.buttonMapping, .dualSenseHaptics] + (PhoneRumble.isAvailable ? [.phoneRumble] : []) + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
-        return (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
+        return (needsReconnect ? [.reconnect] : []) + [.resolution] + (resolution == .custom ? [.customWidth, .customHeight] : [])
+            + [.fps, .codec] + (showsHDR ? [.hdr] : [])
             + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .touch, .overlay]
     }
     private var videoFormats: Int32 {
@@ -95,7 +102,8 @@ struct SettingsView: View {
     private let codecs: [CodecOption] = [.automatic, .h264] + (ScreenInfo.hevcInHardware ? [.hevc] : [])
         + (ScreenInfo.av1InHardware ? [.av1] : [])
     private var size: (width: Int, height: Int) {
-        StreamSettings.size(for: resolution, nativePixels: ScreenInfo.nativePixels, safeAreaPixels: ScreenInfo.safeAreaPixels)
+        StreamSettings.size(for: resolution, nativePixels: ScreenInfo.nativePixels, safeAreaPixels: ScreenInfo.safeAreaPixels,
+                            custom: (customWidth, customHeight), videoFormats: videoFormats)
     }
     private var automaticBitrate: Int { StreamSettings.bitrate(width: size.width, height: size.height, fps: fps) }
 
@@ -108,6 +116,7 @@ struct SettingsView: View {
                     Section {
                         row(.reconnect) {
                             Button("Apply & Reconnect") {
+                                saveCustomSize()
                                 dismiss()
                                 live.reconnect()
                             }
@@ -118,7 +127,12 @@ struct SettingsView: View {
                 }
                 Section {
                     row(.resolution) {
-                        choiceRow(.resolution, "Resolution", $resolution, ResolutionOption.allCases, name: \.title)
+                        choiceRow(.resolution, "Resolution", Binding(get: { resolution }, set: { setResolution($0) }),
+                                  ResolutionOption.allCases, name: \.title)
+                    }
+                    if resolution == .custom {
+                        sizeRow(.customWidth, "Width", $widthText)
+                        sizeRow(.customHeight, "Height", $heightText)
                     }
                     row(.fps) {
                         choiceRow(.fps, "Frame Rate", $fps, frameRates) { "\($0) fps" }
@@ -308,8 +322,12 @@ struct SettingsView: View {
             .navigationDestination(isPresented: $isShowingButtonMapping) { ButtonMappingView() }
             .navigationDestination(isPresented: $isShowingGestures) { GesturesView() }
             .onChange(of: effectiveBitrate) { _, kbps in applyLive(kbps) }
+            .onChange(of: typingSide) { saveCustomSize() }
+            .onChange(of: videoFormats) { showCustomSize() } // the codec's limit may change what's streamed
+            .onDisappear(perform: saveCustomSize)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .onAppear {
+                showCustomSize()
                 // A saved choice the device can't do (for example 120 fps restored on a 60 Hz screen) falls back.
                 if !frameRates.contains(fps) { fps = 60 }
                 if !codecs.contains(codec) { codec = .automatic }
@@ -317,6 +335,10 @@ struct SettingsView: View {
                 if bitrate < 0 || bitrate > StreamSettings.bitrateRange.upperBound { bitrate = StreamSettings.bitrateRange.upperBound }
             }
             .onGamepad { command in
+                if typingSide != nil { // the keyboard is up: B puts it away, and nothing moves behind it
+                    if case .back = command { typingSide = nil }
+                    return
+                }
                 let current = rows[min(focus, rows.count - 1)]
                 switch command {
                 case .up, .down: focus = FocusMove.next(focus, count: rows.count, columns: 1, command)
@@ -347,6 +369,50 @@ struct SettingsView: View {
             .id(row) // outermost: under the row background a list doesn't find it, and the list didn't scroll to the focus
     }
 
+    private func sizeRow(_ side: Row, _ title: String, _ text: Binding<String>) -> some View {
+        row(side) {
+            LabeledContent(title) {
+                TextField(title, text: text)
+                    .multilineTextAlignment(.trailing)
+                    .keyboardType(.numbersAndPunctuation) // has a Return key, which the number pad doesn't
+                    .focused($typingSide, equals: side)
+                    .onSubmit(saveCustomSize)
+            }
+        }
+    }
+
+    /// Custom starts from the size in use, or the last size typed if there is one.
+    private func setResolution(_ option: ResolutionOption) {
+        saveCustomSize()
+        if option == .custom, customWidth == 0 || customHeight == 0 {
+            customWidth = size.width
+            customHeight = size.height
+        }
+        resolution = option
+        showCustomSize()
+    }
+
+    private var fittedCustomSize: (width: Int, height: Int) {
+        StreamSettings.customSize(width: customWidth, height: customHeight, videoFormats: videoFormats)
+    }
+
+    private func showCustomSize() {
+        widthText = String(fittedCustomSize.width)
+        heightText = String(fittedCustomSize.height)
+    }
+
+    /// Only an edit is saved, so a size held back by H.264's limit comes back when the codec allows it again.
+    private func saveCustomSize() {
+        guard resolution == .custom, widthText != String(fittedCustomSize.width) || heightText != String(fittedCustomSize.height)
+        else { return }
+        let typed = StreamSettings.customSize(width: StreamSettings.side(typed: widthText, saved: customWidth),
+                                              height: StreamSettings.side(typed: heightText, saved: customHeight),
+                                              videoFormats: videoFormats)
+        customWidth = typed.width
+        customHeight = typed.height
+        showCustomSize()
+    }
+
     /// A changed key goes to the Keychain, and the library is looked up again with it.
     private func saveArtworkKey() {
         guard artworkKey.trimmingCharacters(in: .whitespacesAndNewlines) != (SteamGridDB.savedKey ?? "") else { return }
@@ -372,7 +438,8 @@ struct SettingsView: View {
             withAnimation(.easeOut(duration: 0.12)) { choice = spec } // the value fades as the menu grows
         }
         switch row {
-        case .resolution: choices("Resolution", ResolutionOption.allCases, current: resolution, name: \.title) { resolution = $0 }
+        case .resolution: choices("Resolution", ResolutionOption.allCases, current: resolution, name: \.title) { setResolution($0) }
+        case .customWidth, .customHeight: typingSide = row
         case .fps: choices("Frame Rate", frameRates, current: fps, name: { "\($0) fps" }) { fps = $0 }
         case .codec: choices("Codec", codecs, current: codec, name: \.title) { codec = $0 }
         case .bitrateMode: choices("Bitrate", BitrateMode.allCases, current: bitrateMode, name: \.rawValue) { setMode($0) }
@@ -398,6 +465,7 @@ struct SettingsView: View {
         case .onlineArtwork: findsArtwork.toggle()
         case .artworkKey: isKeyFocused = true
         case .reconnect:
+            saveCustomSize()
             dismiss()
             live?.reconnect()
         }

@@ -287,11 +287,13 @@ import SwiftUI
         let resolution = defaults.string(forKey: SettingsKey.resolution).flatMap(ResolutionOption.init) ?? .fullScreen
         let saved = defaults.object(forKey: SettingsKey.fps) as? Int ?? ScreenInfo.defaultFPS
         let fps = StreamSettings.frameRates(screenMaximum: ScreenInfo.maximumFramesPerSecond).contains(saved) ? saved : 60
-        let size = StreamSettings.size(for: resolution, nativePixels: ScreenInfo.nativePixels, safeAreaPixels: ScreenInfo.safeAreaPixels)
         let codec = defaults.string(forKey: SettingsKey.codec).flatMap(CodecOption.init) ?? .automatic
         let formats = StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware,
                                                   av1InHardware: ScreenInfo.av1InHardware,
                                                   hdr: ScreenInfo.supportsHDR && defaults.object(forKey: SettingsKey.hdr) as? Bool ?? ScreenInfo.supportsHDR)
+        let size = StreamSettings.size(for: resolution, nativePixels: ScreenInfo.nativePixels, safeAreaPixels: ScreenInfo.safeAreaPixels,
+                                       custom: (defaults.integer(forKey: SettingsKey.customWidth), defaults.integer(forKey: SettingsKey.customHeight)),
+                                       videoFormats: formats)
         return Settings(width: size.width, height: size.height, fps: fps,
                         bitrate: StreamSettings.effectiveBitrate(saved: defaults.integer(forKey: SettingsKey.bitrate),
                                                                  width: size.width, height: size.height, fps: fps),

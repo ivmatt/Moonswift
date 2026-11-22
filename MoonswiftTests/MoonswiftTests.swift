@@ -355,12 +355,34 @@ struct StreamSettingsTests {
     @Test func resolutionOptionsGiveLandscapeSizes() {
         let native = CGSize(width: 1206, height: 2622), safe = CGSize(width: 2445, height: 1143)
         func size(_ option: ResolutionOption) -> (Int, Int) {
-            let s = StreamSettings.size(for: option, nativePixels: native, safeAreaPixels: safe)
+            let s = StreamSettings.size(for: option, nativePixels: native, safeAreaPixels: safe,
+                                        custom: (1366, 768), videoFormats: VIDEO_FORMAT_H264)
             return (s.width, s.height)
         }
         #expect(size(.fullScreen) == (2616, 1200)) // landscape, multiples of 8
         #expect(size(.safeArea) == (2440, 1136))
         #expect(size(.p720) == (1280, 720) && size(.p1080) == (1920, 1080) && size(.p4k) == (3840, 2160))
+        #expect(size(.custom) == (1366, 768))
+    }
+
+    @Test func customSizeIsEvenAndWithinTheCodecsLimits() {
+        func fit(_ width: Int, _ height: Int, _ formats: Int32) -> (Int, Int) {
+            let s = StreamSettings.customSize(width: width, height: height, videoFormats: formats)
+            return (s.width, s.height)
+        }
+        let hevc = VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265
+        #expect(fit(1366, 768, hevc) == (1366, 768)) // not forced to multiples of 8
+        #expect(fit(2533, 1171, hevc) == (2532, 1170))
+        #expect(fit(100, 9000, hevc) == (256, 8192))
+        #expect(fit(5120, 2160, VIDEO_FORMAT_H264) == (4096, 2160))
+        #expect(fit(5120, 2160, VIDEO_FORMAT_AV1_MAIN8) == (5120, 2160))
+    }
+
+    @Test func invalidTypedSideKeepsTheSavedOne() {
+        #expect(StreamSettings.side(typed: " 1440 ", saved: 1080) == 1440)
+        for bad in ["", "abc", "0", "-5", "99999999999999999999"] {
+            #expect(StreamSettings.side(typed: bad, saved: 1080) == 1080)
+        }
     }
 
     @Test func frameRatesFollowTheScreen() {

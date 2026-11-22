@@ -17,7 +17,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 
 **Streaming**
 - H.264, HEVC and AV1 (on devices that decode it in hardware), with HDR
-- Up to 4K and 120 fps, depending on your device and host
+- Up to 4K and 120 fps, or a custom width and height, depending on your device and host
 - Adaptive Bitrate, which backs off when the network struggles
 - Picture in Picture, resume and quit, and automatic reconnecting
 - A splash screen that hides the host's desktop while a game launches
