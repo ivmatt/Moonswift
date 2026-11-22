@@ -2,7 +2,7 @@
 
 **Effective November 22, 2026**
 
-Moonswift is a free and open-source app for streaming games from your own PC to your iPhone or iPad. This policy explains what data the app handles, where that data goes, and how to remove it.
+Moonswift is an open-source app for streaming games from your own PC to your iPhone or iPad. This policy explains what data the app handles, where that data goes, and how to remove it.
 
 ## The short version
 

@@ -21,9 +21,10 @@ enum DemoMode {
         return store
     }()
 
-    static let titles = ["Hades II", "Elden Ring", "Cyberpunk 2077", "Hollow Knight: Silksong", "Forza Horizon 5",
-                         "Baldur's Gate 3", "Celeste", "Stardew Valley", "Red Dead Redemption 2", "Balatro",
-                         "Desktop", "Steam Big Picture"]
+    /// Made up, because App Store screenshots come from this list and real titles are other people's trademarks.
+    static let titles = ["Copper Comet Courier", "Velvet Orbit Rally", "Paper Lantern Postman", "Glasswing Depths",
+                         "Marble Tide Racers", "Pocket Observatory", "Saffron Skyway", "Thimble Kingdoms",
+                         "Tiny Harbor Tactics", "Moss Knight Almanac", "Desktop"]
 
     static var apps: [HostApp] {
         titles.enumerated().compactMap { HostApp(fields: ["ID": "\($0.offset + 1)", "AppTitle": $0.element, "UUID": "demo-\($0.offset)"]) }
@@ -33,7 +34,7 @@ enum DemoMode {
     static func container() -> ModelContainer {
         let container = try! ModelContainer(for: SavedHost.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         if !isFirstRun {
-            container.mainContext.insert(SavedHost(uniqueID: pcID, name: "Ivan's PC", address: "192.168.1.20",
+            container.mainContext.insert(SavedHost(uniqueID: pcID, name: "Gaming PC", address: "192.168.1.20",
                                                    serverCert: Data([1])))
         }
         return container
