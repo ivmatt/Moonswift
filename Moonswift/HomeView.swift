@@ -133,8 +133,11 @@ struct HomeView: View {
         }
         if let disconnect = session.disconnect { actions.append(("Disconnect", "xmark", { launcher.disconnectRemote(disconnect, on: pc) })) }
         if let end = session.end { actions.append(("End Session", "xmark.circle", { launcher.confirmEndSession(end, on: pc) })) }
-        return actions
+        // Checked when picked too: the menu may have opened before the host's status came into question.
+        return actions.map { action in (action.title, action.icon, { if !isSessionWaiting(host) { action.run() } }) }
     }
+
+    private func isSessionWaiting(_ host: SavedHost) -> Bool { launcher.stream == nil && directory.isUncertain(host.uniqueID) }
 
     /// The running game's name, for the Join question and the menu.
     private func sessionTitle(_ host: SavedHost) -> String {
@@ -168,7 +171,8 @@ struct HomeView: View {
         }
         .focusRing(gamepad.isActive && focusRow == -1 && topButton == 1, cornerRadius: .infinity)
         .scaleEffect(statusMenu?.source == AnyHashable("session") ? 0.6 : 1, anchor: .leading)
-        .opacity(statusMenu?.source == AnyHashable("session") ? 0 : 1)
+        .disabled(isSessionWaiting(host))
+        .opacity(statusMenu?.source == AnyHashable("session") ? 0 : isSessionWaiting(host) ? 0.5 : 1)
         .animation(.spring(duration: 0.3, bounce: 0.2), value: statusMenu?.source == AnyHashable("session"))
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { pillFrame.frames["session"] = $0 }
         .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .leading)))
@@ -176,7 +180,7 @@ struct HomeView: View {
 
     /// The session pill's menu for the controller, like the one a tap opens.
     private func openSessionMenu() {
-        guard let (host, session) = sessionHost else { return }
+        guard let (host, session) = sessionHost, !isSessionWaiting(host) else { return }
         let actions = sessionActions(host, session)
         statusMenu = ChoiceMenuSpec(source: "session", options: actions.map(\.title), selected: -1,
                                     anchor: (pillFrame.frames["session"] ?? .zero).offsetBy(dx: -(pillFrame.frames["page"]?.minX ?? 0),
@@ -329,7 +333,8 @@ struct HomeView: View {
                     HeroCard(game: game, subtitle: heroSubtitle(game), isShort: isShort,
                              isRunning: game.isRunning(directory), labels: game.runningLabels(directory, catalog),
                              isElsewhere: game.elsewhere(directory, catalog) != nil, focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
-                             play: { start(game) }, quit: { quit(game) }, isPressingPlay: isPressingPlay)
+                             play: { start(game) }, quit: { quit(game) }, isPressingPlay: isPressingPlay,
+                             isWaiting: game.isWaitingForStatus(directory, launcher))
                         .frame(maxWidth: heroFold.maxWidth ?? .infinity, alignment: .leading)
                         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX + HeroCard.inset } action: {
                             heroTitleX = $0
@@ -546,6 +551,7 @@ struct HomeView: View {
     }
 
     private func start(_ game: CatalogGame) {
+        guard !game.isWaitingForStatus(directory, launcher) else { return }
         launcher.launchesFromHero = game.id == selectedGame?.id // its picture is the hero: the splash grows from it
         play(game, hosts: hosts, directory: directory, catalog: catalog, launcher: launcher)
     }
@@ -563,11 +569,13 @@ struct HomeView: View {
         Button("Hide", systemImage: "eye.slash") { catalog.setHidden(true, for: game) }
         if game.isRunning(directory) {
             Button(game.runningLabels(directory, catalog).quit, systemImage: "xmark", role: .destructive) { quit(game) }
+                .disabled(game.isWaitingForStatus(directory, launcher))
         }
     }
 
     /// A on a cover or Play: the Play button presses, then the game starts.
     private func pressPlay(_ game: CatalogGame) {
+        guard !game.isWaitingForStatus(directory, launcher) else { return }
         isPressingPlay = true
         Task {
             try? await Task.sleep(for: .milliseconds(150))
@@ -635,6 +643,8 @@ private struct HeroCard: View {
     let quit: () -> Void
     /// A controller's A on a cover: the Play button shows a press as the game starts, so A reads as pressing it.
     var isPressingPlay = false
+    /// Its host's status is being confirmed: the buttons stay, dimmed.
+    var isWaiting = false
     /// Big enough to hold its own beside the Play button; with Dynamic Type.
     @ScaledMetric(relativeTo: .largeTitle) private var titleSize: CGFloat = 46
     @ScaledMetric(relativeTo: .title) private var shortTitleSize: CGFloat = 36
@@ -686,6 +696,8 @@ private struct HeroCard: View {
                 }
             }
             .controlSize(.large)
+            .disabled(isWaiting)
+            .animation(.easeInOut(duration: 0.2), value: isWaiting)
             .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)

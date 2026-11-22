@@ -956,6 +956,15 @@ struct GestureActionTests {
 }
 
 struct HostStatusRuleTests {
+    @Test func statusIsUncertainUntilConfirmed() {
+        let online = HostStatus.online(paired: true)
+        #expect(PCDirectory.isUncertain(status: nil, isRechecking: false, isNotResponding: false)) // first check still out
+        #expect(PCDirectory.isUncertain(status: online, isRechecking: true, isNotResponding: false))
+        #expect(PCDirectory.isUncertain(status: online, isRechecking: false, isNotResponding: true))
+        #expect(!PCDirectory.isUncertain(status: online, isRechecking: false, isNotResponding: false))
+        #expect(!PCDirectory.isUncertain(status: .offline, isRechecking: false, isNotResponding: false)) // known to be down
+    }
+
     @Test func oneEmptyAnswerWaitsForASecond() {
         // Running game 5: the first "nothing" keeps it, the second shows nothing.
         let first = PCDirectory.reading(game: 0, shown: 5, emptyInARow: 0, isManual: false)

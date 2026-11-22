@@ -51,6 +51,7 @@ struct RootView: View {
     }
     @State private var menu: MenuSpec?
     @State private var isRefreshing = false
+    @State private var wasInBackground = false
     @State private var tabBar = TabBarMinimize()
     @State private var guide = ButtonGuideCenter()
     @Environment(GamepadInput.self) private var gamepad
@@ -97,15 +98,15 @@ struct RootView: View {
                 Task { await catalog.refresh(pc) }
             }
         }
-        .onChange(of: directory.statuses) { routePending() }
+        .onChange(of: uncertainHosts) { routePending() }
         // Checks every 2 s (every tab shows the PCs' status), every 10 s under Settings, none in the background or while
         // a stream is open; and at once on changing tab, coming back to the app, or when this device's network changes.
         .onChange(of: tab, initial: true) { updatePolling(checkNow: true) }
         .onChange(of: showsSettings) { updatePolling(checkNow: !showsSettings) }
-        .onChange(of: scenePhase) { updatePolling(checkNow: scenePhase == .active) }
+        .onChange(of: scenePhase) { scenePhaseChanged() }
         .onChange(of: launcher.stream == nil) { updatePolling(checkNow: launcher.stream == nil) }
         .task {
-            for await _ in NWPathMonitor() { checkNow() } // Wi-Fi dropped, joined, or switched to cellular
+            for await _ in NWPathMonitor() { recheck() } // Wi-Fi dropped, joined, or switched to cellular
         }
         .onChange(of: launcher.revision) { // launched, quit or a stream ended: what's running changed
             Task { await directory.checkAll(hosts, context: context, isManual: true) }
@@ -173,6 +174,22 @@ struct RootView: View {
         Task { await directory.checkAll(hosts, context: context) }
     }
 
+    private var uncertainHosts: [String] { hosts.map(\.uniqueID).filter(directory.isUncertain) }
+
+    private func scenePhaseChanged() {
+        if scenePhase == .background { wasInBackground = true }
+        let isBack = scenePhase == .active && wasInBackground // not just a glance at Notification Center
+        if isBack { wasInBackground = false }
+        updatePolling(checkNow: scenePhase == .active && !isBack)
+        if isBack { recheck() }
+    }
+
+    /// What's known may be out of date: Play, Resume and Quit wait for a fresh answer.
+    private func recheck() {
+        guard !directory.isPaused else { return }
+        Task { await directory.recheck(hosts, context: context) }
+    }
+
     /// Checks every PC's status and game list now, rather than waiting for the next check.
     private func refresh() async {
         guard !isRefreshing else { return }
@@ -203,7 +220,8 @@ struct RootView: View {
             LaunchRouter.shared.pending = nil
             return menu = .error("There's no host called \(request.pc) in Moonswift.", title: "Host not found")
         }
-        guard let status = directory.statuses[host.uniqueID] else { return } // still checking
+        guard let status = directory.statuses[host.uniqueID],
+              launcher.stream != nil || !directory.isUncertain(host.uniqueID) else { return } // still checking
         LaunchRouter.shared.pending = nil
         guard status == .online(paired: true) else {
             return menu = .error("It may be asleep or off, or not paired.", title: "\(host.displayName) isn't available")
@@ -230,6 +248,12 @@ extension CatalogGame {
                 let dateB = catalog.histories[b.pcID]?.lastPlayed[GameHistory.key(b.app)] ?? .distantPast
                 return dateA < dateB
             }
+    }
+
+    /// A PC with it is still being confirmed, so Play, Resume and Quit wait (it could start on the wrong one). Never
+    /// while a stream is open: checks are paused then, and the game in Picture in Picture must stay reachable.
+    @MainActor func isWaitingForStatus(_ directory: PCDirectory, _ launcher: StreamLauncher) -> Bool {
+        launcher.stream == nil && sources.contains { directory.isUncertain($0.pcID) }
     }
 
     /// Why it can't be played, once every PC with it is known to be down or not paired (not while the first check is
@@ -264,6 +288,7 @@ extension CatalogGame {
 /// Plays a catalog game from any screen, or explains why it can't.
 func play(_ game: CatalogGame, hosts: [SavedHost], directory: PCDirectory, catalog: GameCatalog,
                      launcher: StreamLauncher) {
+    guard !game.isWaitingForStatus(directory, launcher) else { return }
     // Another device is playing it: joining it, after asking.
     if let other = game.elsewhere(directory, catalog), let join = other.join,
        let host = hosts.first(where: { $0.uniqueID == other.pcID }) {
@@ -283,6 +308,7 @@ func play(_ game: CatalogGame, hosts: [SavedHost], directory: PCDirectory, catal
 /// Quits a running catalog game on its PC, or ends another device's session playing it; after asking.
 func quit(_ game: CatalogGame, hosts: [SavedHost], directory: PCDirectory, catalog: GameCatalog,
                      launcher: StreamLauncher) {
+    guard !game.isWaitingForStatus(directory, launcher) else { return }
     if let other = game.elsewhere(directory, catalog), let end = other.end,
        let host = hosts.first(where: { $0.uniqueID == other.pcID }) {
         return launcher.confirmEndSession(end, on: directory.ref(host))

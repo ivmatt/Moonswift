@@ -303,6 +303,7 @@ struct GamesView: View {
                 Image(systemName: Self.symbol(for: shortcut))
                 Text(shortcut.title).lineLimit(1)
             }
+                .opacity(shortcut.isWaitingForStatus(directory, launcher) ? 0.5 : 1)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 16)
@@ -356,6 +357,7 @@ struct GamesView: View {
         default:
             guard shortcuts.indices.contains(index - 2) else { return }
             let shortcut = shortcuts[index - 2]
+            guard !shortcut.isWaitingForStatus(directory, launcher) else { return }
             if shortcut.isRunning(directory) {
                 choice = ChoiceMenuSpec(source: Self.rowFocus(index), options: [shortcut.runningLabels(directory, catalog).resume, shortcut.runningLabels(directory, catalog).quit], selected: -1, anchor: anchor,
                                         pick: { $0 == 0 ? start(shortcut) : quit(shortcut) }, icons: ["play.fill", "xmark"],
@@ -430,15 +432,18 @@ struct GamesView: View {
                 Text(details(game)).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 12)
-            if isRunning {
-                Button(game.runningLabels(directory, catalog).resume, systemImage: "play.fill") { start(game) }
-                    .buttonStyle(.glass)
-                Button(game.runningLabels(directory, catalog).quit, systemImage: "xmark") { quit(game) }
-                    .buttonStyle(.glassProminent)
-                    .tint(.red)
-            } else {
-                Button("Play", systemImage: "play.fill") { start(game) }.buttonStyle(.glass)
+            Group {
+                if isRunning {
+                    Button(game.runningLabels(directory, catalog).resume, systemImage: "play.fill") { start(game) }
+                        .buttonStyle(.glass)
+                    Button(game.runningLabels(directory, catalog).quit, systemImage: "xmark") { quit(game) }
+                        .buttonStyle(.glassProminent)
+                        .tint(.red)
+                } else {
+                    Button("Play", systemImage: "play.fill") { start(game) }.buttonStyle(.glass)
+                }
             }
+            .disabled(game.isWaitingForStatus(directory, launcher))
         }
         .font(.subheadline.weight(.semibold))
         .padding(10)
@@ -480,6 +485,7 @@ struct GamesView: View {
                     .tint(.red)
             }
         }
+        .disabled(game.isWaitingForStatus(directory, launcher))
     }
 
     /// Asks before ending it on its PC (as Home does).

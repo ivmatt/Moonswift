@@ -34,6 +34,9 @@ nonisolated struct PCRef: Sendable {
     /// PCs that missed one check: they keep their status (one miss isn't enough), and Home's status says "Not
     /// responding…".
     private(set) var notResponding: Set<String> = []
+    /// PCs being checked again because what's known may be out of date: a Refresh, a stream ending, coming back to the
+    /// app, or a new network. Play, Resume and Quit wait for the answer (`isUncertain`).
+    private(set) var rechecking: Set<String> = []
     /// The wait between checks: short while a tab shows, longer under Settings (RootView sets it).
     @ObservationIgnored var interval: Duration = .seconds(2)
     /// No checks while the app's in the background or a stream is open: its own link knows whether the PC is there.
@@ -74,6 +77,15 @@ nonisolated struct PCRef: Sendable {
 
     func isAvailable(_ id: String) -> Bool { statuses[id] == .online(paired: true) }
 
+    /// Its status isn't confirmed yet, so acting on it could be wrong.
+    func isUncertain(_ id: String) -> Bool {
+        Self.isUncertain(status: statuses[id], isRechecking: rechecking.contains(id), isNotResponding: notResponding.contains(id))
+    }
+
+    nonisolated static func isUncertain(status: HostStatus?, isRechecking: Bool, isNotResponding: Bool) -> Bool {
+        status == nil || isRechecking || isNotResponding
+    }
+
     func ref(_ host: SavedHost) -> PCRef {
         PCRef(id: host.uniqueID, name: host.displayName,
               client: HostClient(hostID: host.uniqueID, address: activeAddresses[host.uniqueID] ?? host.address,
@@ -92,13 +104,29 @@ nonisolated struct PCRef: Sendable {
         }
     }
 
+    /// Back in the app or on a new network: every PC is uncertain until a check that starts from now answers. One
+    /// already out asked too early to count, so it finishes first.
+    func recheck(_ hosts: [SavedHost], context: ModelContext) async {
+        #if DEBUG
+        if DemoMode.isOn { return }
+        #endif
+        rechecking.formUnion(hosts.map(\.uniqueID))
+        while isChecking { try? await Task.sleep(for: .milliseconds(100)) }
+        await checkAll(hosts, context: context)
+    }
+
     /// Asks every saved PC for its status once. `isManual` (pull to refresh) reports exactly what it finds; the
     /// background loop forgives a single missed check.
     func checkAll(_ hosts: [SavedHost], context: ModelContext, isManual: Bool = false) async {
+        #if DEBUG
+        if DemoMode.isOn { return } // the pretend PC can't answer, and would turn offline
+        #endif
+        if isManual { rechecking.formUnion(hosts.map(\.uniqueID)) }
         // A check on top of one still out would count the same missed answer twice.
         if !isManual, isChecking { return }
         isChecking = true
         defer { isChecking = false }
+        let confirming = rechecking // only a check started after a PC was marked can clear it
         let targets = hosts.map { (id: $0.uniqueID, address: $0.address, remote: $0.remoteAddress,
                                    httpsPort: $0.httpsPort, serverCert: $0.serverCert) }
         await withTaskGroup(of: (String, HostStatus, ServerInfo?, String?).self) { group in
@@ -110,6 +138,7 @@ nonisolated struct PCRef: Sendable {
                 }
             }
             for await (id, status, info, address) in group {
+                if confirming.contains(id) { rechecking.remove(id) }
                 // One missed check (a slow cellular wake-up, a dropped packet) isn't enough to call a PC offline. Nor is
                 // a paired PC answering only the plain request: its secure one timed out (busy right after a stream),
                 // and the plain answer never names the running game, so trusting it flips Resume back to Play.
