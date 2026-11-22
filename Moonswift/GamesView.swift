@@ -172,8 +172,6 @@ struct GamesView: View {
             .onGamepad(handle)
             .actionMenu($menu)
             .sheet(item: $editing) { GameEditView(game: $0) }
-            // Only Search's own keyboard makes room here; a sheet's mustn't move the page behind it.
-            .ignoresSafeArea(isSearchFocused ? [] : .keyboard)
         }
     }
 
