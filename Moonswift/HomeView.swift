@@ -622,6 +622,14 @@ struct HomeView: View {
     }
 }
 
+extension GeometryProxy {
+    /// The whole screen or sheet, safe areas included, so a keyboard or toolbar doesn't change a layout.
+    var fullSize: CGSize {
+        CGSize(width: size.width + safeAreaInsets.leading + safeAreaInsets.trailing,
+               height: size.height + safeAreaInsets.top + safeAreaInsets.bottom)
+    }
+}
+
 extension CGSize {
     /// A phone in landscape, the Duo included.
     nonisolated var isShort: Bool { height > 0 && height < 520 }

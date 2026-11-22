@@ -319,9 +319,13 @@ private struct GamepadHandler: ViewModifier {
 nonisolated enum ButtonGuideMode: String, CaseIterable {
     case automatic = "Automatic", show = "Show", hide = "Hide"
 
+    /// shortcut: not on iPhone, where it crowded the pages; bring it back once it has a design that works there.
+    @MainActor static var isAvailable: Bool { UIDevice.current.userInterfaceIdiom != .phone }
+
     /// Automatic: while a controller is connected.
-    func isShown(controllerConnected: Bool) -> Bool {
-        switch self {
+    @MainActor func isShown(controllerConnected: Bool) -> Bool {
+        guard Self.isAvailable else { return false }
+        return switch self {
         case .automatic: controllerConnected
         case .show: true
         case .hide: false

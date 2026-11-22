@@ -48,7 +48,6 @@ struct FirstRunSetup: View {
                         // The focused row stays in view as the controller moves down the page.
                         .onChange(of: focus) { withAnimation { scroller.scrollTo(focus, anchor: .center) } }
                 }
-                .safeAreaBar(edge: .bottom) { if !isKeyFocused { buttons } } // the keyboard needs the room to show the key
                 .id(page) // each page from its top, sliding in
                 .transition(AddHostView.slide(forward: isForward))
             }
@@ -72,7 +71,11 @@ struct FirstRunSetup: View {
                     pageHeader
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .offset(y: max(0, scrolled)) // stays in view beside a long column of choices
-                    VStack(alignment: .leading, spacing: 14) { options }.frame(maxWidth: .infinity)
+                    VStack(alignment: .leading, spacing: 14) {
+                        options
+                        buttons.padding(.top, 8) // after the options: read through them to move on
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .padding(.horizontal, 28)
                 .padding(.vertical, 20)
@@ -80,6 +83,7 @@ struct FirstRunSetup: View {
                 VStack(alignment: .leading, spacing: 18) {
                     pageHeader
                     options
+                    buttons.padding(.top, 14) // after the options: read through them to move on
                 }
                 .padding(28)
                 .frame(maxWidth: 560)
@@ -280,9 +284,8 @@ struct FirstRunSetup: View {
                 .disabled(!canContinue)
                 .focusRing(focused(rowCount - 1), cornerRadius: .infinity)
         }
-        .padding(.vertical, 12)
         .frame(maxWidth: .infinity)
-        .fadingBarBackground()
+        .id(rowCount - 1)
     }
 
     // MARK: Final touches

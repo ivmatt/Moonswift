@@ -73,7 +73,7 @@ struct SettingsView: View {
     }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures, .buttonGuide, .buttonMapping, .dualSenseHaptics] + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
+        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures] + (ButtonGuideMode.isAvailable ? [.buttonGuide] : []) + [.buttonMapping, .dualSenseHaptics] + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
         return (needsReconnect ? [.reconnect] : []) + [.resolution, .fps, .codec] + (showsHDR ? [.hdr] : [])
             + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .touch, .overlay]
     }
@@ -229,8 +229,10 @@ struct SettingsView: View {
                          + "its swipe goes right. Applies from the next stream.")
                 }
                 Section {
-                    row(.buttonGuide) {
-                        choiceRow(.buttonGuide, "Button Guide", $buttonGuide, ButtonGuideMode.allCases, name: \.rawValue)
+                    if ButtonGuideMode.isAvailable {
+                        row(.buttonGuide) {
+                            choiceRow(.buttonGuide, "Button Guide", $buttonGuide, ButtonGuideMode.allCases, name: \.rawValue)
+                        }
                     }
                     row(.buttonMapping) {
                         Button("Button Mapping") { isShowingButtonMapping = true }.foregroundStyle(.primary)
@@ -239,8 +241,9 @@ struct SettingsView: View {
                 } header: {
                     Text("Controller")
                 } footer: {
-                    Text("Button Guide: the strip of controller buttons along the bottom; Automatic shows it while a controller "
-                         + "is connected. DualSense Haptics plays the fine vibration games send a DualSense on hosts that pass it on "
+                    Text((ButtonGuideMode.isAvailable ? "Button Guide: the strip of controller buttons along the bottom; "
+                          + "Automatic shows it while a controller is connected. " : "")
+                         + "DualSense Haptics plays the fine vibration games send a DualSense on hosts that pass it on "
                          + "(Vibepollo); off, those games don't vibrate. Applies from the next stream.")
                 }
                 if live == nil { // not while streaming

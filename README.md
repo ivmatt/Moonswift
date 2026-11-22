@@ -9,7 +9,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 ## Features
 
 **Controllers**
-- Navigate every screen with a controller, with a button guide in your controller's own glyphs
+- Navigate every screen with a controller (on iPad, with a button guide in your controller's own glyphs)
 - Several controllers at once, with rumble, motion and touchpad
 - DualSense adaptive triggers and waveform haptics
 - Button remapping

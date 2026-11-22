@@ -33,9 +33,12 @@ struct AddHostView: View {
     /// The way the steps (and Getting Started's pages) last moved: their slide follows it.
     @State private var isForward = true
     @State private var paired: (hostID: String, name: String)?
-    /// The whole screen or sheet, safe areas included, so a keyboard or toolbar doesn't change the layout.
     @State private var window = CGSize.zero
+    /// The Duo's side column is on one side only: the other gets as much, so pages centre on the screen.
+    @State private var sideInsets = EdgeInsets()
     private var iconSize: CGFloat { window.isShort ? 48 : 88 }
+    /// Full screen only: an iPad's sheet doesn't start at the screen's edge, and has no side column to correct for.
+    private var titleCenter: CGFloat? { UIDevice.current.userInterfaceIdiom == .phone && window.width > 0 ? window.width / 2 : nil }
 
     /// Found PCs that aren't paired yet.
     private var found: [HostDiscovery.Found] {
@@ -46,16 +49,21 @@ struct AddHostView: View {
         NavigationStack {
             ZStack {
                 stepView
+                    .padding(.leading, max(0, sideInsets.trailing - sideInsets.leading))
+                    .padding(.trailing, max(0, sideInsets.leading - sideInsets.trailing))
                     .id(step) // a new view for each step, so it slides in as the last slides out
                     .transition(Self.slide(forward: isForward))
             }
-            .onGeometryChange(for: CGSize.self) { proxy in
-                CGSize(width: proxy.size.width + proxy.safeAreaInsets.leading + proxy.safeAreaInsets.trailing,
-                       height: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom)
-            } action: { window = $0 }
+            .onGeometryChange(for: CGSize.self) { $0.fullSize } action: { window = $0 }
+            .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { sideInsets = $0 }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) { // the bar centres it beside the Duo's column: this, on the screen
+                    Text(title).font(.headline).visualEffect { [center = titleCenter] content, proxy in
+                        content.offset(x: center.map { $0 - proxy.frame(in: .global).midX } ?? 0)
+                    }
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     switch step {
                     case .ready: Button("Cancel") { dismiss() }
@@ -141,21 +149,17 @@ struct AddHostView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 8)
             HostChecklist()
-        }
-        .padding(28)
-        .frame(maxWidth: 560)
-        .frame(maxWidth: .infinity)
-        }
-        // At the sheet's bottom, whatever the page's length; the page blurs and fades under it.
-        .safeAreaBar(edge: .bottom) {
             Button { advance(to: .find) } label: { Text("Continue").frame(width: 200) }
                 .buttonStyle(.glassProminent)
                 .tint(.blue) // the page's white tint made it white on white
                 .controlSize(.large)
                 .focusRing(gamepad.isActive, cornerRadius: .infinity)
-                .padding(.vertical, 12)
                 .frame(maxWidth: .infinity)
-                .fadingBarBackground()
+                .padding(.top, 8)
+        }
+        .padding(28)
+        .frame(maxWidth: 560)
+        .frame(maxWidth: .infinity)
         }
     }
 
@@ -419,11 +423,13 @@ struct WelcomeView: View {
     /// After the first host's Get Started: Home, which then fades in from black.
     var reveal: () -> Void = {}
     @State private var isAdding = false
+    @State private var window = CGSize.zero
     @Query private var hosts: [SavedHost]
     @Environment(GamepadInput.self) private var gamepad
 
     var body: some View {
         welcome
+            .onGeometryChange(for: CGSize.self) { $0.fullSize } action: { window = $0 }
             .background(Color(.systemBackground).ignoresSafeArea())
             .buttonGuide([([.a], "Add a Host")], reportsLayout: false)
             .onGamepad { if $0 == .select { add() } }
@@ -432,17 +438,17 @@ struct WelcomeView: View {
     }
 
     private var welcome: some View {
-        VStack(spacing: 22) {
-            AppIconMark(size: 132)
-            VStack(spacing: 10) {
-                Text("Welcome to Moonswift").font(.largeTitle.bold())
+        VStack(spacing: window.isShort ? 14 : 22) {
+            AppIconMark(size: window.isShort ? 84 : 132)
+            VStack(spacing: window.isShort ? 6 : 10) {
+                Text("Welcome to Moonswift").font(window.isShort ? .title.bold() : .largeTitle.bold())
                 Text("Stream games from your PC. Start by adding it as a host.")
-                    .font(.title3)
+                    .font(window.isShort ? .body : .title3)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
             Button("Add a Host") { add() }
-                .font(.title3.weight(.semibold))
+                .font(window.isShort ? .headline : .title3.weight(.semibold))
                 .buttonStyle(.glassProminent)
                 .tint(.blue)
                 .controlSize(.large)
@@ -477,21 +483,6 @@ extension View {
             fullScreenCover(isPresented: isPresented, onDismiss: onDismiss) { AddHostView(isFirstHost: isFirstHost) }
         } else {
             sheet(isPresented: isPresented, onDismiss: onDismiss) { AddHostView(isFirstHost: isFirstHost) }
-        }
-    }
-
-    /// Behind a bar of buttons at a page's bottom: the page blurs and fades into the sheet's colour under it, starting
-    /// a little above it, rather than running into the buttons or ending at a hard edge.
-    func fadingBarBackground() -> some View {
-        background {
-            ZStack {
-                Rectangle().fill(.ultraThinMaterial)
-                Color(.systemBackground).opacity(0.55)
-            }
-            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.45)],
-                                 startPoint: .top, endPoint: .bottom))
-            .padding(.top, -28)
-            .ignoresSafeArea()
         }
     }
 }
