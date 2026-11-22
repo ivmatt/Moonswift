@@ -189,6 +189,8 @@ enum ScreenInfo {
 
     static var nativePixels: CGSize { scene?.screen.nativeBounds.size ?? CGSize(width: 1920, height: 1080) }
     static var maximumFramesPerSecond: Int { scene?.screen.maximumFramesPerSecond ?? 60 }
+    /// The app's width on screen, in points, as it's turned right now.
+    static var sceneWidth: CGFloat { scene?.coordinateSpace.bounds.width ?? 0 }
     /// The first-run frame rate: 120 on a screen that shows it.
     static var defaultFPS: Int { maximumFramesPerSecond >= 120 ? 120 : 60 }
     static var hevcInHardware: Bool { VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) }
