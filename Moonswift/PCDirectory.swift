@@ -37,6 +37,8 @@ nonisolated struct PCRef: Sendable {
     /// PCs being checked again because what's known may be out of date: a Refresh, a stream ending, coming back to the
     /// app, or a new network. Play, Resume and Quit wait for the answer (`isUncertain`).
     private(set) var rechecking: Set<String> = []
+    /// A Refresh you asked for: every PC waits until it has answered, for at least a second (RootView).
+    var isRefreshing = false
     /// The wait between checks: short while a tab shows, longer under Settings (RootView sets it).
     @ObservationIgnored var interval: Duration = .seconds(2)
     /// No checks while the app's in the background or a stream is open: its own link knows whether the PC is there.
@@ -79,8 +81,13 @@ nonisolated struct PCRef: Sendable {
 
     /// Its status isn't confirmed yet, so acting on it could be wrong.
     func isUncertain(_ id: String) -> Bool {
-        Self.isUncertain(status: statuses[id], isRechecking: rechecking.contains(id), isNotResponding: notResponding.contains(id))
+        Self.isUncertain(status: statuses[id], isRechecking: isRefreshing || rechecking.contains(id),
+                         isNotResponding: notResponding.contains(id))
     }
+
+    /// The one answer that dims Play, Resume and Quit and spins the status button, so they can't disagree. Never while
+    /// a stream is open: checks are paused then, and the game in Picture in Picture must stay reachable.
+    func isWaiting(on id: String, _ launcher: StreamLauncher) -> Bool { launcher.stream == nil && isUncertain(id) }
 
     nonisolated static func isUncertain(status: HostStatus?, isRechecking: Bool, isNotResponding: Bool) -> Bool {
         status == nil || isRechecking || isNotResponding

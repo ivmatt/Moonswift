@@ -50,7 +50,6 @@ struct RootView: View {
         return .home
     }
     @State private var menu: MenuSpec?
-    @State private var isRefreshing = false
     @State private var wasInBackground = false
     @State private var tabBar = TabBarMinimize()
     @State private var guide = ButtonGuideCenter()
@@ -136,8 +135,7 @@ struct RootView: View {
             Tab(TabID.home.title, systemImage: TabID.home.symbol, value: .home) {
                 Group {
                     if isUnderStream { Color.black } else {
-                        HomeView(switchTab: step, openSettings: openSettings, refresh: { Task { await refresh() } },
-                                 isRefreshing: isRefreshing)
+                        HomeView(switchTab: step, openSettings: openSettings, refresh: { Task { await refresh() } })
                     }
                 }
                 .tint(.accentColor)
@@ -174,7 +172,7 @@ struct RootView: View {
         Task { await directory.checkAll(hosts, context: context) }
     }
 
-    private var uncertainHosts: [String] { hosts.map(\.uniqueID).filter(directory.isUncertain) }
+    private var uncertainHosts: [String] { hosts.map(\.uniqueID).filter { directory.isWaiting(on: $0, launcher) } }
 
     private func scenePhaseChanged() {
         if scenePhase == .background { wasInBackground = true }
@@ -192,16 +190,19 @@ struct RootView: View {
 
     /// Checks every PC's status and game list now, rather than waiting for the next check.
     private func refresh() async {
-        guard !isRefreshing else { return }
-        isRefreshing = true
+        guard !directory.isRefreshing else { return }
+        directory.isRefreshing = true
         let started = ContinuousClock.now
         await directory.checkAll(hosts, context: context, isManual: true)
-        for host in hosts where directory.isAvailable(host.uniqueID) {
-            await catalog.refresh(directory.ref(host), force: true)
+        // Not waited for: a slow game list says "Getting games…" and shouldn't hold Play back.
+        Task {
+            for host in hosts where directory.isAvailable(host.uniqueID) {
+                await catalog.refresh(directory.ref(host), force: true)
+            }
         }
         // Spins at least a second, so a quick answer still reads as the refresh having happened.
         try? await Task.sleep(until: started + .seconds(1))
-        isRefreshing = false
+        directory.isRefreshing = false
     }
 
     private func openSettings() { showsSettings = true }
@@ -221,7 +222,7 @@ struct RootView: View {
             return menu = .error("There's no host called \(request.pc) in Moonswift.", title: "Host not found")
         }
         guard let status = directory.statuses[host.uniqueID],
-              launcher.stream != nil || !directory.isUncertain(host.uniqueID) else { return } // still checking
+              !directory.isWaiting(on: host.uniqueID, launcher) else { return } // still checking
         LaunchRouter.shared.pending = nil
         guard status == .online(paired: true) else {
             return menu = .error("It may be asleep or off, or not paired.", title: "\(host.displayName) isn't available")
@@ -250,10 +251,9 @@ extension CatalogGame {
             }
     }
 
-    /// A PC with it is still being confirmed, so Play, Resume and Quit wait (it could start on the wrong one). Never
-    /// while a stream is open: checks are paused then, and the game in Picture in Picture must stay reachable.
+    /// A PC with it is still being confirmed, so Play, Resume and Quit wait (it could start on the wrong one).
     @MainActor func isWaitingForStatus(_ directory: PCDirectory, _ launcher: StreamLauncher) -> Bool {
-        launcher.stream == nil && sources.contains { directory.isUncertain($0.pcID) }
+        sources.contains { directory.isWaiting(on: $0.pcID, launcher) }
     }
 
     /// Why it can't be played, once every PC with it is known to be down or not paired (not while the first check is

@@ -11,7 +11,6 @@ struct HomeView: View {
     var openSettings: () -> Void = {}
     /// Checks every PC now: from the status button at the far end of the title's line, or View on a controller.
     var refresh: () -> Void = {}
-    var isRefreshing = false
 
     @Environment(PCDirectory.self) private var directory
     @Environment(GameCatalog.self) private var catalog
@@ -97,7 +96,7 @@ struct HomeView: View {
     /// The host status, in place of the title: tap for each host's status and Refresh.
     private var statusPill: AnyView? {
         hosts.isEmpty ? nil : AnyView(HStack(spacing: 10) {
-            PCStatusButton(refresh: refresh, isRefreshing: isRefreshing,
+            PCStatusButton(refresh: refresh,
                            isFocused: gamepad.isActive && focusRow == -1 && topButton == 0,
                            isHidden: statusMenu?.source == AnyHashable("status"), isCompact: floatsTabBar)
                 // In the page's own coordinates for its menu, wherever the pill is: the top bar sits outside the page.
@@ -137,7 +136,7 @@ struct HomeView: View {
         return actions.map { action in (action.title, action.icon, { if !isSessionWaiting(host) { action.run() } }) }
     }
 
-    private func isSessionWaiting(_ host: SavedHost) -> Bool { launcher.stream == nil && directory.isUncertain(host.uniqueID) }
+    private func isSessionWaiting(_ host: SavedHost) -> Bool { directory.isWaiting(on: host.uniqueID, launcher) }
 
     /// The running game's name, for the Join question and the menu.
     private func sessionTitle(_ host: SavedHost) -> String {

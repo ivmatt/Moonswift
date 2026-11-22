@@ -35,11 +35,10 @@ nonisolated struct PCStatusLine: Equatable {
 
 /// Home's status button, a system toolbar item (on the Duo the system puts it in the side column): the PC with a
 /// traffic-light dot (green while every PC is fine, orange when one isn't paired or won't send its games, red when
-/// one is offline), and a spinning arc at launch until the first answer and while you refresh (never for the checks
-/// in between). Tap for a menu of each PC's status and Refresh. Controller: View refreshes.
+/// one is offline), and a spinning arc exactly while Play, Resume and Quit wait for a host's status
+/// (`PCDirectory.isWaiting`; never for the regular checks). Tap for a menu of each PC's status and Refresh. Controller: View refreshes.
 struct PCStatusButton: View {
     var refresh: () -> Void
-    var isRefreshing: Bool
     /// The controller is on it: A opens Home's own copy of its menu (the system's opens only by touch).
     var isFocused = false
     /// Its controller menu is open over it: shrunk and faded into it, as the menu grows out of it.
@@ -49,6 +48,7 @@ struct PCStatusButton: View {
 
     @Environment(PCDirectory.self) private var directory
     @Environment(GameCatalog.self) private var catalog
+    @Environment(StreamLauncher.self) private var launcher
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
 
     private func line(_ host: SavedHost, now: Date) -> PCStatusLine {
@@ -66,10 +66,11 @@ struct PCStatusButton: View {
 
     private var worst: PCStatusLine.Health { hosts.map { line($0, now: .now).health }.max() ?? .fine }
 
-    private var isSpinning: Bool { isRefreshing || worst == .checking }
+    private var isSpinning: Bool { hosts.contains { directory.isWaiting(on: $0.uniqueID, launcher) } }
 
     private var word: String {
-        switch worst {
+        if isSpinning { return "Checking…" }
+        return switch worst {
         case .fine: "Online"
         case .checking: "Checking…"
         case .problem: "Needs Attention"
@@ -98,7 +99,7 @@ struct PCStatusButton: View {
                 }
             }
             Divider()
-            Button("Refresh", systemImage: "arrow.clockwise", action: refresh).disabled(isRefreshing)
+            Button("Refresh", systemImage: "arrow.clockwise", action: refresh).disabled(directory.isRefreshing)
         } label: {
             // A pill in place of Home's title: the PC with its traffic-light dot (or the arc while it checks), and
             // the status in a word, so the dot's colour comes with its meaning.
