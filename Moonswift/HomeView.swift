@@ -77,6 +77,8 @@ struct HomeView: View {
 
     /// The one row of covers: every game, most recently played first (the catalog's order).
     private var row: (title: String, games: [CatalogGame])? { games.isEmpty ? nil : ("Games", games) }
+    /// The host has answered, but with nothing for Home: only apps, or every game hidden. Not still loading.
+    private var hasNoGames: Bool { games.isEmpty && !hasRemoteSession && !catalog.games(on: hosts.map(\.uniqueID)).isEmpty }
 
     private var hasRemoteSession: Bool {
         hosts.contains { directory.isAvailable($0.uniqueID) && catalog.remoteSession(on: $0.uniqueID) != nil }
@@ -216,15 +218,27 @@ struct HomeView: View {
             Group {
                 if hosts.isEmpty {
                     welcome
-                } else if games.isEmpty, hasRemoteSession {
+                } else if games.isEmpty, hasRemoteSession || hasNoGames {
                     // A host in a remote session lists only its controls, no games: those, not "Loading Games".
                     VStack(spacing: 0) {
                         TabTitle(text: "", topInset: topInset, beside: titlePill) { if isRailOnLeft, let statusPill { statusPill } }
                     .padding(.horizontal, 36)
                             .padding(.top, Self.windowTopInset - pageTop)
-                        // Its controls are in the session pill beside the status.
-                        ContentUnavailableView("No Games Listed", systemImage: "dot.radiowaves.left.and.right",
-                                               description: Text("The host lists its games again once its session ends."))
+                        if hasRemoteSession {
+                            // Its controls are in the session pill beside the status.
+                            ContentUnavailableView("No Games Listed", systemImage: "dot.radiowaves.left.and.right",
+                                                   description: Text("The host lists its games again once its session ends."))
+                        } else {
+                            ContentUnavailableView {
+                                Label("No Games Yet", systemImage: "gamecontroller")
+                            } description: {
+                                Text("Add games on your host. Apps like Desktop are in Library.")
+                            } actions: {
+                                Button("Go to Library") { switchTab(1) }
+                                    .buttonStyle(.glass)
+                                    .focusRing(gamepad.isActive, cornerRadius: .infinity)
+                            }
+                        }
                     }
                 } else if games.isEmpty {
                     ContentUnavailableView {
@@ -293,6 +307,7 @@ struct HomeView: View {
 
     /// The button guide's buttons: the selected game's, then the page's.
     private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
+        if hasNoGames { return [([.a], "Library"), ([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")] }
         guard !games.isEmpty else { return [] }
         let labels = selectedGame?.runningLabels(directory, catalog) ?? (resume: "Resume", quit: "Quit")
         let a = focusRow == -1 ? "Open" : selectedGame.flatMap(wakeTarget) != nil ? "Wake"
@@ -633,8 +648,12 @@ struct HomeView: View {
 
     private func handle(_ command: GamepadCommand) {
         tuckTabBarAway() // any press on the page sends the floating tab bar away
-        guard launcher.busy == nil, let game = selectedGame else {
+        // A running app can still be selected with no games on screen: A mustn't act on it unseen.
+        guard launcher.busy == nil, !hasNoGames, let game = selectedGame else {
             if command == .previousTab { switchTab(-1) } else if command == .nextTab { switchTab(1) } else if command == .settings { openSettings() }
+            else if hasNoGames, launcher.busy == nil {
+                if command == .select { switchTab(1) } else if command == .options { refresh() }
+            }
             return
         }
         let count = row?.games.count ?? 0, isRunning = game.isRunning(directory)

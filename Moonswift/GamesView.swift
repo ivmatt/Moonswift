@@ -134,11 +134,19 @@ struct GamesView: View {
                         withAnimation { scroller.scrollTo(shown[new].id, anchor: anchor) }
                     }
                 }
+                // No covers to land on: the controller starts on the apps.
+                .onChange(of: shown.isEmpty && hasShortcutRow, initial: true) { _, onlyApps in
+                    if onlyApps, focus == 0 { focus = Self.rowFocus(2) }
+                }
                 .overlay {
                     if !query.isEmpty, shown.isEmpty { ContentUnavailableView.search(text: query) }
                     else if filter == .hidden, shown.isEmpty {
                         ContentUnavailableView("No Hidden Games", systemImage: "eye.slash",
                                                description: Text("Games you hide leave Home and Library and show up here."))
+                    } else if filter == .all, query.isEmpty, shown.isEmpty, !all.isEmpty {
+                        ContentUnavailableView("No Games Yet", systemImage: "gamecontroller",
+                                               description: Text("Add games on your host, or edit an app to show it as a game."))
+                            .padding(.top, 150) // below the search bar and the apps row
                     }
                 }
                 // One measurement for both: the columns used to be worked out in their own, from the fold offset as last
@@ -540,7 +548,7 @@ struct GamesView: View {
         case .left where rowIndex != nil: focus = Self.rowFocus(max(rowIndex! - 1, 2))
         case .right where rowIndex != nil: focus = Self.rowFocus(min(rowIndex! + 1, shortcuts.count + 1))
         case .up where rowIndex != nil: focus = Self.searchFocus
-        case .down where rowIndex != nil: focus = 0
+        case .down where rowIndex != nil: if !games.isEmpty { focus = 0 }
         case .select where rowIndex != nil: pressPill(rowIndex!)
         case .down where focus < 0: focus = 0
         case .right where focus == Self.searchFocus && isSearching: focus = Self.closeFocus
