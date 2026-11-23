@@ -15,6 +15,15 @@ extension GeometryProxy {
     }
 }
 
+extension View {
+    /// Keeps this view in the half below a fold across the screen; anywhere else it keeps all its room.
+    func belowFold() -> some View {
+        GeometryReader { proxy in
+            padding(.top, proxy.fold.flatMap { $0.width >= $0.height ? $0.maxY : nil } ?? 0)
+        }
+    }
+}
+
 /// How a view moves its content off the fold: a fold across the screen (top and bottom halves) lifts the content
 /// above it; a fold down the screen (left and right halves) keeps the content to its left.
 nonisolated struct FoldAvoidance: Equatable {

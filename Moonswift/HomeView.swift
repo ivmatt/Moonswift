@@ -61,6 +61,7 @@ struct HomeView: View {
     @State private var heroFold = FoldAvoidance(fold: nil, in: .zero)
     /// The height left under a fold across the screen, down to where the covers end, and the cover row's height.
     @State private var belowFold: CGFloat = 0
+    @State private var foldHeight: CGFloat = 0
     @State private var coverRowHeight: CGFloat = 0
     /// Home's height above the guide's room, which sizes the covers and the hero's title.
     @State private var homeHeight: CGFloat = 0
@@ -370,11 +371,17 @@ struct HomeView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { coverRowHeight = $0 }
                     // On a half-open Duo with its fold across, in the middle of the half below the fold.
                     .padding(.bottom, max(0, (belowFold - coverRowHeight) / 2))
+                    // The grid's part starts at the fold, so the hero ends there instead of padding itself clear of it
+                    // (its padding on top of two rows made the page taller than the screen).
+                    .padding(.top, coverRows == 2 ? foldHeight + max(0, (belowFold - coverRowHeight) / 2) : 0)
             }
         }
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.fold.map { $0.width >= $0.height ? proxy.size.height - $0.maxY : 0 } ?? 0
         } action: { belowFold = $0 }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.fold.map { $0.width >= $0.height ? $0.height : 0 } ?? 0
+        } action: { foldHeight = $0 }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { homeHeight = $0.height; homeWidth = $0.width }
         // With a controller, room for the button guide (its pill, then a gap); without, the covers end where the guide
         // would, at the safe area's edge (the row's 12 points of focus-ring room hang below it, into the home
@@ -474,6 +481,8 @@ struct HomeView: View {
     /// Covers are bigger without a controller (easier to tap), smaller with one to make room for its guide; and on a
     /// short screen (the Duo's outer display) no taller than 38% of Home, so the hero keeps its room.
     private var coverWidth: CGFloat {
+        // Two rows fill the half below a fold, less the gap between them and the focus ring's and margins' room.
+        if coverRows == 2 { return max(40, ((belowFold - 46) / 2 * coverShape.ratio).rounded(.down)) }
         let preferred: CGFloat = showsGuide ? 116 : 128
         // Square covers are shorter for their width: on a short screen they take less of its height, so more of the
         // hero shows.
@@ -481,6 +490,16 @@ struct HomeView: View {
         let share: CGFloat = coverShape == .square ? (isShortAndWide ? 0.27 : 0.3) : (isShortAndWide ? 0.34 : 0.38)
         return homeHeight > 0 ? min(preferred, (homeHeight * share * coverShape.ratio).rounded()) : preferred
     }
+    /// Two rows of covers in the half below a fold across the screen; otherwise one.
+    private var coverRows: Int { belowFold > 0 ? 2 : 1 }
+
+    /// Where left or right moves in a grid filled column by column: a whole column over, staying in the row, or to the
+    /// last game when the last column is short.
+    nonisolated static func coverIndex(_ index: Int, by offset: Int, rows: Int, count: Int) -> Int {
+        let target = index + offset * rows
+        return target < 0 ? index : min(target, max(count - 1, 0))
+    }
+
     /// An iPhone in landscape: smaller covers with tighter corners, and the hero's fade nearer them.
     private var isShortAndWide: Bool { CGSize(width: homeWidth, height: homeHeight).isShortAndWide }
 
@@ -532,7 +551,8 @@ struct HomeView: View {
         let selectedIndex = games.firstIndex { $0.id == selected } ?? 0
         return ScrollViewReader { scroller in
                 ScrollView(.horizontal) {
-                    LazyHStack(spacing: 14) {
+                    LazyHGrid(rows: Array(repeating: GridItem(.fixed(coverWidth / coverShape.ratio), spacing: 14), count: coverRows),
+                              spacing: 14) {
                         ForEach(games) { game in
                             CoverTile(game: game, client: client(for: game), isRunning: game.isRunning(directory),
                                       unavailable: game.unavailable(hosts: hosts, directory: directory), isFocused: focusRow == 1 && game.id == selected,
@@ -621,13 +641,22 @@ struct HomeView: View {
             if command == .previousTab { switchTab(-1) } else if command == .nextTab { switchTab(1) } else if command == .settings { openSettings() }
             return
         }
-        let count = row?.games.count ?? 0, isRunning = game.isRunning(directory)
+        let isRunning = game.isRunning(directory)
+        let games = row?.games ?? [], count = games.count, index = games.firstIndex { $0.id == game.id } ?? 0
         switch command {
         case .up:
+            if focusRow == 1, coverRows == 2, index % 2 == 1 { // the grid's lower row: up to the cover above
+                withAnimation(.snappy) { selectedID = games[index - 1].id }
+                break
+            }
             if focusRow == 1 { heroButton = 0 }
             if focusRow == 0, !hosts.isEmpty { topButton = 0 }
             focusRow = focusRow == 1 || hosts.isEmpty ? 0 : -1
         case .down:
+            if focusRow == 1, coverRows == 2, index % 2 == 0, index + 1 < count {
+                withAnimation(.snappy) { selectedID = games[index + 1].id }
+                break
+            }
             if focusRow == -1 { heroButton = 0 }
             focusRow = min(focusRow + 1, 1)
         case .left, .right:
@@ -637,8 +666,7 @@ struct HomeView: View {
             } else if focusRow == 0 {
                 heroButton = isRunning ? min(max(heroButton + offset, 0), 1) : 0
             } else {
-                let games = row?.games ?? [], index = games.firstIndex { $0.id == game.id } ?? 0
-                withAnimation(.snappy) { selectedID = games[min(max(index + offset, 0), max(count - 1, 0))].id }
+                withAnimation(.snappy) { selectedID = games[Self.coverIndex(index, by: offset, rows: coverRows, count: count)].id }
             }
         case .select:
             if focusRow == -1 { topButton == 1 && sessionHost != nil ? openSessionMenu() : openStatusMenu() }

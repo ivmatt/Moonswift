@@ -72,6 +72,7 @@ struct LaunchSplashView: View {
                 }
                 CenteredStatus(title: splash.title, detail: status, hint: canSkip ? "Tap or press any button to skip" : nil)
                     .opacity(splash.isGrown ? 1 : 0)
+                    .padding(.bottom, FoldAvoidance(fold: proxy.fold, in: proxy.size).lift) // centered in the top half
             }
         }
         .ignoresSafeArea()

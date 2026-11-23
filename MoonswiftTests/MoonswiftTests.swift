@@ -913,6 +913,13 @@ struct LibraryRowFocusTests {
 struct FoldAvoidanceTests {
     let screen = CGSize(width: 800, height: 600)
 
+    @Test func theCoverGridMovesByWholeColumns() {
+        #expect(HomeView.coverIndex(1, by: 1, rows: 2, count: 6) == 3) // stays in its row
+        #expect(HomeView.coverIndex(1, by: -1, rows: 2, count: 6) == 1) // the first column: nowhere to go
+        #expect(HomeView.coverIndex(3, by: 1, rows: 2, count: 5) == 4) // a short last column
+        #expect(HomeView.coverIndex(2, by: 1, rows: 1, count: 3) == 2) // one row, at its end
+    }
+
     @Test func aFoldAcrossLiftsContentAboveIt() {
         let avoid = FoldAvoidance(fold: CGRect(x: 0, y: 288, width: 800, height: 24), in: screen)
         #expect(avoid.lift == 312 && avoid.maxWidth == nil)
