@@ -2,3 +2,8 @@ xcuserdata/
 .build/
 .swiftpm/
 build/
+
+# Markdown is private unless listed here
+*.md
+!README.md
+!PRIVACY.md
