@@ -229,15 +229,9 @@ struct HomeView: View {
                             ContentUnavailableView("No Games Listed", systemImage: "dot.radiowaves.left.and.right",
                                                    description: Text("The host lists its games again once its session ends."))
                         } else {
-                            ContentUnavailableView {
-                                Label("No Games Yet", systemImage: "gamecontroller")
-                            } description: {
-                                Text("Add games on your host. Apps like Desktop are in Library.")
-                            } actions: {
-                                Button("Go to Library") { switchTab(1) }
-                                    .buttonStyle(.glass)
-                                    .focusRing(gamepad.isActive, cornerRadius: .infinity)
-                            }
+                            ContentUnavailableView("No Games Yet", systemImage: "gamecontroller",
+                                                   description: Text("Add games on your host. Apps like Desktop are in Library."))
+                                .ignoresSafeArea(.container, edges: .bottom) // stays put as the tab bar comes and goes
                         }
                     }
                 } else if games.isEmpty {
@@ -307,7 +301,7 @@ struct HomeView: View {
 
     /// The button guide's buttons: the selected game's, then the page's.
     private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
-        if hasNoGames { return [([.a], "Library"), ([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")] }
+        if hasNoGames { return [([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")] }
         guard !games.isEmpty else { return [] }
         let labels = selectedGame?.runningLabels(directory, catalog) ?? (resume: "Resume", quit: "Quit")
         let a = focusRow == -1 ? "Open" : selectedGame.flatMap(wakeTarget) != nil ? "Wake"
@@ -651,9 +645,7 @@ struct HomeView: View {
         // A running app can still be selected with no games on screen: A mustn't act on it unseen.
         guard launcher.busy == nil, !hasNoGames, let game = selectedGame else {
             if command == .previousTab { switchTab(-1) } else if command == .nextTab { switchTab(1) } else if command == .settings { openSettings() }
-            else if hasNoGames, launcher.busy == nil {
-                if command == .select { switchTab(1) } else if command == .options { refresh() }
-            }
+            else if hasNoGames, launcher.busy == nil, command == .options { refresh() }
             return
         }
         let count = row?.games.count ?? 0, isRunning = game.isRunning(directory)
