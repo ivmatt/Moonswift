@@ -1,9 +1,9 @@
 import SwiftUI
 
 extension GeometryProxy {
-    /// The fold of a half-open iPhone Duo in this view's own coordinates (its margins included), or nil while the
-    /// device is flat or closed, the fold misses this view, or it isn't a Duo. Apple's guidance is to keep important
-    /// content off it.
+    /// The fold of an iPhone Duo in this view's own coordinates (its margins included): while half open, or open flat
+    /// in portrait, which lays out the same way. Nil while closed, flat in landscape, when the fold misses this view,
+    /// or on anything but a Duo. Apple's guidance is to keep important content off it.
     var fold: CGRect? {
         #if DEBUG
         if let fake = FakeFold.current { return fake.rect(in: self) }
@@ -11,7 +11,18 @@ extension GeometryProxy {
         guard #available(iOS 27.1, *) else { return nil } // no foldable iPhone runs anything older
         let bounds = CGRect(origin: .zero, size: size)
         return reservedRegions(kind: .division).lazy.filter(\.isActive).map { $0.frame.intersection(bounds) }
-            .first { FoldAvoidance.isFold($0, in: self.size) }
+            .first { FoldAvoidance.isFold($0, in: self.size) } ?? flatPortraitFold
+    }
+
+    /// iOS reports no fold while the Duo is flat, so its place is worked out from the screen.
+    @available(iOS 27.1, *)
+    private var flatPortraitFold: CGRect? {
+        guard let screen = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.screen.bounds }).first,
+              let band = FoldAvoidance.flatPortraitBand(screen: screen, isPhone: UIDevice.current.userInterfaceIdiom == .phone)
+        else { return nil }
+        let origin = frame(in: .global).origin
+        let local = band.offsetBy(dx: -origin.x, dy: -origin.y).intersection(CGRect(origin: .zero, size: size))
+        return FoldAvoidance.isFold(local, in: size) ? local : nil
     }
 }
 
@@ -34,6 +45,14 @@ nonisolated struct FoldAvoidance: Equatable {
         return rect.width >= rect.height
             ? rect.width >= size.width * 0.9 && rect.height <= size.height * 0.25
             : rect.height >= size.height * 0.9 && rect.width <= size.width * 0.25
+    }
+
+    /// Where the fold of a flat Duo in portrait is: the same 40-point band iOS reports while it's half open.
+    // shortcut: iOS has no flat-fold API, and the inner display is the only iPhone screen this wide in portrait; revisit
+    // if another foldable ships or iOS starts reporting it.
+    static func flatPortraitBand(screen: CGRect, isPhone: Bool) -> CGRect? {
+        guard isPhone, screen.width >= 600, screen.height > screen.width else { return nil }
+        return CGRect(x: 0, y: screen.midY - 20, width: screen.width, height: 40)
     }
 
     var lift: CGFloat = 0

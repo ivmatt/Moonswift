@@ -39,7 +39,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 - PIN pairing with pinned certificates
 - A remote address for playing away from home, with a Local or Remote label on each host
 - Wake a sleeping PC on the same network (needs Wake-on-LAN turned on for the PC, ideally over Ethernet)
-- Layouts for a half-open iPhone Duo: content stays off the fold, with a two-row cover grid and touch controls in the bottom half
+- Portrait layouts for an open or half-open iPhone Duo: the picture in the top half, with a two-row cover grid, touch controls and Control Center in the bottom half
 
 ### Features that need Vibepollo
 

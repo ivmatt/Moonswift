@@ -307,31 +307,37 @@ struct OnScreenController: View {
     var shortcuts: [KeyShortcut] = []
     /// An actions-row button was tapped.
     var perform: (GestureAction) -> Void = { _ in }
+    /// The actions row runs along the bottom, under the controls (the Duo's bottom half), instead of the top.
+    var actionsAtBottom = false
     let send: (PadSnapshot) -> Void
     @State private var presses = PadPresses()
     @State private var isIdle = false
 
     var body: some View {
         GeometryReader { proxy in
+            // Controls placed from the bottom edge sit above a bottom row, so they keep their spacing and move up with it.
+            let area = CGSize(width: proxy.size.width, height: proxy.size.height - (actionsAtBottom ? PadLayout.actionStrip : 0))
             ZStack {
                 // One container, so the system draws all the glass together (cheaper over a live game).
                 GlassEffectContainer(spacing: 0) { // 0: pieces near each other don't melt together
-                    ZStack { controls(.body, in: proxy.size) }
+                    ZStack { controls(.body, in: area) }
                 }
                 // Floating sticks come and go with the thumb: in a container of their own, as a glass piece joining
                 // the controls' container made the system redraw all of them (they went dark).
                 GlassEffectContainer(spacing: 0) {
-                    ZStack { floatingSticks(.body, in: proxy.size) }
+                    ZStack { floatingSticks(.body, in: area) }
                 }
                 // Labels above the glass, not in it: glass blurs what it holds.
-                controls(.label, in: proxy.size)
-                floatingSticks(.label, in: proxy.size)
+                controls(.label, in: area)
+                floatingSticks(.label, in: area)
             }
+            .frame(width: area.width, height: area.height)
             // Only the drawing fades: iOS doesn't send touches to what's invisible, and hidden controls must still work.
             .opacity(drawnOpacity)
             .overlay { PadTouchLayer(router: router, layout: layout, presses: presses, isPaused: isPaused, send: send) }
-            .overlay(alignment: .top) {
-                ActionsRow(layout: layout, shortcuts: shortcuts, faceOpacity: drawnOpacity) { action in
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .overlay(alignment: actionsAtBottom ? .bottom : .top) {
+                ActionsRow(layout: layout, shortcuts: shortcuts, faceOpacity: drawnOpacity, isAtBottom: actionsAtBottom) { action in
                     presses.touches += 1 // a tap wakes hidden controls too
                     perform(action)
                 }
@@ -368,12 +374,13 @@ struct OnScreenController: View {
     }
 }
 
-/// The row along the top: one button per action, in the layout's look.
+/// The row along the top (or the bottom): one button per action, in the layout's look.
 struct ActionsRow: View {
     let layout: PadLayout
     let shortcuts: [KeyShortcut]
     /// The faces fade with the controls; the buttons stay tappable even when they're faded out.
     var faceOpacity: Double = 1
+    var isAtBottom = false
     let perform: (GestureAction) -> Void
     /// Show on Touch: shown for a few seconds after its strip is touched.
     @State private var isRevealed = false
@@ -411,9 +418,9 @@ struct ActionsRow: View {
         .animation(.easeInOut(duration: 0.25), value: isShown)
         // Its end button's centre on the screen corner's, so the row follows the curve (centred, at the same height).
         .padding(.horizontal, layout.actionsPosition == .center ? 0 : cornerInset)
-        .padding(.top, cornerInset)
+        .padding(isAtBottom ? .bottom : .top, cornerInset)
         .frame(maxWidth: .infinity, alignment: layout.actionsPosition.alignment)
-        .frame(height: PadLayout.actionStrip, alignment: .top)
+        .frame(height: PadLayout.actionStrip, alignment: isAtBottom ? .bottom : .top)
         .ignoresSafeArea() // measured from the screen's edges, where the corner is
         .background {
             if !isShown {

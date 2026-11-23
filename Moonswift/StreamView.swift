@@ -177,12 +177,13 @@ struct StreamView: View {
             // Safe Area mode keeps the picture (and the touches mapped onto it) clear of the cutout and home indicator.
             .ignoresSafeArea(edges: target.fitsSafeArea ? [] : .all)
             if isEditingPad {
-                PadEditor(store: padLayouts, layoutID: padLayoutID) { isEditingPad = false }
+                PadEditor(store: padLayouts, layoutID: padLayoutID, actionsAtBottom: foldLift > 0) { isEditingPad = false }
                     .belowFold()
             } else if showsOnScreenPad {
                 // Touch: Controller, with no real controller connected: an on-screen one, inside the safe area.
                 OnScreenController(layout: padLayouts.layout(padLayoutID.wrappedValue), isPaused: !isPlaying, wake: padWake,
-                                   router: padRouter, shortcuts: shortcuts.all, perform: perform) { pad in
+                                   router: padRouter, shortcuts: shortcuts.all, perform: perform,
+                                   actionsAtBottom: foldLift > 0) { pad in
                     if isSendingInput { controllers.setOnScreen(pad) }
                 }
                 .belowFold()
@@ -215,6 +216,7 @@ struct StreamView: View {
                         .frame(width: lead + panel)
                 }
                 .opacity(panelShown)
+                .belowFold() // the picture above the fold stays clear, and a tap on it still closes the panel
                 .ignoresSafeArea()
                 .contentShape(.rect)
                     .onTapGesture { closePanel() }
@@ -246,6 +248,7 @@ struct StreamView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isPanelOnLeft ? .leading : .trailing)
                 .offset(x: panel == nil && panelPull == nil ? 0
                            : ControlPanel<EmptyView>.travel * (1 - panelShown) * (isPanelOnLeft ? -1 : 1))
+                .belowFold()
                 .transition(.move(edge: isPanelOnLeft ? .leading : .trailing))
                 .zIndex(2) // above the video's layer as it slides away, or it vanishes rather than sliding
             }
