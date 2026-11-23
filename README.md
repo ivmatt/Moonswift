@@ -24,7 +24,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 - A Performance Overlay and an in-stream Control Center with quick actions
 
 **Touch, keyboard and mouse**
-- On-screen controller with custom layouts
+- On-screen controller with custom layouts, positioned separately for each rotation and for the iPhone Duo folded or unfolded
 - Touchscreen and trackpad modes, with customizable gestures
 - Hardware keyboard and mouse support, plus custom key shortcuts
 

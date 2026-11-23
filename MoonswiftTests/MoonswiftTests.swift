@@ -1137,6 +1137,43 @@ struct PadPositionTests {
     }
 }
 
+struct PadScreenTests {
+    @Test func screensAreToldApartByRotationAndFold() {
+        #expect(PadScreen(CGSize(width: 402, height: 790)) == .portrait)
+        #expect(PadScreen(CGSize(width: 790, height: 380)) == .landscape)
+        #expect(PadScreen(CGSize(width: 466, height: 640)) == .foldedPortrait)
+        #expect(PadScreen(CGSize(width: 640, height: 430)) == .foldedLandscape)
+        #expect(PadScreen(CGSize(width: 669, height: 900)) == .unfoldedPortrait)
+        #expect(PadScreen(CGSize(width: 900, height: 640)) == .unfoldedLandscape)
+    }
+
+    @Test func editingOneScreenLeavesTheOthersAlone() throws {
+        let layout = PadLayout.standard
+        var edited = layout.arranged(for: .foldedLandscape)
+        edited.items[0].x = 200
+        let saved = try JSONDecoder().decode(PadLayout.self, from: JSONEncoder().encode(layout.saving(edited, on: .foldedLandscape)))
+        #expect(saved.arranged(for: .foldedLandscape).items[0].x == 200)
+        #expect(saved.arranged(for: .foldedPortrait).items == PadLayout.compactItems)
+        #expect(saved.arranged(for: .landscape).items == PadLayout.standard.items)
+    }
+
+    @Test func customizedLayoutsKeepTheirPositionsEverywhere() {
+        var custom = PadLayout.standard
+        custom.items[0].x = 99
+        for screen in PadScreen.allCases { #expect(custom.arranged(for: screen).items[0].x == 99) }
+    }
+
+    @Test func compactStandardFitsWithoutOverlaps() {
+        for area in [CGSize(width: 360, height: 700), CGSize(width: 640, height: 430), CGSize(width: 669, height: 900)] {
+            let frames = PadLayout.compactItems.map { $0.frame(in: area) }
+            #expect(frames.allSatisfy { $0.minX >= 0 && $0.maxX <= area.width && $0.minY >= PadLayout.actionStrip && $0.maxY <= area.height })
+            for (index, frame) in frames.enumerated() {
+                #expect(!frames[(index + 1)...].contains { $0.intersects(frame) })
+            }
+        }
+    }
+}
+
 struct PadGridTests {
     @Test func snappingKeepsTheEdgeAndRoundsToTheGrid() throws {
         let item = PadItem(control: .a, .trailing, .bottom, x: 125, y: 101, size: 56).snapped(to: 12)

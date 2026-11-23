@@ -178,7 +178,7 @@ struct StreamView: View {
                 PadEditor(store: padLayouts, layoutID: padLayoutID) { isEditingPad = false }
             } else if showsOnScreenPad {
                 // Touch: Controller, with no real controller connected: an on-screen one, inside the safe area.
-                OnScreenController(layout: padLayouts.layout(padLayoutID.wrappedValue), isPaused: !isPlaying, wake: padWake,
+                OnScreenController(saved: padLayouts.layout(padLayoutID.wrappedValue), isPaused: !isPlaying, wake: padWake,
                                    router: padRouter, shortcuts: shortcuts.all, perform: perform) { pad in
                     if isSendingInput { controllers.setOnScreen(pad) }
                 }

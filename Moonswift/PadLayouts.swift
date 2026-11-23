@@ -68,7 +68,10 @@ struct PadEditor: View {
     @State private var name = ""
     private enum NameRequest: Identifiable { case new, rename; var id: Self { self } }
 
-    private var layout: PadLayout { store.layout(layoutID) }
+    /// The screen being edited: changes to positions apply to this rotation and fold state only.
+    @State private var screen = PadScreen.landscape
+    private var stored: PadLayout { store.layout(layoutID) }
+    private var layout: PadLayout { stored.arranged(for: screen) }
     private var missing: [PadControl] { PadControl.allCases.filter { control in !layout.items.contains { $0.control == control } } }
 
     var body: some View {
@@ -106,6 +109,7 @@ struct PadEditor: View {
                 }
                 .coordinateSpace(.named("pad"))
             }
+            .onGeometryChange(for: PadScreen.self) { PadScreen($0.size) } action: { screen = $0; selected = nil }
         }
         .onGamepad { if $0 == .back { done() } }
         .sheet(isPresented: $isShowingOptions) { options }
@@ -182,13 +186,13 @@ struct PadEditor: View {
         var edited = layout
         guard let index = edited.items.firstIndex(where: { $0.control == control }) else { return }
         change(&edited.items[index])
-        store.save(edited)
+        store.save(stored.saving(edited, on: screen))
     }
 
     private func edit(_ change: (inout PadLayout) -> Void) {
         var edited = layout
         change(&edited)
-        store.save(edited)
+        store.save(stored.saving(edited, on: screen))
     }
 
     private func remove(_ control: PadControl) {
@@ -198,7 +202,7 @@ struct PadEditor: View {
 
     /// Back where Standard has it (the middle of the screen, for the stick clicks), at Standard's size.
     private func addBack(_ control: PadControl) {
-        let standard = PadLayout.standard.items.first { $0.control == control }
+        let standard = PadLayout.standard.arranged(for: screen).items.first { $0.control == control }
         edit { $0.items.append(standard ?? PadItem(control: control, .center, .bottom, x: 0, y: 140, size: 56)) }
         selected = control
     }
@@ -229,7 +233,7 @@ struct PadEditor: View {
                 }
                 Divider()
                 Button("New Layout", systemImage: "plus") { askName(.new) }
-                Button("Duplicate", systemImage: "plus.square.on.square") { layoutID = store.add(copying: layout, name: layout.name + " Copy").id }
+                Button("Duplicate", systemImage: "plus.square.on.square") { layoutID = store.add(copying: stored, name: layout.name + " Copy").id }
                 Button("Rename…", systemImage: "pencil") { askName(.rename) }
                 Button("Reset to Standard", systemImage: "arrow.counterclockwise") { reset() }
                 if layoutID != PadLayout.standard.id {
@@ -342,9 +346,9 @@ struct PadEditor: View {
         .onGamepad { if $0 == .back { isShowingOptions = false } } // B closes this, not the editor
     }
 
-    /// Standard's controls again; a layout keeps its name, look and options.
+    /// Standard's controls again on this screen; a layout keeps its name, look, options and other screens.
     private func reset() {
-        edit { $0.items = PadLayout.standard.items }
+        edit { $0.items = PadLayout.standard.arranged(for: screen).items }
         selected = nil
     }
 

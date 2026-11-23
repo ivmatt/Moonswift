@@ -167,11 +167,35 @@ nonisolated struct PadItem: Codable, Hashable {
     }
 }
 
+/// The kinds of screen a layout keeps separate positions for, told apart by the controller's area so it follows
+/// rotation and the Duo's hinge. The Duo's two screens are nearly the same shape (678 × 466 closed, 951 × 669 open), so
+/// size separates them; an iPad counts as unfolded.
+nonisolated enum PadScreen: String, CaseIterable {
+    case portrait, landscape, foldedPortrait, foldedLandscape, unfoldedPortrait, unfoldedLandscape
+
+    init(_ area: CGSize) {
+        let short = min(area.width, area.height), long = max(area.width, area.height), isTall = area.height > area.width
+        if short >= 560 {
+            self = isTall ? .unfoldedPortrait : .unfoldedLandscape
+        } else if long / max(short, 1) < 1.7 {
+            self = isTall ? .foldedPortrait : .foldedLandscape
+        } else {
+            self = isTall ? .portrait : .landscape
+        }
+    }
+
+    /// Too narrow for Standard's side-by-side arrangement.
+    var usesCompactStandard: Bool { self != .landscape && self != .unfoldedLandscape }
+}
+
 /// A named set of controls and where they sit, with how they look.
 nonisolated struct PadLayout: Codable, Hashable, Identifiable {
     var id: String
     var name: String
+    /// The positions for any screen without its own in `screenItems`.
     var items: [PadItem]
+    /// Positions edited on a particular screen, by `PadScreen` raw value.
+    var screenItems: [String: [PadItem]] = [:]
     /// How solid the controls are drawn, 0.2...1.
     var opacity: Double = 0.6
     /// A stick appears wherever a thumb lands on its side of the screen, outside the other controls.
@@ -227,12 +251,48 @@ nonisolated struct PadLayout: Codable, Hashable, Identifiable {
         PadItem(control: .menu, .trailing, .bottom, x: 235, y: 195, size: 40),
     ])
 
-    private enum CodingKeys: String, CodingKey { case id, name, items, opacity, floatingLeftStick, floatingRightStick, glass, labels, hideAfter, actions, actionsOnTouch, actionsPosition }
+    /// Two stacked rows per side, for screens too narrow for Standard. Fits 360 × 420 points.
+    static let compactItems = [
+        PadItem(control: .leftStick, .leading, .bottom, x: 85, y: 225, size: 115),
+        PadItem(control: .dpad, .leading, .bottom, x: 75, y: 75, size: 105),
+        PadItem(control: .a, .trailing, .bottom, x: 95, y: 177, size: 48),
+        PadItem(control: .b, .trailing, .bottom, x: 47, y: 225, size: 48),
+        PadItem(control: .x, .trailing, .bottom, x: 143, y: 225, size: 48),
+        PadItem(control: .y, .trailing, .bottom, x: 95, y: 273, size: 48),
+        PadItem(control: .rightStick, .trailing, .bottom, x: 75, y: 75, size: 105),
+        PadItem(control: .lt, .leading, .bottom, x: 40, y: 320, size: 58),
+        PadItem(control: .lb, .leading, .bottom, x: 112, y: 320, size: 58),
+        PadItem(control: .rb, .trailing, .bottom, x: 112, y: 320, size: 58),
+        PadItem(control: .rt, .trailing, .bottom, x: 40, y: 320, size: 58),
+        PadItem(control: .view, .center, .bottom, x: -32, y: 75, size: 36),
+        PadItem(control: .menu, .center, .bottom, x: 32, y: 75, size: 36),
+    ]
+
+    /// This layout with `items` set to `screen`'s positions. A layout already customized keeps those positions on a
+    /// screen until it's edited there, so nobody's work disappears.
+    func arranged(for screen: PadScreen) -> PadLayout {
+        var arranged = self
+        arranged.items = screenItems[screen.rawValue]
+            ?? (screen.usesCompactStandard && items == Self.standard.items ? Self.compactItems : items)
+        return arranged
+    }
+
+    /// This layout with an edit of `arranged(for: screen)` applied: moved controls stay on that screen alone.
+    func saving(_ edited: PadLayout, on screen: PadScreen) -> PadLayout {
+        var saved = edited
+        saved.items = items
+        saved.screenItems = screenItems
+        if edited.items != arranged(for: screen).items { saved.screenItems[screen.rawValue] = edited.items }
+        return saved
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, items, screenItems, opacity, floatingLeftStick, floatingRightStick, glass, labels, hideAfter, actions, actionsOnTouch, actionsPosition }
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(String.self, forKey: .id)
         name = try values.decode(String.self, forKey: .name)
         items = try values.decode([PadItem].self, forKey: .items)
+        screenItems = try values.decodeIfPresent([String: [PadItem]].self, forKey: .screenItems) ?? [:]
         opacity = try values.decodeIfPresent(Double.self, forKey: .opacity) ?? 0.6
         floatingLeftStick = try values.decodeIfPresent(Bool.self, forKey: .floatingLeftStick) ?? false
         floatingRightStick = try values.decodeIfPresent(Bool.self, forKey: .floatingRightStick) ?? false
@@ -251,6 +311,7 @@ nonisolated struct PadLayout: Codable, Hashable, Identifiable {
         try values.encode(id, forKey: .id)
         try values.encode(name, forKey: .name)
         try values.encode(items, forKey: .items)
+        try values.encode(screenItems, forKey: .screenItems)
         try values.encode(opacity, forKey: .opacity)
         try values.encode(floatingLeftStick, forKey: .floatingLeftStick)
         try values.encode(floatingRightStick, forKey: .floatingRightStick)
@@ -296,7 +357,9 @@ nonisolated struct PadLayout: Codable, Hashable, Identifiable {
 /// The on-screen controller: drawn in SwiftUI, touched through a UIKit view (many fingers at once, each following
 /// its own control). Touches that miss every control pass through to the stream's own touch layer (for gestures).
 struct OnScreenController: View {
-    let layout: PadLayout
+    let saved: PadLayout
+    @State private var screen = PadScreen.landscape
+    private var layout: PadLayout { saved.arranged(for: screen) }
     /// The game isn't taking input (a menu or panel is up): touches are let go and ignored.
     let isPaused: Bool
     /// Bumped by touches elsewhere on the stream: they bring the controls back too.
@@ -338,6 +401,7 @@ struct OnScreenController: View {
             }
             .animation(.easeInOut(duration: isIdle ? 0.6 : 0.2), value: isIdle)
         }
+        .onGeometryChange(for: PadScreen.self) { PadScreen($0.size) } action: { screen = $0 }
         // Hide When Idle: fades away after its time untouched (never while a finger is on a control); any touch,
         // on a control or elsewhere on the stream, brings it back. Hidden controls still work where they were.
         .task(id: "\(presses.touches)|\(wake)|\(layout.hideAfter)") {
