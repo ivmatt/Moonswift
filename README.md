@@ -91,6 +91,7 @@ Moonswift builds on the work of these projects:
 - [Sunshine](https://github.com/LizardByte/Sunshine) and [Vibepollo](https://github.com/Nonary/Vibepollo), the hosts
 - [ENet](https://github.com/lsalzman/enet), [nanors](https://github.com/sleepybishop/nanors) and [Mbed TLS](https://github.com/Mbed-TLS/mbedtls), bundled libraries
 - [SteamGridDB](https://www.steamgriddb.com), the community artwork service
+- [Kenney](https://kenney.nl), the controller button icons (Input Prompts, CC0)
 
 Moonswift is an independent project. It is not affiliated with or endorsed by Moonlight, Sunshine, Apollo, Vibepollo, SteamGridDB, or the makers of any game or controller. All trademarks belong to their owners.
 

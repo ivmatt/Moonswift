@@ -344,7 +344,7 @@ struct HomeView: View {
                     .padding(.trailing, heroFold.maxWidth == nil ? -railInsets.trailing : 0)
                     .transition(.opacity)
                 } else if let game = selectedGame {
-                    HeroCard(game: game, subtitle: heroSubtitle(game), isShort: isShort,
+                    HeroCard(game: game, subtitle: heroSubtitle(game), isShort: isShort, isCompact: isShortAndWide,
                              isRunning: game.isRunning(directory), labels: game.runningLabels(directory, catalog),
                              isElsewhere: game.elsewhere(directory, catalog) != nil, focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
                              play: { start(game) }, quit: { quit(game) }, isPressingPlay: isPressingPlay,
@@ -383,6 +383,7 @@ struct HomeView: View {
         .padding(.bottom, floatsTabBar ? -12 : showsGuide ? Self.guideGap : (isTabBarBelow ? 8 : -12))
         // Floating tab bar: down to the home indicator's margin whether the bar shows or not, so nothing moves.
         .padding(.bottom, floatsTabBar ? Self.windowBottomInset - railInsets.bottom : 0)
+        .padding(.bottom, phoneGuideLift)
     }
 
     /// The tucked-away tab bar, like the system's own when it shrinks while scrolling: a glass button with the tab's
@@ -472,21 +473,35 @@ struct HomeView: View {
     /// Above the guide: with the cover row's 12 points of focus-ring room, the same 28 points as between Play and the
     /// covers (the hero's 16 below Play, plus those 12).
     static let guideGap: CGFloat = 16
+    /// An iPhone's guide: the covers, buttons and title move up by this to clear it, and the covers keep their size.
+    private var phoneGuideLift: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .phone && guideMode.isShown(controllerConnected: gamepad.isControllerConnected) && !games.isEmpty ? 16 : 0
+    }
     /// Covers are bigger without a controller (easier to tap), smaller with one to make room for its guide; and on a
     /// short screen (the Duo's outer display) no taller than 38% of Home, so the hero keeps its room.
     private var coverWidth: CGFloat {
         let preferred: CGFloat = showsGuide ? 116 : 128
         // Square covers are shorter for their width: on a short screen they take less of its height, so more of the
         // hero shows.
-        // An iPhone in landscape (short and wide) gives the hero more: the covers take 34% of the height, not 38%.
-        let share: CGFloat = coverShape == .square ? (isShortAndWide ? 0.27 : 0.3) : (isShortAndWide ? 0.34 : 0.38)
-        return homeHeight > 0 ? min(preferred, (homeHeight * share * coverShape.ratio).rounded()) : preferred
+        // An iPhone in landscape (short and wide) gives the hero more: the covers take 28% of the height, not 38%;
+        // the folded Duo (short, not as wide) 33%.
+        let share: CGFloat = coverShape == .square ? (isShortAndWide ? 0.25 : isShort ? 0.26 : 0.3)
+            : (isShortAndWide ? 0.28 : isShort ? 0.33 : 0.38)
+        return layoutHeight > 0 ? min(preferred, (layoutHeight * share * coverShape.ratio).rounded()) : preferred
+    }
+    /// The screen's height with the floating tab bar: there the page grows past the screen when its content is too
+    /// tall, so its own height would keep the big sizes that made it overflow.
+    private var layoutHeight: CGFloat {
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else { return homeHeight }
+        if floatsTabBar { return window.bounds.height }
+        // Without the guide's lift, so the covers don't shrink; never past the safe area, or an overflow keeps the big sizes.
+        return min(homeHeight + phoneGuideLift, window.bounds.height - window.safeAreaInsets.top - window.safeAreaInsets.bottom)
     }
     /// An iPhone in landscape: smaller covers with tighter corners, and the hero's fade nearer them.
-    private var isShortAndWide: Bool { CGSize(width: homeWidth, height: homeHeight).isShortAndWide }
+    private var isShortAndWide: Bool { CGSize(width: homeWidth, height: layoutHeight).isShortAndWide }
 
     /// Home is short (the Duo's outer display): the hero's title is set smaller.
-    private var isShort: Bool { CGSize(width: homeWidth, height: homeHeight).isShort }
+    private var isShort: Bool { CGSize(width: homeWidth, height: layoutHeight).isShort }
 
     /// Moves the status pill the rest of the way to the hero title's line. Its measured place includes the move so
     /// far, so once it's there there's nothing left to move.
@@ -518,8 +533,8 @@ struct HomeView: View {
 
     private func heroSubtitle(_ game: CatalogGame) -> String {
         let pc = hosts.count > 1 ? game.sources.compactMap { s in hosts.first { $0.uniqueID == s.pcID }?.displayName }.first : nil
-        let state = game.elsewhere(directory, catalog) != nil ? "Playing on another device"
-            : game.isRunning(directory) ? "Running now" : nil // when it was last played: left out, it crowded the hero
+        // Running here shows on the cover as Now Playing; when it was last played: left out, it crowded the hero.
+        let state = game.elsewhere(directory, catalog) != nil ? "Playing on another device" : nil
         return [pc, state].compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -680,6 +695,8 @@ private struct HeroCard: View {
     let subtitle: String
     /// On a short screen: a smaller title.
     var isShort = false
+    /// An iPhone in landscape: tighter spacing, so the whole cover row fits below the title and buttons.
+    var isCompact = false
     let isRunning: Bool
     /// Resume and Quit, or Join and End Session while another device plays it.
     let labels: (resume: String, quit: String)
@@ -710,7 +727,7 @@ private struct HeroCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: isCompact ? 4 : 8) {
             if !subtitle.isEmpty {
                 Label(subtitle, systemImage: isRunning ? "play.circle.fill" : "gamecontroller.fill")
                     .font(.subheadline.weight(.semibold))
@@ -750,7 +767,7 @@ private struct HeroCard: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         .padding(.horizontal, Self.inset)
-        .padding(.bottom, 16)
+        .padding(.bottom, isCompact ? 4 : 16)
         .animation(.snappy, value: game.id)
     }
 }
@@ -766,7 +783,7 @@ struct CoverTile: View {
     /// Its PC and what's wrong with it ("is offline"), when it can't be played.
     let unavailable: (pc: String, reason: String)?
     let isFocused: Bool
-    /// Running on another device: an orange ring rather than green.
+    /// Running on another device: says so instead of Now Playing.
     var isElsewhere = false
     /// Tighter for small covers (Home's row on an iPhone in landscape).
     var cornerRadius: CGFloat = 14
@@ -777,7 +794,8 @@ struct CoverTile: View {
         Color.clear
             .aspectRatio(coverShape.ratio, contentMode: .fit)
             .overlay {
-                CoverArt(app: game.sources[0].app, client: client, custom: catalog.shownCover(for: game.id, coverShape), title: game.title)
+                CoverArt(app: game.sources[0].app, client: client, custom: catalog.shownCover(for: game.id, coverShape),
+                          title: isRunning && unavailable == nil ? "" : game.title) // Now Playing takes the title's place
                     .blur(radius: unavailable == nil ? 0 : 8, opaque: true) // no see-through fringe at the edges
                     .overlay {
                         if let unavailable {
@@ -797,10 +815,21 @@ struct CoverTile: View {
                     }
                     .animation(.easeInOut(duration: 0.5), value: unavailable != nil) // blur and label fade together
             }
-            .clipShape(.rect(cornerRadius: cornerRadius))
             .overlay {
-                if isRunning { RoundedRectangle(cornerRadius: cornerRadius).stroke(isElsewhere ? .orange : .green, lineWidth: 3) }
+                if isRunning, unavailable == nil { // an offline cover already has its own dimmed label
+                    ZStack {
+                        Color.black.opacity(0.75) // dark enough that titles in the art don't fight the label
+                        Text(isElsewhere ? "On Another Device" : "Now Playing")
+                            .font(.footnote.weight(.semibold)) // whole on one line on the smallest covers
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(isElsewhere ? 2 : 1)
+                            .minimumScaleFactor(0.7)
+                            .padding(6)
+                    }
+                }
             }
+            .clipShape(.rect(cornerRadius: cornerRadius))
             .overlay(alignment: .topTrailing) {
                 if game.isFavorite {
                     Image(systemName: "star.fill").font(.caption.bold()).padding(5)

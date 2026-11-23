@@ -83,7 +83,7 @@ enum ButtonGuideWindow {
     }
 }
 
-/// An iPhone's guide: fixed at the bottom right over a black fade only as wide as the hints. Takes no room from the page.
+/// An iPhone's guide: fixed at the bottom right with a shadow to stay readable over art. Takes no room from the page.
 struct PhoneButtonGuide: View {
     let hints: [ButtonGuideCenter.Hint]
     let center: ButtonGuideCenter
@@ -91,12 +91,13 @@ struct PhoneButtonGuide: View {
     @AppStorage(SettingsKey.buttonGuide) private var mode = ButtonGuideMode.automatic
 
     // Tuned by eye.
-    private static let fadeHeight: CGFloat = 76
-    private static let fadeFeather: CGFloat = 32 // the fade's soft left edge
-    private static let trailing: CGFloat = 12 // from the screen's edge: the bottom corner clears it
-    private static let bottom: CGFloat = 6
+    /// Where the safe area has no side inset (the Duo): this low, the hints need this much to clear the rounded corner.
+    private static let minEdge: CGFloat = 32
+    private static let bottomFromEdge: CGFloat = 8
+    private static let bottomOverIndicator: CGFloat = 18 // the open Duo in landscape: its home indicator is under the hints
+    private static let bottomOverTabBar: CGFloat = 6
     /// Clears a portrait tab bar, at one height so the guide doesn't move when the bar shrinks or hides.
-    private static let tabBarClearance: CGFloat = 58
+    private static let tabBarClearance: CGFloat = 52
 
     var body: some View {
         let windowBottom = HomeView.windowBottomInset
@@ -106,17 +107,28 @@ struct PhoneButtonGuide: View {
         // Pinned to the screen, not the page: Home's page runs past the screen on a landscape iPhone.
         GeometryReader { proxy in
             let page = proxy.frame(in: .global)
-            let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.bounds.size }.first ?? page.size
+            let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+            let screen = window?.bounds.size ?? page.size
+            // Inside the safe area; a side column already includes its inset.
+            let leadingEdge = max((window?.safeAreaInsets.left ?? 0) - railLeading, Self.minEdge)
+            let trailingEdge = max((window?.safeAreaInsets.right ?? 0) - railTrailing, Self.minEdge)
+            // The Duo open: centered in portrait, left in landscape. Folded: opposite its side column. Other iPhones: right.
+            let alignment: Alignment = screen.height > screen.width ? .bottom
+                : !screen.isShort ? .bottomLeading
+                : railTrailing > 0 ? .bottomLeading : .bottomTrailing
             // In landscape the guide stays put with the tab bar over it; a portrait bar never tucks away, so it's cleared.
             let clearance = center.isTabBarBelow && screen.height > screen.width ? Self.tabBarClearance : 0
-            ZStack(alignment: .bottomTrailing) {
+            ZStack(alignment: alignment) {
                 Color.clear
                 if !hints.isEmpty, mode.isShown(controllerConnected: gamepad.isControllerConnected) {
                     ControllerHints(hints: hints)
-                        .padding(.trailing, Self.trailing)
-                        .padding(.bottom, Self.bottom + (clearance > 0 ? 0 : windowBottom))
-                        .background(alignment: .bottom) { fade(height: Self.fadeHeight + (clearance > 0 ? 0 : windowBottom), isOverTabBar: clearance > 0) }
-                        .padding(.leading, max(railLeading, Self.fadeFeather))
+                        // Twice: one soft shadow left light labels hard to read over bright art.
+                        .shadow(color: .black.opacity(0.9), radius: 1, y: 1)
+                        .shadow(color: .black.opacity(0.7), radius: 4)
+                        .padding(.leading, leadingEdge)
+                        .padding(.trailing, trailingEdge)
+                        .padding(.bottom, clearance > 0 ? Self.bottomOverTabBar : screen.isShort ? Self.bottomFromEdge : Self.bottomOverIndicator)
+                        .padding(.leading, railLeading)
                         .padding(.trailing, railTrailing)
                         .padding(.bottom, clearance > 0 ? windowBottom + clearance : 0)
                         .transition(.opacity)
@@ -129,23 +141,6 @@ struct PhoneButtonGuide: View {
         .allowsHitTesting(false)
     }
 
-    private func fade(height: CGFloat, isOverTabBar: Bool) -> some View {
-        // Over a tab bar the fade also clears going down, so the bar stays readable.
-        let stops: [Gradient.Stop] = isOverTabBar
-            ? [.init(color: .clear, location: 0), .init(color: .black, location: 0.25), .init(color: .black, location: 0.5), .init(color: .clear, location: 1)]
-            : [.init(color: .black, location: 0), .init(color: .black, location: 0.35), .init(color: .clear, location: 1)]
-        return LinearGradient(stops: stops, startPoint: .bottom, endPoint: .top)
-            .frame(height: height)
-            .padding(.leading, -Self.fadeFeather)
-            .mask {
-                HStack(spacing: 0) {
-                    LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing).frame(width: Self.fadeFeather)
-                    Color.black
-                }
-                .padding(.leading, -Self.fadeFeather)
-            }
-            .offset(y: isOverTabBar ? 14 : 0)
-    }
 }
 
 private struct ButtonGuideOverlay: View {

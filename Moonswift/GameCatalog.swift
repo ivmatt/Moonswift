@@ -539,9 +539,9 @@ struct CoverArt: View {
                                 Text(shown).font(.system(size: Self.titleSize(shown, base: base, width: proxy.size.width - 16), weight: .semibold))
                                     .multilineTextAlignment(.center).foregroundStyle(.white.opacity(0.9))
                                     .minimumScaleFactor(0.5)
-                                    .padding(.horizontal, 8).padding(.bottom, 8)
-                                    .padding(.top, min(30, proxy.size.height * 0.3)) // clear of the favorite star
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top) // Home's row can run off the screen's bottom
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, min(30, proxy.size.height * 0.3)) // centered, clear of the favorite star
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                             }
                         }
                 }

@@ -447,10 +447,11 @@ private struct ButtonGuidePlacement: ViewModifier {
 
 /// A strip of "button: action" hints along the bottom, shown as the Button Guide setting says (by default while a
 /// controller is connected), with each button drawn the way the connected controller labels it (✕ ○ on DualSense,
-/// A B on Xbox; Xbox's without one).
+/// A B on Xbox; Xbox's without one): Kenney's Input Prompts for PlayStation, Xbox and Nintendo, the system's otherwise.
 struct ControllerHints: View {
     enum Button { case a, b, x, y, l1, r1, menu, view }
     let hints: [(buttons: [Button], label: String)]
+    @ScaledMetric(relativeTo: .caption) private var iconSize: CGFloat = 18 // the art has a margin inside its square
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage(SettingsKey.buttonGuide) private var mode = ButtonGuideMode.automatic
 
@@ -465,6 +466,7 @@ struct ControllerHints: View {
                             row(Array(hints.prefix(count)), pad)
                         }
                     }
+                    .font(.caption)
                     .foregroundStyle(.white.opacity(0.85))
                 } else {
                     row(hints, pad)
@@ -484,12 +486,63 @@ struct ControllerHints: View {
     private func row(_ hints: [(buttons: [Button], label: String)], _ pad: GCExtendedGamepad?) -> some View {
         HStack(spacing: 16) {
             ForEach(hints, id: \.label) { hint in
-                HStack(spacing: 4) {
-                    ForEach(hint.buttons.map { Self.symbol($0, pad) }, id: \.self) { Image(systemName: $0) }
+                HStack(spacing: 2) {
+                    ForEach(hint.buttons, id: \.self) { icon($0, pad) }
                     Text(hint.label)
                 }
                 .fixedSize() // a hint whole or not at all: Home's guide cut "Tabs" to "…"
             }
+        }
+    }
+
+    @ViewBuilder private func icon(_ button: Button, _ pad: GCExtendedGamepad?) -> some View {
+        let symbol = Self.symbol(button, pad)
+        if let name = Self.packIcon(button, symbol: symbol), UIImage(named: name) != nil {
+            Image(name).resizable().frame(width: iconSize, height: iconSize)
+        } else {
+            Image(systemName: symbol)
+        }
+    }
+
+    /// The icon pack's art for this controller; nil for one it doesn't cover, which keeps the system's symbol.
+    private static func packIcon(_ button: Button, symbol: String) -> String? {
+        var category = GCController.current?.productCategory
+        #if DEBUG
+        category = UserDefaults.standard.string(forKey: "MoonswiftPad") ?? category // `-MoonswiftPad DualSense`, for screenshots
+        #endif
+        if let category, category.contains("DualSense") || category.contains("DualShock") {
+            let isDualSense = category.contains("DualSense")
+            return switch button {
+            case .a: "playstation_button_cross_outline"
+            case .b: "playstation_button_circle_outline"
+            case .x: "playstation_button_square_outline"
+            case .y: "playstation_button_triangle_outline"
+            case .l1: "playstation_trigger_l1_outline"
+            case .r1: "playstation_trigger_r1_outline"
+            case .menu: isDualSense ? "playstation5_button_options_outline" : "playstation4_button_options_outline"
+            case .view: isDualSense ? "playstation5_button_create_outline" : "playstation4_button_share_outline"
+            }
+        }
+        if let category, category.contains("Switch") || category.contains("Joy-Con") || category == "Pro Controller" {
+            return switch button {
+            case .l1: "switch_button_l_outline"
+            case .r1: "switch_button_r_outline"
+            case .menu: "switch_button_plus_outline"
+            case .view: "switch_button_minus_outline"
+            // By the letter iOS reports: Nintendo's A and B sit where Xbox's B and A do.
+            default: "switch_button_\(symbol.prefix { $0 != "." })_outline"
+            }
+        }
+        guard category == nil || category?.contains("Xbox") == true else { return nil }
+        return switch button {
+        case .a: "xbox_button_a_outline"
+        case .b: "xbox_button_b_outline"
+        case .x: "xbox_button_x_outline"
+        case .y: "xbox_button_y_outline"
+        case .l1: "xbox_lb_outline"
+        case .r1: "xbox_rb_outline"
+        case .menu: "xbox_button_menu_outline"
+        case .view: "xbox_button_view_outline"
         }
     }
 
