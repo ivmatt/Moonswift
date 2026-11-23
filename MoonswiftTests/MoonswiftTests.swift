@@ -913,21 +913,6 @@ struct LibraryRowFocusTests {
 struct FoldAvoidanceTests {
     let screen = CGSize(width: 800, height: 600)
 
-    @Test func theCoverGridMovesByWholeColumns() {
-        #expect(HomeView.coverIndex(1, by: 1, rows: 2, count: 6) == 3) // stays in its row
-        #expect(HomeView.coverIndex(1, by: -1, rows: 2, count: 6) == 1) // the first column: nowhere to go
-        #expect(HomeView.coverIndex(3, by: 1, rows: 2, count: 5) == 4) // a short last column
-        #expect(HomeView.coverIndex(2, by: 1, rows: 1, count: 3) == 2) // one row, at its end
-    }
-
-    @Test func onlyTheOpenDuoInPortraitHasAFlatFold() {
-        let open = CGRect(x: 0, y: 0, width: 669, height: 951)
-        #expect(FoldAvoidance.flatPortraitBand(screen: open, isPhone: true) == CGRect(x: 0, y: 455.5, width: 669, height: 40))
-        #expect(FoldAvoidance.flatPortraitBand(screen: CGRect(x: 0, y: 0, width: 951, height: 669), isPhone: true) == nil) // landscape
-        #expect(FoldAvoidance.flatPortraitBand(screen: CGRect(x: 0, y: 0, width: 466, height: 678), isPhone: true) == nil) // closed
-        #expect(FoldAvoidance.flatPortraitBand(screen: open, isPhone: false) == nil) // an iPad
-    }
-
     @Test func aFoldAcrossLiftsContentAboveIt() {
         let avoid = FoldAvoidance(fold: CGRect(x: 0, y: 288, width: 800, height: 24), in: screen)
         #expect(avoid.lift == 312 && avoid.maxWidth == nil)

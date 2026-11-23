@@ -51,8 +51,6 @@ struct PadEditor: View {
     let store: PadLayoutStore
     /// The layout being edited (and used by this game).
     @Binding var layoutID: String
-    /// The actions row's strip is along the bottom, as in play on a Duo in portrait: the editor's pills go there.
-    var actionsAtBottom = false
     let done: () -> Void
 
     @State private var selected: PadControl?
@@ -77,23 +75,17 @@ struct PadEditor: View {
         ZStack(alignment: .top) {
             Color.black.opacity(0.35).ignoresSafeArea().onTapGesture { selected = nil }
             GeometryReader { proxy in
-                // The same area the controls get in play.
-                let area = CGSize(width: proxy.size.width, height: proxy.size.height - (actionsAtBottom ? PadLayout.actionStrip : 0))
                 ZStack {
-                    if snapsToGrid {
-                        GridLines(area: area, step: Self.gridStep)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    }
+                    if snapsToGrid { GridLines(area: proxy.size, step: Self.gridStep) }
                     ForEach(layout.items, id: \.control) { item in
-                        editable(item, area: area)
+                        editable(item, area: proxy.size)
                     }
                     // At the top, the hardest place to reach while holding the phone like a controller (Standard keeps
                     // its controls out from under it); the options drop down beneath.
                     // The actions row's strip, which controls stay below, holds the editor's pills meanwhile.
                     Path { path in
-                        let y = actionsAtBottom ? area.height : PadLayout.actionStrip
-                        path.move(to: CGPoint(x: 0, y: y))
-                        path.addLine(to: CGPoint(x: proxy.size.width, y: y))
+                        path.move(to: CGPoint(x: 0, y: PadLayout.actionStrip))
+                        path.addLine(to: CGPoint(x: proxy.size.width, y: PadLayout.actionStrip))
                     }
                     .stroke(.white.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
                     .allowsHitTesting(false)
@@ -101,16 +93,16 @@ struct PadEditor: View {
                         pills
                     }
                     .environment(\.colorScheme, .dark)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: actionsAtBottom ? .bottom : .top)
-                    .padding(actionsAtBottom ? .bottom : .top, (PadLayout.actionStrip - 44) / 2) // the 44-point pills centred in the strip
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .padding(.top, (PadLayout.actionStrip - 44) / 2) // the 44-point pills centred in the strip
                     Button(action: done) {
                         Image(systemName: "checkmark").font(.title3.weight(.bold)).frame(width: 44, height: 44)
                     }
                     .buttonStyle(.glassProminent)
                     .buttonBorderShape(.circle)
                     .accessibilityLabel("Done")
-                    .padding(actionsAtBottom ? .bottom : .top, 14).padding(.trailing, 14) // in the corner's curve, as far from both edges
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: actionsAtBottom ? .bottomTrailing : .topTrailing)
+                    .padding(.top, 14).padding(.trailing, 14) // in the corner's curve, as far from both edges
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 }
                 .coordinateSpace(.named("pad"))
             }
@@ -151,10 +143,9 @@ struct PadEditor: View {
                     dragging[item.control] = start
                     if dragging.count == 1 { selected = item.control }
                     // Not into the actions row's strip.
-                    let top = (actionsAtBottom ? 0 : PadLayout.actionStrip) + frame.height / 2
+                    let top = PadLayout.actionStrip + frame.height / 2
                     let center = CGPoint(x: min(max(start.x + drag.translation.width, 0), area.width),
-                                         y: min(max(start.y + drag.translation.height, top),
-                                                actionsAtBottom ? area.height - frame.height / 2 : area.height))
+                                         y: min(max(start.y + drag.translation.height, top), area.height))
                     update(item.control) {
                         $0 = $0.moved(to: center, in: area)
                         if snapsToGrid { $0 = $0.snapped(to: Self.gridStep) }

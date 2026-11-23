@@ -160,7 +160,6 @@ struct StreamView: View {
                 .onGeometryChange(for: CGFloat.self) { FoldAvoidance(fold: $0.fold, in: $0.size).lift } action: { foldLift = $0 }
             ZStack {
                 VideoLayerView(renderer: renderer)
-                    .padding(.bottom, foldLift)
                 TouchInputLayer(mode: activeTouchMode, streamSize: CGSize(width: target.width, height: target.height),
                                 isPaused: !isPlaying || !isSendingInput, onGesture: gesture,
                                 onSwipeProgress: followSwipe, onTouch: { padWake &+= 1 }, padRouter: padRouter,
@@ -171,22 +170,18 @@ struct StreamView: View {
                                 }.map(\.fingers)),
                                 pullsFromLeft: isPanelOnLeft,
                                 allowsFourFingers: TouchGesture.fourFingersOn)
-                    // Touches map onto the picture, except the on-screen controller's: its floating sticks land below the fold.
-                    .padding(.bottom, activeTouchMode == .controller ? 0 : foldLift)
             }
+            .padding(.bottom, foldLift)
             // Safe Area mode keeps the picture (and the touches mapped onto it) clear of the cutout and home indicator.
             .ignoresSafeArea(edges: target.fitsSafeArea ? [] : .all)
             if isEditingPad {
-                PadEditor(store: padLayouts, layoutID: padLayoutID, actionsAtBottom: foldLift > 0) { isEditingPad = false }
-                    .belowFold()
+                PadEditor(store: padLayouts, layoutID: padLayoutID) { isEditingPad = false }
             } else if showsOnScreenPad {
                 // Touch: Controller, with no real controller connected: an on-screen one, inside the safe area.
                 OnScreenController(layout: padLayouts.layout(padLayoutID.wrappedValue), isPaused: !isPlaying, wake: padWake,
-                                   router: padRouter, shortcuts: shortcuts.all, perform: perform,
-                                   actionsAtBottom: foldLift > 0) { pad in
+                                   router: padRouter, shortcuts: shortcuts.all, perform: perform) { pad in
                     if isSendingInput { controllers.setOnScreen(pad) }
                 }
-                .belowFold()
             }
             if showsPerformance, !launcher.isMinimized, !isEditingPad { LivePerformance(readout: readout) }
             if let toast {
@@ -216,7 +211,6 @@ struct StreamView: View {
                         .frame(width: lead + panel)
                 }
                 .opacity(panelShown)
-                .belowFold() // the picture above the fold stays clear, and a tap on it still closes the panel
                 .ignoresSafeArea()
                 .contentShape(.rect)
                     .onTapGesture { closePanel() }
@@ -248,7 +242,6 @@ struct StreamView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isPanelOnLeft ? .leading : .trailing)
                 .offset(x: panel == nil && panelPull == nil ? 0
                            : ControlPanel<EmptyView>.travel * (1 - panelShown) * (isPanelOnLeft ? -1 : 1))
-                .belowFold()
                 .transition(.move(edge: isPanelOnLeft ? .leading : .trailing))
                 .zIndex(2) // above the video's layer as it slides away, or it vanishes rather than sliding
             }
@@ -263,7 +256,6 @@ struct StreamView: View {
                     // Like the launch splash: the game large in the middle, what's happening below.
                     CenteredStatus(title: target.title, detail: status.replacing(" to \(target.title)", with: "")
                         .replacing(" \(target.title)", with: ""))
-                        .padding(.bottom, foldLift)
                 }
                 .ignoresSafeArea()
                 .transition(.opacity)
@@ -802,56 +794,35 @@ private struct StreamFailurePage: View {
         }
     }
 
-    private var message: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 40)).foregroundStyle(.yellow)
-            Text(failure.hadPicture ? "Stream Ended" : "Couldn't Start \(title)").font(.title2.weight(.bold))
-            VStack(alignment: .leading, spacing: 14) {
-                section("Possible Problem", [failure.problem], icon: "questionmark.circle")
-                section("Possible Solutions", failure.solutions, icon: "lightbulb")
-            }
-            .frame(maxWidth: 520, alignment: .leading)
-        }
-    }
-
-    private var actions: some View {
-        HStack(spacing: 12) {
-            ForEach(Array(buttons.enumerated()), id: \.offset) { index, button in
-                Group {
-                    if button.isPrimary {
-                        Button(action: button.run) { Text(button.title).font(.headline).frame(minWidth: 110) }.buttonStyle(.glassProminent)
-                    } else {
-                        Button(action: button.run) { Text(button.title).font(.headline).frame(minWidth: 110) }.buttonStyle(.glass)
-                    }
-                }
-                .focusRing(gamepad.isActive && focus == index, cornerRadius: .infinity)
-            }
-        }
-        .controlSize(.large)
-        .padding(.top, 6)
-    }
-
     var body: some View {
         ZStack {
             Rectangle().fill(.ultraThinMaterial).environment(\.colorScheme, .dark)
             Color.black.opacity(0.6)
-            GeometryReader { proxy in
-                if let fold = proxy.fold, fold.width >= fold.height {
-                    // A half-open Duo: what happened in the top half, the buttons in the bottom half.
-                    VStack(spacing: 0) {
-                        ViewThatFits(in: .vertical) { message; ScrollView { message } }
-                            .padding(.horizontal, 32).padding(.vertical, 16)
-                            .frame(maxWidth: .infinity).frame(height: fold.minY)
-                        Color.clear.frame(height: fold.height)
-                        actions.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                } else {
-                    VStack(spacing: 18) { message; actions }
-                        .padding(32)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 18) {
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 40)).foregroundStyle(.yellow)
+                Text(failure.hadPicture ? "Stream Ended" : "Couldn't Start \(title)").font(.title2.weight(.bold))
+                VStack(alignment: .leading, spacing: 14) {
+                    section("Possible Problem", [failure.problem], icon: "questionmark.circle")
+                    section("Possible Solutions", failure.solutions, icon: "lightbulb")
                 }
+                .frame(maxWidth: 520, alignment: .leading)
+                HStack(spacing: 12) {
+                    ForEach(Array(buttons.enumerated()), id: \.offset) { index, button in
+                        Group {
+                            if button.isPrimary {
+                                Button(action: button.run) { Text(button.title).font(.headline).frame(minWidth: 110) }.buttonStyle(.glassProminent)
+                            } else {
+                                Button(action: button.run) { Text(button.title).font(.headline).frame(minWidth: 110) }.buttonStyle(.glass)
+                            }
+                        }
+                        .focusRing(gamepad.isActive && focus == index, cornerRadius: .infinity)
+                    }
+                }
+                .controlSize(.large)
+                .padding(.top, 6)
             }
             .foregroundStyle(.white)
+            .padding(32)
         }
         .ignoresSafeArea()
         .onGamepad { command in
