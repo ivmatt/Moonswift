@@ -31,7 +31,7 @@ struct ButtonMappingView: View {
                     }
                 }
             } footer: {
-                Text("Nintendo swaps A with B and X with Y, so buttons sit where Nintendo games expect them. Applies to every controller, in games and in Moonswift's menus.")
+                Text("Nintendo swaps A with B and X with Y. Applies to every controller, in games and menus.")
             }
             Section("Each Button Acts As") {
                 ForEach(Array(GameButton.allCases.enumerated()), id: \.element) { index, button in

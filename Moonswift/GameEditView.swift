@@ -55,7 +55,7 @@ struct GameEditView: View {
                 } header: {
                     Text("Name")
                 } footer: {
-                    Text("Your host calls it \(game.originalTitle). The new name only shows in Moonswift.")
+                    Text("Only changes it in Moonswift. Your host calls it \(game.originalTitle).")
                 }
                 if !current.isApp && (match != nil || hasArtworkKey) {
                     Section {
@@ -74,8 +74,8 @@ struct GameEditView: View {
                     } header: {
                         Text("Online Artwork and Covers")
                     } footer: {
-                        Text(match?.name.map { "Found on SteamGridDB as \($0). Choose Artwork picks other art, or the right game." }
-                             ?? (match != nil ? "Nothing found on SteamGridDB under this name; Choose Artwork can search for it."
+                        Text(match?.name.map { "Found on SteamGridDB as \($0). Choose Artwork to change the art or game." }
+                             ?? (match != nil ? "Not found on SteamGridDB. Choose Artwork to search."
                                  : "Not looked up on SteamGridDB yet."))
                     }
                 }
@@ -91,8 +91,8 @@ struct GameEditView: View {
                     } header: {
                         Text("Artwork and Covers")
                     } footer: {
-                        Text("Your own pictures: the hero goes behind the game on Home, and the cover is in the shape chosen in "
-                             + "Settings (\(coverShape.rawValue)). Yours show first, then art found online, then your host's.")
+                        Text("The hero shows behind the game on Home. The cover uses your \(coverShape.rawValue) shape from Settings. "
+                             + "Your pictures show before online or host art.")
                     }
                 }
                 Section {
@@ -113,8 +113,7 @@ struct GameEditView: View {
                         }
                     }
                 } footer: {
-                    Text("Hidden games leave Home and Library; Library's Filter shows them again. Apps sit in the row "
-                         + "above your games.")
+                    Text("Hidden games leave Home and Library; Library's Filter shows them again. Apps appear above your games.")
                 }
                 Section {
                     row(.splashWait) {
@@ -128,8 +127,7 @@ struct GameEditView: View {
                         }
                     }
                 } footer: {
-                    Text("How long the splash stays once the game's picture comes in, for a game that takes longer to show "
-                         + "(or less). Default uses the Splash Wait in Settings.")
+                    Text("How long the splash stays after the game's picture appears. Default uses Settings.")
                 }
                 Section {
                     row(.reset) {

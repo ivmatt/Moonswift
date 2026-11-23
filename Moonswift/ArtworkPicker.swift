@@ -215,7 +215,7 @@ struct ArtworkPicker: View {
                     .onSubmit(search)
                     .focusedRowBackground(gamepad.isActive && !isQueryFocused && gameFocus == -1)
             } footer: {
-                Text("Search SteamGridDB, then pick the game; its art replaces what the wrong match brought.")
+                Text("Search SteamGridDB and pick the game. Its art replaces the wrong match.")
             }
             Section {
                 ForEach(Array(matches.enumerated()), id: \.element.id) { index, candidate in

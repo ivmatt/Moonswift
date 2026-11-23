@@ -307,15 +307,14 @@ struct PadEditor: View {
                 } header: {
                     Text("Actions Row")
                 } footer: {
-                    Text("Buttons along the top. Control Center always comes first, so the control panel is always one tap "
-                         + "away; add Quick Settings, the keyboard, Edit Layout or key shortcuts after it, and drag to reorder. Show on Touch "
-                         + "keeps the row out of sight until you touch the top strip; Position puts it at the left, middle or right.")
+                    Text("Control Center always comes first. Add Quick Settings, the keyboard, Edit Layout or key shortcuts, and "
+                         + "drag to reorder. Show on Touch hides the row until you touch the top strip.")
                 }
                 Section {
                     Toggle("Floating Left Stick", isOn: Binding(get: { layout.floatingLeftStick }, set: { value in edit { $0.floatingLeftStick = value } }))
                     Toggle("Floating Right Stick", isOn: Binding(get: { layout.floatingRightStick }, set: { value in edit { $0.floatingRightStick = value } }))
                 } footer: {
-                    Text("A floating stick appears wherever your thumb lands on its side of the screen, away from the other controls.")
+                    Text("Appears where your thumb lands on its side of the screen, away from other controls.")
                 }
                 Section {
                     Toggle("Liquid Glass", isOn: Binding(get: { layout.glass }, set: { value in edit { $0.glass = value } }))
@@ -326,7 +325,7 @@ struct PadEditor: View {
                         ForEach([0, 3, 5, 10, 20], id: \.self) { Text($0 == 0 ? "Never" : "After \($0) s").tag($0) }
                     }
                 } footer: {
-                    Text("Hide When Idle fades the controls (for cutscenes) after that long untouched; a touch brings them back.")
+                    Text("Hide When Idle fades the controls when untouched. A touch brings them back.")
                 }
                 Section {
                     Toggle("Snap to Grid", isOn: $snapsToGrid)

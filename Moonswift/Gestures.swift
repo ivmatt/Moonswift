@@ -134,8 +134,8 @@ struct GesturesView: View {
                 } header: {
                     Text("Three Fingers")
                 } footer: {
-                    Text("While streaming. Control Panel and Quick Settings follow a swipe left out of the right edge. A "
-                         + "swipe down always hides the keyboard first. A hold is the fingers resting still for a moment.")
+                    Text("Control Panel and Quick Settings follow a swipe left from the right edge. Swipe down hides the keyboard "
+                         + "first. Hold means resting your fingers still.")
                 }
                 Section {
                     Toggle("Four-Finger Gestures", isOn: $fourFingers)
@@ -143,7 +143,7 @@ struct GesturesView: View {
                         .id(Row.fourFingers)
                     if fourFingers { gestureRows(fingers: 4) }
                 } footer: {
-                    Text("The same six gestures with four fingers, for more actions. Off, four fingers do nothing.")
+                    Text("Six more gestures, using four fingers.")
                 }
                 Section {
                     Button("Reset to Defaults", action: reset)

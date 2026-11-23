@@ -32,7 +32,7 @@ struct EditPCView: View {
                 } header: {
                     Text("Name")
                 } footer: {
-                    Text("Leave empty to use the host's own name, \(host.name).")
+                    Text("Leave empty to use \(host.name).")
                 }
                 Section {
                     row(.address) { addressField("IP address or name", text: $address) }
@@ -46,7 +46,7 @@ struct EditPCView: View {
                 } header: {
                     Text("Remote")
                 } footer: {
-                    Text("Used over a secure connection when the host doesn't answer on your home network. Found automatically while you're home; leave empty to remove.")
+                    Text("Used securely when the host isn't reachable at home. Found automatically while you're home. Leave empty to remove.")
                 }
                 Section {
                     row(.remove) {

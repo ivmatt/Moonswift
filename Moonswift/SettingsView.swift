@@ -122,7 +122,7 @@ struct SettingsView: View {
                             }
                         }
                     } footer: {
-                        Text("Resolution, frame rate and codec are set when a stream starts. Reconnecting takes a few seconds; the game keeps running.")
+                        Text("Resolution, frame rate and codec change when you reconnect. Your game keeps running.")
                     }
                 }
                 Section {
@@ -148,8 +148,8 @@ struct SettingsView: View {
                 } footer: {
                     Text("\(size.width)×\(size.height) at \(fps) fps"
                          + (codec == .automatic ? ", \(ScreenInfo.hevcInHardware ? "HEVC" : "H.264") on this device."
-                            : codec == .av1 ? ". If the host's graphics card can't encode AV1, it uses HEVC." : ".")
-                         + (showsHDR && hdr ? " HDR streams in 10-bit when HDR is on in the host's display settings." : ""))
+                            : codec == .av1 ? ". Uses HEVC if the host can't encode AV1." : ".")
+                         + (showsHDR && hdr ? " HDR must also be on in the host's display settings." : ""))
                 }
                 Section {
                     row(.bitrateMode) {
@@ -173,11 +173,11 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         switch bitrateMode {
                         case .automatic: Text("\(automaticBitrate / 1000) Mbps for this resolution and frame rate.")
-                        case .custom: Text("Higher looks sharper but needs a faster network. The streaming software on your host may also cap it.")
+                        case .custom: Text("Higher is sharper but needs a faster network. Your host may cap it.")
                         }
                         if adaptive {
-                            Text("Adaptive lowers the bitrate when the network struggles and raises it back, never above this setting "
-                                 + "(and at most 500 Mbps, the usual limit for changes during a stream). It needs a host that supports bitrate changes while streaming.")
+                            Text("Adaptive lowers the bitrate when the network struggles, then restores it, up to this setting or 500 Mbps. "
+                                 + "Needs a host that supports live bitrate changes.")
                         }
                     }
                 }
@@ -194,17 +194,15 @@ struct SettingsView: View {
                 } header: {
                     Text("While Streaming")
                 } footer: {
-                    Text("Sound always plays on this device; Play Sound on Host also plays it from the host's speakers, from the next "
-                         + "stream. Touch: Automatic is the on-screen controller, or the touchscreen while a real controller is "
-                         + "connected; Touchscreen sends your fingers as touches, Trackpad moves the pointer, and Controller "
-                         + "puts a game controller on screen (hidden while a real one is connected). The overlay shows live "
-                         + "frame rate, bitrate, delay and packet loss in a corner of the stream.")
+                    Text("Play Sound on Host adds the host's speakers from the next stream. Automatic Touch shows the on-screen "
+                         + "controller, or uses the touchscreen while a real controller is connected. The overlay shows frame rate, "
+                         + "bitrate, delay and packet loss.")
                 }
                 Section {} footer: { // a note under the list, not a row that looks tappable
                     if live != nil {
-                        Text(liveBitrateNote ?? "Bitrate changes apply to this stream right away.")
+                        Text(liveBitrateNote ?? "Bitrate changes apply right away.")
                     } else {
-                        Text("Changes apply the next time you launch or resume a game.")
+                        Text("Changes apply next time you launch or resume a game.")
                     }
                 }
                 } else {
@@ -221,10 +219,9 @@ struct SettingsView: View {
                 } header: {
                     Text("Launching")
                 } footer: {
-                    Text("Splash Screen shows the game's art from Play until the game is on screen. Splash Wait keeps it up "
-                         + "that long past the first picture, so the host's desktop and launchers don't flash by; a game's "
-                         + "Edit page can set its own, and resuming skips it. End on Game Sound lifts it as soon as the game "
-                         + "makes sound, with Splash Wait the longest it stays; a launcher's or the desktop's sounds can end it early.")
+                    Text("Shows the game's art until the game is on screen. Splash Wait holds it past the first picture to hide "
+                         + "launchers; each game can set its own, and resuming skips it. End on Game Sound lifts it at the first "
+                         + "sound, within Splash Wait. Launcher or desktop sounds can end it early.")
                 }
                 Section {
                     row(.pictureInPicture) {
@@ -239,9 +236,8 @@ struct SettingsView: View {
                 } header: {
                     Text("While Streaming")
                 } footer: {
-                    Text("Picture in Picture: leaving the app floats the game in a small window over other apps; off, leaving "
-                         + "the app pauses the stream until you come back. Control Center: the side it comes out of; on the left, "
-                         + "its swipe goes right. Applies from the next stream.")
+                    Text("Picture in Picture floats the game over other apps when you leave. Off, the stream pauses until you "
+                         + "return. Control Center sets the side it opens from. Both apply from the next stream.")
                 }
                 Section {
                     row(.buttonGuide) {
@@ -257,12 +253,11 @@ struct SettingsView: View {
                 } header: {
                     Text("Controller")
                 } footer: {
-                    Text("Button Guide: the strip of controller buttons along the bottom; "
-                         + "Automatic shows it while a controller is connected. "
-                         + "DualSense Haptics plays the fine vibration games send a DualSense on hosts that pass it on "
-                         + "(Vibepollo); off, those games don't vibrate. Applies from the next stream."
-                         + (PhoneRumble.isAvailable ? " Phone Rumble plays game rumble on this phone when the first "
-                            + "player's controller has no motor, including the on-screen controller." : ""))
+                    Text("Automatic shows the Button Guide while a controller is connected. "
+                         + "DualSense Haptics plays fine vibration on hosts that send it, like Vibepollo; off, those games "
+                         + "don't vibrate. Applies from the next stream."
+                         + (PhoneRumble.isAvailable ? " Phone Rumble uses this phone when player one's controller has "
+                         + "no motor, including the on-screen controller." : ""))
                 }
                 if live == nil { // not while streaming
                     Section {
@@ -282,9 +277,8 @@ struct SettingsView: View {
                     } header: {
                         Text("Library")
                     } footer: {
-                        Text("The shape of game covers, to suit your art: 2:3 for Steam's, 3:4 for most hosts', or square. Online "
-                             + "Artwork finds covers and hero pictures on SteamGridDB, sending it your games' names; get a free API "
-                             + "key from your profile on steamgriddb.com. Pictures you add yourself always show first.")
+                        Text("2:3 suits Steam art, 3:4 most hosts'. Online Artwork sends your game names to SteamGridDB to find art; "
+                             + "get a free API key from your steamgriddb.com profile. Your own pictures always show first.")
                     }
                     .onChange(of: isKeyFocused) { if !isKeyFocused { saveArtworkKey() } }
                     .onDisappear(perform: saveArtworkKey)

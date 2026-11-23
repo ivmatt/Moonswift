@@ -25,7 +25,7 @@ struct ShortcutsEditView: View {
                 } header: {
                     Text("In the Control Center")
                 } footer: {
-                    Text("Drag to reorder. Each sends its keys to the host, as if pressed on a keyboard there.")
+                    Text("Drag to reorder. Each one sends its keys to the host.")
                 }
                 Section("More Shortcuts") {
                     ForEach(others) { shortcut in
