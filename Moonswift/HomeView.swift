@@ -466,7 +466,8 @@ struct HomeView: View {
     /// The tab bar runs along the bottom (the Duo's inner display in portrait), so nothing may hang below the safe area.
     /// shortcut: iOS doesn't say where its tab bar is; a bottom inset this tall is one. Revisit if the system says.
     private var isTabBarBelow: Bool { railInsets.bottom > 40 }
-    private var showsGuide: Bool { guideMode.isShown(controllerConnected: gamepad.isControllerConnected) && !games.isEmpty }
+    /// A guide that needs room here; an iPhone's floats over the page.
+    private var showsGuide: Bool { UIDevice.current.userInterfaceIdiom != .phone && guideMode.isShown(controllerConnected: gamepad.isControllerConnected) && !games.isEmpty }
 
     /// Above the guide: with the cover row's 12 points of focus-ring room, the same 28 points as between Play and the
     /// covers (the hero's 16 below Play, plus those 12).

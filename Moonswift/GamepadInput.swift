@@ -319,13 +319,9 @@ private struct GamepadHandler: ViewModifier {
 nonisolated enum ButtonGuideMode: String, CaseIterable {
     case automatic = "Automatic", show = "Show", hide = "Hide"
 
-    /// shortcut: not on iPhone, where it crowded the pages; bring it back once it has a design that works there.
-    @MainActor static var isAvailable: Bool { UIDevice.current.userInterfaceIdiom != .phone }
-
     /// Automatic: while a controller is connected.
-    @MainActor func isShown(controllerConnected: Bool) -> Bool {
-        guard Self.isAvailable else { return false }
-        return switch self {
+    func isShown(controllerConnected: Bool) -> Bool {
+        switch self {
         case .automatic: controllerConnected
         case .show: true
         case .hide: false
@@ -428,7 +424,8 @@ private struct ButtonGuidePlacement: ViewModifier {
             // system's own: Home's covers end the same 28 points above it as Play is above them. The guide sits 4
             // points into the margin below, so it looks balanced there.
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if shows, !(center?.isTabBarBelow ?? false) { Color.clear.frame(height: max(0, (center?.height ?? 34) - 4)) }
+                // An iPhone's guide floats over the page and takes no room.
+                if shows, UIDevice.current.userInterfaceIdiom != .phone, !(center?.isTabBarBelow ?? false) { Color.clear.frame(height: max(0, (center?.height ?? 34) - 4)) }
             }
             .onTabBarBelowChange { if reportsLayout, !(tabBar?.isHidden ?? false), !(tabBar?.isAway ?? false) { center?.isTabBarBelow = $0 } }
             .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets in
@@ -454,23 +451,39 @@ struct ControllerHints: View {
     var body: some View {
         if mode.isShown(controllerConnected: gamepad.isControllerConnected), !hints.isEmpty {
             let pad = GCController.current?.extendedGamepad
-            HStack(spacing: 16) {
-                ForEach(hints, id: \.label) { hint in
-                    HStack(spacing: 4) {
-                        ForEach(hint.buttons.map { Self.symbol($0, pad) }, id: \.self) { Image(systemName: $0) }
-                        Text(hint.label)
+            Group {
+                if UIDevice.current.userInterfaceIdiom == .phone {
+                    // As many hints as fit, most important (first) kept.
+                    ViewThatFits(in: .horizontal) {
+                        ForEach(Array(stride(from: hints.count, to: 0, by: -1)), id: \.self) { count in
+                            row(Array(hints.prefix(count)), pad)
+                        }
                     }
-                    .fixedSize() // a hint whole or not at all: Home's guide cut "Tabs" to "…"
+                    .foregroundStyle(.white.opacity(0.85))
+                } else {
+                    row(hints, pad)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        // A pill that blurs what's behind it, not glass: readable over art, quiet on the black pages.
+                        .background(.ultraThinMaterial, in: .capsule)
                 }
             }
             .font(.footnote)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            // A pill that blurs what's behind it, not glass: readable over art, quiet on the black pages.
-            .background(.ultraThinMaterial, in: .capsule)
             .transition(.opacity)
             .accessibilityHidden(true) // controller-only help; VoiceOver users have the on-screen controls
+        }
+    }
+
+    private func row(_ hints: [(buttons: [Button], label: String)], _ pad: GCExtendedGamepad?) -> some View {
+        HStack(spacing: 16) {
+            ForEach(hints, id: \.label) { hint in
+                HStack(spacing: 4) {
+                    ForEach(hint.buttons.map { Self.symbol($0, pad) }, id: \.self) { Image(systemName: $0) }
+                    Text(hint.label)
+                }
+                .fixedSize() // a hint whole or not at all: Home's guide cut "Tabs" to "…"
+            }
         }
     }
 

@@ -83,8 +83,61 @@ private struct ButtonGuideOverlay: View {
     let center: ButtonGuideCenter
     let tabBar: TabBarMinimize
     let launcher: StreamLauncher
+    @Environment(GamepadInput.self) private var gamepad
+    @AppStorage(SettingsKey.buttonGuide) private var mode = ButtonGuideMode.automatic
+
+    // Tuned by eye.
+    private static let phoneFadeHeight: CGFloat = 76
+    private static let phoneTrailing: CGFloat = 16
+    private static let phoneBottom: CGFloat = 6
+    /// Clears a tab bar along the bottom, at one height so the guide doesn't move when the bar shrinks or hides.
+    private static let phoneTabBarClearance: CGFloat = 58
 
     var body: some View {
+        Group {
+            if UIDevice.current.userInterfaceIdiom == .phone { phoneGuide } else { padGuide }
+        }
+        .onChange(of: launcher.stream == nil || launcher.isMinimized) {
+            Task { // now, and again once the stream screen has finished sliding in or out
+                ButtonGuideWindow.refreshSystemOverlays()
+                try? await Task.sleep(for: .milliseconds(600))
+                ButtonGuideWindow.refreshSystemOverlays()
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: center.current.map(\.label))
+    }
+
+    /// Fixed at the bottom right over a black fade; it takes no room from the page.
+    private var phoneGuide: some View {
+        let clearance = center.isTabBarBelow ? Self.phoneTabBarClearance : 0
+        return ZStack(alignment: .bottomTrailing) {
+            Color.clear
+            if launcher.stream == nil, launcher.splash == nil, !center.current.isEmpty,
+               mode.isShown(controllerConnected: gamepad.isControllerConnected) {
+                GeometryReader { proxy in
+                    // Over a tab bar the fade also clears going down, so the bar stays readable.
+                    let stops: [Gradient.Stop] = clearance > 0
+                        ? [.init(color: .clear, location: 0), .init(color: .black, location: 0.25), .init(color: .black, location: 0.5), .init(color: .clear, location: 1)]
+                        : [.init(color: .black, location: 0), .init(color: .black, location: 0.35), .init(color: .clear, location: 1)]
+                    LinearGradient(stops: stops, startPoint: .bottom, endPoint: .top)
+                        .frame(height: Self.phoneFadeHeight + (clearance > 0 ? 0 : proxy.safeAreaInsets.bottom))
+                        .padding(.bottom, clearance > 0 ? proxy.safeAreaInsets.bottom + clearance - 14 : 0)
+                        // Beside the folded Duo's side column, not over its tabs.
+                        .padding(.leading, center.pageLeading - center.pageTrailing >= 20 ? center.pageLeading : 0)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .ignoresSafeArea()
+                }
+                .transition(.opacity)
+                ControllerHints(hints: center.current)
+                    .padding(.leading, Self.phoneTrailing)
+                    .padding(.trailing, Self.phoneTrailing)
+                    .padding(.bottom, Self.phoneBottom + clearance)
+            }
+        }
+        .ignoresSafeArea(.keyboard)
+    }
+
+    @ViewBuilder private var padGuide: some View {
         let movesToTop = center.isTabBarBelow
         let isAtBottom = !movesToTop || tabBar.isMinimized || tabBar.isHidden
         // The Duo folded, curved side up: its side column is on the left, where the guide would start.
@@ -107,13 +160,5 @@ private struct ButtonGuideOverlay: View {
         }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.25), value: isAtBottom)
-        .onChange(of: launcher.stream == nil || launcher.isMinimized) {
-            Task { // now, and again once the stream screen has finished sliding in or out
-                ButtonGuideWindow.refreshSystemOverlays()
-                try? await Task.sleep(for: .milliseconds(600))
-                ButtonGuideWindow.refreshSystemOverlays()
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: center.current.map(\.label))
     }
 }
