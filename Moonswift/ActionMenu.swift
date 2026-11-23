@@ -71,6 +71,8 @@ extension View {
                 if let item { box(item).transition(.opacity.combined(with: .scale(scale: 0.95))) }
             }
             .animation(.easeInOut(duration: 0.25), value: item != nil)
+            // Centred on the screen, not between the Duo's one-sided tab rail and the far edge. Still clear of the keyboard.
+            .ignoresSafeArea(.container, edges: .horizontal)
         }
     }
 }
