@@ -427,6 +427,12 @@ private struct ButtonGuidePlacement: ViewModifier {
                 // An iPhone's guide floats over the page and takes no room.
                 if shows, UIDevice.current.userInterfaceIdiom != .phone, !(center?.isTabBarBelow ?? false) { Color.clear.frame(height: max(0, (center?.height ?? 34) - 4)) }
             }
+            // An iPhone tab's guide is drawn here, in the page, so the tab bar stays on top of it.
+            .overlay {
+                if let center, reportsLayout, !center.isSheetOnTop, UIDevice.current.userInterfaceIdiom == .phone {
+                    PhoneButtonGuide(hints: hints, center: center)
+                }
+            }
             .onTabBarBelowChange { if reportsLayout, !(tabBar?.isHidden ?? false), !(tabBar?.isAway ?? false) { center?.isTabBarBelow = $0 } }
             .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets in
                 guard reportsLayout else { return }

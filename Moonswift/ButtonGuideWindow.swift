@@ -10,6 +10,8 @@ import UIKit
     /// The topmost screen's hints: a sheet's over a tab's (whichever came on screen last; at launch a tab can after
     /// its sheet), then the newest.
     private(set) var current: [Hint] = []
+    /// A sheet's guide is showing rather than a tab's.
+    private(set) var isSheetOnTop = false
     /// The tabs' tab bar runs along the bottom (iPhones other than the Duo): the guide goes to the top, or to the
     /// bottom while the tab bar is shrunk or hidden. Otherwise bottom left.
     var isTabBarBelow = false
@@ -33,6 +35,8 @@ import UIKit
     private func update() {
         let hints = (entries.last { $0.isOverTabs } ?? entries.last)?.hints ?? []
         if hints.map(\.label) != current.map(\.label) { current = hints }
+        let sheetOnTop = entries.contains { $0.isOverTabs }
+        if sheetOnTop != isSheetOnTop { isSheetOnTop = sheetOnTop }
     }
 }
 
@@ -79,19 +83,77 @@ enum ButtonGuideWindow {
     }
 }
 
+/// An iPhone's guide: fixed at the bottom right over a black fade only as wide as the hints. Takes no room from the page.
+struct PhoneButtonGuide: View {
+    let hints: [ButtonGuideCenter.Hint]
+    let center: ButtonGuideCenter
+    @Environment(GamepadInput.self) private var gamepad
+    @AppStorage(SettingsKey.buttonGuide) private var mode = ButtonGuideMode.automatic
+
+    // Tuned by eye.
+    private static let fadeHeight: CGFloat = 76
+    private static let fadeFeather: CGFloat = 32 // the fade's soft left edge
+    private static let trailing: CGFloat = 12 // from the screen's edge: the bottom corner clears it
+    private static let bottom: CGFloat = 6
+    /// Clears a portrait tab bar, at one height so the guide doesn't move when the bar shrinks or hides.
+    private static let tabBarClearance: CGFloat = 58
+
+    var body: some View {
+        let windowBottom = HomeView.windowBottomInset
+        // The Duo folded: its side column, on either side, stays clear.
+        let railLeading = center.pageLeading - center.pageTrailing >= 20 ? center.pageLeading : 0
+        let railTrailing = center.pageTrailing - center.pageLeading >= 20 ? center.pageTrailing : 0
+        // Pinned to the screen, not the page: Home's page runs past the screen on a landscape iPhone.
+        GeometryReader { proxy in
+            let page = proxy.frame(in: .global)
+            let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.bounds.size }.first ?? page.size
+            // In landscape the guide stays put with the tab bar over it; a portrait bar never tucks away, so it's cleared.
+            let clearance = center.isTabBarBelow && screen.height > screen.width ? Self.tabBarClearance : 0
+            ZStack(alignment: .bottomTrailing) {
+                Color.clear
+                if !hints.isEmpty, mode.isShown(controllerConnected: gamepad.isControllerConnected) {
+                    ControllerHints(hints: hints)
+                        .padding(.trailing, Self.trailing)
+                        .padding(.bottom, Self.bottom + (clearance > 0 ? 0 : windowBottom))
+                        .background(alignment: .bottom) { fade(height: Self.fadeHeight + (clearance > 0 ? 0 : windowBottom), isOverTabBar: clearance > 0) }
+                        .padding(.leading, max(railLeading, Self.fadeFeather))
+                        .padding(.trailing, railTrailing)
+                        .padding(.bottom, clearance > 0 ? windowBottom + clearance : 0)
+                        .transition(.opacity)
+                }
+            }
+            .frame(width: screen.width, height: screen.height)
+            .offset(x: -page.minX, y: -page.minY)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    private func fade(height: CGFloat, isOverTabBar: Bool) -> some View {
+        // Over a tab bar the fade also clears going down, so the bar stays readable.
+        let stops: [Gradient.Stop] = isOverTabBar
+            ? [.init(color: .clear, location: 0), .init(color: .black, location: 0.25), .init(color: .black, location: 0.5), .init(color: .clear, location: 1)]
+            : [.init(color: .black, location: 0), .init(color: .black, location: 0.35), .init(color: .clear, location: 1)]
+        return LinearGradient(stops: stops, startPoint: .bottom, endPoint: .top)
+            .frame(height: height)
+            .padding(.leading, -Self.fadeFeather)
+            .mask {
+                HStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing).frame(width: Self.fadeFeather)
+                    Color.black
+                }
+                .padding(.leading, -Self.fadeFeather)
+            }
+            .offset(y: isOverTabBar ? 14 : 0)
+    }
+}
+
 private struct ButtonGuideOverlay: View {
     let center: ButtonGuideCenter
     let tabBar: TabBarMinimize
     let launcher: StreamLauncher
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage(SettingsKey.buttonGuide) private var mode = ButtonGuideMode.automatic
-
-    // Tuned by eye.
-    private static let phoneFadeHeight: CGFloat = 76
-    private static let phoneTrailing: CGFloat = 16
-    private static let phoneBottom: CGFloat = 6
-    /// Clears a tab bar along the bottom, at one height so the guide doesn't move when the bar shrinks or hides.
-    private static let phoneTabBarClearance: CGFloat = 58
 
     var body: some View {
         Group {
@@ -107,34 +169,15 @@ private struct ButtonGuideOverlay: View {
         .animation(.easeInOut(duration: 0.2), value: center.current.map(\.label))
     }
 
-    /// Fixed at the bottom right over a black fade; it takes no room from the page.
+    /// Only a sheet's guide: a tab's is drawn in its page, under the tab bar (`ButtonGuidePlacement`).
     private var phoneGuide: some View {
-        let clearance = center.isTabBarBelow ? Self.phoneTabBarClearance : 0
-        return ZStack(alignment: .bottomTrailing) {
+        ZStack {
             Color.clear
-            if launcher.stream == nil, launcher.splash == nil, !center.current.isEmpty,
-               mode.isShown(controllerConnected: gamepad.isControllerConnected) {
-                GeometryReader { proxy in
-                    // Over a tab bar the fade also clears going down, so the bar stays readable.
-                    let stops: [Gradient.Stop] = clearance > 0
-                        ? [.init(color: .clear, location: 0), .init(color: .black, location: 0.25), .init(color: .black, location: 0.5), .init(color: .clear, location: 1)]
-                        : [.init(color: .black, location: 0), .init(color: .black, location: 0.35), .init(color: .clear, location: 1)]
-                    LinearGradient(stops: stops, startPoint: .bottom, endPoint: .top)
-                        .frame(height: Self.phoneFadeHeight + (clearance > 0 ? 0 : proxy.safeAreaInsets.bottom))
-                        .padding(.bottom, clearance > 0 ? proxy.safeAreaInsets.bottom + clearance - 14 : 0)
-                        // Beside the folded Duo's side column, not over its tabs.
-                        .padding(.leading, center.pageLeading - center.pageTrailing >= 20 ? center.pageLeading : 0)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                        .ignoresSafeArea()
-                }
-                .transition(.opacity)
-                ControllerHints(hints: center.current)
-                    .padding(.leading, Self.phoneTrailing)
-                    .padding(.trailing, Self.phoneTrailing)
-                    .padding(.bottom, Self.phoneBottom + clearance)
+            if center.isSheetOnTop, launcher.stream == nil, launcher.splash == nil {
+                PhoneButtonGuide(hints: center.current, center: center)
             }
         }
-        .ignoresSafeArea(.keyboard)
+        .ignoresSafeArea()
     }
 
     @ViewBuilder private var padGuide: some View {
