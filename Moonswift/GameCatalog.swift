@@ -135,12 +135,23 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     /// picture where there is one (a Steam game's 2:3 cover and hero), else SteamGridDB's top rated.
     private func fetchFound(_ gameID: String, match: SteamGridDB.Match, api: SteamGridDB) async throws {
         let steamAppID = try? await api.steamAppID(game: match.id)
+        var saved = false, failed = false
         for kind in Artwork.allCases {
             if let appID = steamAppID, let url = SteamGridDB.steamPicture(kind, appID: appID),
-               (try? await setFound(from: url, kind, for: gameID)) != nil { continue } // Steam may have none: a 404
+               (try? await setFound(from: url, kind, for: gameID)) != nil { // Steam may have none: a 404
+                saved = true
+                continue
+            }
             guard let url = try await api.imageURL(kind, game: match.id) else { continue }
-            try? await setFound(from: url, kind, for: gameID)
+            do {
+                try await setFound(from: url, kind, for: gameID)
+                saved = true
+            } catch {
+                failed = true
+            }
         }
+        // Nothing came through: not saved as done, so the next look-up tries this game again.
+        if failed, !saved { throw URLError(.cannotLoadFromNetwork) }
         saveMatch(FoundMatch(gameID: match.id, name: match.name, checked: .now), for: gameID)
     }
 
