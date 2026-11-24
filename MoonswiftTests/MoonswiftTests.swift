@@ -1084,6 +1084,16 @@ struct HostStatusRuleTests {
         #expect(PCDirectory.reading(game: 7, shown: 5, emptyInARow: 1, isManual: false) == (7, 0))
     }
 
+    @Test func plainAnswerFromPairedPCIsAMiss() {
+        let paired = HostStatus.online(paired: true), plain = HostStatus.online(paired: false)
+        #expect(PCDirectory.isForgivenMiss(status: plain, previous: paired, missesInARow: 0, isManual: true))
+        #expect(PCDirectory.isForgivenMiss(status: plain, previous: paired, missesInARow: 1, isManual: false))
+        #expect(!PCDirectory.isForgivenMiss(status: plain, previous: paired, missesInARow: 2, isManual: false)) // really unpaired
+        #expect(PCDirectory.isForgivenMiss(status: .offline, previous: paired, missesInARow: 1, isManual: false))
+        #expect(!PCDirectory.isForgivenMiss(status: .offline, previous: paired, missesInARow: 0, isManual: true))
+        #expect(!PCDirectory.isForgivenMiss(status: paired, previous: paired, missesInARow: 0, isManual: false))
+    }
+
     @Test func ownSessionEndsAfterTwoEmptyAnswers() {
         #expect(PCDirectory.sessionReading(game: 0, emptyInARow: 0) == (1, false))
         #expect(PCDirectory.sessionReading(game: 0, emptyInARow: 1) == (2, true))

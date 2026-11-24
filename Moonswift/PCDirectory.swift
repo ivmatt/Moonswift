@@ -73,6 +73,15 @@ nonisolated struct PCRef: Sendable {
         return (game, 0)
     }
 
+    /// Two missed checks in a row (a slow cellular wake-up, a dropped packet) aren't enough to change a PC's status. A
+    /// paired PC answering only the plain request is a miss even on a Refresh: its secure request timed out, and the
+    /// plain answer never names the running game, so trusting it flips Resume back to Play.
+    nonisolated static func isForgivenMiss(status: HostStatus, previous: HostStatus?, missesInARow: Int, isManual: Bool) -> Bool {
+        guard let previous, previous != .offline, missesInARow < 2 else { return false }
+        if status == .online(paired: false) { return previous == .online(paired: true) }
+        return status == .offline && !isManual
+    }
+
     /// This device's own session is over once its PC has said "nothing running" twice in a row (the game was ended
     /// elsewhere, or the PC restarted); any game in between starts the count again.
     nonisolated static func sessionReading(game: Int, emptyInARow: Int) -> (emptyInARow: Int, isOver: Bool) {
@@ -139,8 +148,8 @@ nonisolated struct PCRef: Sendable {
         await checkAll(hosts, context: context)
     }
 
-    /// Asks every saved PC for its status once. `isManual` (pull to refresh) reports exactly what it finds; the
-    /// background loop forgives a single missed check.
+    /// Asks every saved PC for its status once. `isManual` (pull to refresh) believes "offline" at once; the background
+    /// loop forgives two missed checks (`isForgivenMiss`).
     func checkAll(_ hosts: [SavedHost], context: ModelContext, isManual: Bool = false) async {
         #if DEBUG
         if DemoMode.isOn { return } // the pretend PC can't answer, and would turn offline
@@ -165,11 +174,7 @@ nonisolated struct PCRef: Sendable {
             }
             for await (id, status, info, address, connection) in group {
                 if confirming.contains(id) { rechecking.remove(id) }
-                // One missed check (a slow cellular wake-up, a dropped packet) isn't enough to call a PC offline. Nor is
-                // a paired PC answering only the plain request: its secure one timed out (busy right after a stream),
-                // and the plain answer never names the running game, so trusting it flips Resume back to Play.
-                let isMiss = status == .offline || status == .online(paired: false) && statuses[id] == .online(paired: true)
-                if !isManual, isMiss, let previous = statuses[id], previous != .offline, misses[id, default: 0] < 1 {
+                if Self.isForgivenMiss(status: status, previous: statuses[id], missesInARow: misses[id, default: 0], isManual: isManual) {
                     misses[id, default: 0] += 1
                     notResponding.insert(id)
                     continue
