@@ -61,6 +61,7 @@ private nonisolated let audioRenderer = AudioRenderer()
 
     /// Its result keeps the C strings alive for as long as the library may read them.
     @ObservationIgnored private var startTask: Task<(result: Int32, strings: CStrings?), Never>?
+    @ObservationIgnored private var stopTask: Task<Void, Never>?
 
     /// Connects in the background; video goes to `renderer`, audio to the speaker.
     func start(host: HostClient, target: StreamTarget, renderer: VideoRenderer) {
@@ -95,16 +96,20 @@ private nonisolated let audioRenderer = AudioRenderer()
 
     /// Disconnects; the game keeps running on the host, like Moonlight's "disconnect".
     func stop() async {
-        guard let startTask else { return }
-        self.startTask = nil
-        await Task.detached {
-            LiInterruptConnection() // in case LiStartConnection is still in progress
-            let started = await startTask.value
-            if started.result == 0 { LiStopConnection() } // blocks while the library's threads shut down
-            withExtendedLifetime(started.strings) {} // freed only now that the library has stopped
-            liveStats.withLock { if $0.state == .connected || $0.state == .connecting { $0.state = .ended("Disconnected") } }
-        }.value
-        activeVideoRenderer = nil
+        if let startTask {
+            self.startTask = nil
+            stopTask = Task {
+                await Task.detached {
+                    LiInterruptConnection() // in case LiStartConnection is still in progress
+                    let started = await startTask.value
+                    if started.result == 0 { LiStopConnection() } // blocks while the library's threads shut down
+                    withExtendedLifetime(started.strings) {} // freed only now that the library has stopped
+                    liveStats.withLock { if $0.state == .connected || $0.state == .connecting { $0.state = .ended("Disconnected") } }
+                }.value
+                activeVideoRenderer = nil
+            }
+        }
+        await stopTask?.value // a second caller waits too: the library can't start again until this is done
     }
 
     /// Blocks until the stream is up or has failed, like LiStartConnection itself. Returns its result (0 = success).

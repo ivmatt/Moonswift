@@ -335,7 +335,7 @@ struct StreamView: View {
             case .connecting: break
             }
         }
-        .onChange(of: isPlaying) { _, isPlaying in
+        .onChange(of: isPlaying, initial: true) { _, isPlaying in // initial: a first launch starts behind the splash
             // While the menu is up, input drives the menu; held buttons and keys are released on the host.
             controllers.isPaused = !isPlaying
             keyboardMouse.isPaused = !isPlaying
@@ -568,10 +568,13 @@ struct StreamView: View {
             await session.stop()
             UIApplication.shared.endBackgroundTask(time)
             // Left for the background: wait until the app is back in front.
-            while UIApplication.shared.applicationState != .active { try? await Task.sleep(for: .milliseconds(300)) }
+            while !isLeaving, UIApplication.shared.applicationState != .active { try? await Task.sleep(for: .milliseconds(300)) }
+            guard !isLeaving else { return isRestarting = false }
             status = fresh ? "Starting \(target.title)…" : "Reconnecting to \(target.title)…"
             do {
-                (client, target) = try await resume(fresh)
+                let resumed = try await resume(fresh)
+                guard !isLeaving else { return isRestarting = false } // closed meanwhile: no stream with no screen
+                (client, target) = resumed
                 adaptiveController = nil // starts over from the new session's bitrate
                 session.start(host: client, target: target, renderer: renderer)
                 session.refresh() // shows "connecting" now, so the coming "connected" is a change that clears the status
@@ -581,7 +584,7 @@ struct StreamView: View {
                 isRestarting = false // from here, an ending is real
             } catch {
                 isRestarting = false
-                showFailure(error.localizedDescription)
+                if !isLeaving { showFailure(error.localizedDescription) }
             }
         }
     }
@@ -681,9 +684,11 @@ struct StreamView: View {
         Task {
             do {
                 _ = try await client.setBitrate(kbps)
-            } catch {
+            } catch ServerInfoError.httpStatus(404) {
                 adaptiveUnsupported = true
                 readout.adaptiveNote = "Adaptive bitrate is off: this host can't change bitrate during a stream."
+            } catch {
+                // A timeout on a struggling network says nothing about the host: the next change tries again.
             }
         }
     }

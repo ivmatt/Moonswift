@@ -196,7 +196,9 @@ import SwiftUI
                     // Another device's session (Join) isn't one of this PC's games: nothing to show as running.
                     if app.sessionControl == nil { session = StreamingGame(pcID: pc.id, appID: app.id) }
                     stream = Self.target(app, launch)
-                    LaunchRequest.last = LaunchRequest(pc: pc.id, game: app.uuid.isEmpty ? app.title : app.uuid)
+                    if app.sessionControl?.isContextual != true { // Join and the like come and go: not a game to resume
+                        LaunchRequest.last = LaunchRequest(pc: pc.id, game: app.uuid.isEmpty ? app.title : app.uuid)
+                    }
                     catalog.notePlayed(app, on: pc.id)
                 }
             } catch where isResume {
@@ -229,9 +231,9 @@ import SwiftUI
     /// whichever address answers now, and resume with the current settings.
     /// `fresh`: quits the game first and launches it again (Quit & Retry), rather than resuming it.
     func reconnect(fresh: Bool = false) async throws -> (HostClient, StreamTarget) {
-        guard var (app, pc) = streaming, let address = await Self.answeringAddress(pc) else {
-            throw ServerInfoError.unreachable(.timedOut)
-        }
+        guard var (app, pc) = streaming, let address = await Self.answeringAddress(pc),
+              streaming?.app.id == app.id, streaming?.pc.id == pc.id // not closed or replaced during that wait
+        else { throw ServerInfoError.unreachable(.timedOut) }
         pc.client = HostClient(hostID: pc.id, address: address, httpsPort: pc.client.httpsPort, serverCert: pc.client.serverCert)
         streaming = (app, pc)
         let settings = Self.settings

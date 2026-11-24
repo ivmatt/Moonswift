@@ -74,6 +74,7 @@ final class KeyboardMouseStreamer {
     static var lastPhysicalClick: TimeInterval = 0
     private weak var gamepad: GamepadInput?
     private var pressed: [Int: KeyMap.Key] = [:] // by HID usage, so they can all be released
+    private var heldButtons: Set<Int32> = [] // mouse buttons down on the host, so they can be released too
     private var modifiers: Int8 = 0
     private var mouseRemainder = (x: Float(0), y: Float(0))
     private var observer: (any NSObjectProtocol)?
@@ -115,6 +116,14 @@ final class KeyboardMouseStreamer {
         modifiers = 0
         for key in pressed.values { KeyMap.send(key, down: false, modifiers: 0) }
         pressed = [:]
+        for button in heldButtons { LiSendMouseButtonEvent(CChar(BUTTON_ACTION_RELEASE), button) }
+        heldButtons = []
+    }
+
+    private func mouseButton(_ button: Int32, pressed: Bool) {
+        guard !isPaused else { return }
+        if pressed { heldButtons.insert(button) } else { heldButtons.remove(button) }
+        LiSendMouseButtonEvent(CChar(pressed ? BUTTON_ACTION_PRESS : BUTTON_ACTION_RELEASE), button)
     }
 
     private func attachMice() {
@@ -136,9 +145,7 @@ final class KeyboardMouseStreamer {
                 button?.pressedChangedHandler = { [weak self] _, _, pressed in
                     MainActor.assumeIsolated {
                         if pressed { KeyboardMouseStreamer.lastPhysicalClick = ProcessInfo.processInfo.systemUptime }
-                        if self?.isPaused == false {
-                            LiSendMouseButtonEvent(CChar(pressed ? BUTTON_ACTION_PRESS : BUTTON_ACTION_RELEASE), code)
-                        }
+                        self?.mouseButton(code, pressed: pressed)
                     }
                 }
             }
