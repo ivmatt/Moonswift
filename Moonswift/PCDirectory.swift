@@ -191,7 +191,8 @@ nonisolated struct PCRef: Sendable {
                 }
                 if info?.canSleep == true { sleepable.insert(id) } else if info != nil { sleepable.remove(id) }
                 guard let host = hosts.first(where: { $0.uniqueID == id }) else { continue }
-                if let info, host.name != info.hostname { host.name = info.hostname } // PC was renamed
+                // PC was renamed. Only a paired answer: a plain one may be another device now at this address.
+                if let info, status == .online(paired: true), host.name != info.hostname { host.name = info.hostname }
                 if status == .online(paired: true), address == host.address {
                     learnPublicIP(for: host, context: context)
                     if let mac = info?.macAddress, mac != host.macAddress {
@@ -210,7 +211,7 @@ nonisolated struct PCRef: Sendable {
         checkedPublicIP.insert(host.uniqueID)
         Task {
             guard let publicIP = await Task.detached(operation: { findPublicIPv4() }).value,
-                  publicIP != host.remoteAddress else { return }
+                  publicIP != host.remoteAddress, canLearnRemoteAddress(over: host.remoteAddress) else { return }
             host.remoteAddress = publicIP
             try? context.save()
         }

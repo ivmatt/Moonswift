@@ -26,4 +26,17 @@ import SwiftData
         self.httpsPort = httpsPort
         self.serverCert = serverCert
     }
+
+    /// Saves a pairing. A PC paired before keeps what's known about it here: your name, its remote address and MAC.
+    /// (Inserting the same uniqueID would replace the whole record, blanking those.)
+    static func remember(uniqueID: String, name: String, address: String, httpsPort: Int, serverCert: Data, in context: ModelContext) {
+        let saved = FetchDescriptor<SavedHost>(predicate: #Predicate { $0.uniqueID == uniqueID })
+        guard let host = try? context.fetch(saved).first else {
+            return context.insert(SavedHost(uniqueID: uniqueID, name: name, address: address, httpsPort: httpsPort, serverCert: serverCert))
+        }
+        host.name = name
+        host.address = address
+        host.httpsPort = httpsPort
+        host.serverCert = serverCert
+    }
 }

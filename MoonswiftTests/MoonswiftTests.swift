@@ -3,6 +3,7 @@ import CoreMedia
 import Foundation
 import MoonlightCore
 import Security
+import SwiftData
 import Testing
 import UIKit
 @testable import Moonswift
@@ -763,6 +764,51 @@ struct LaunchRequestTests {
         #expect(LaunchRequest(pc: "x", game: "U3").game(in: apps)?.id == 3) // by UUID
         #expect(LaunchRequest(pc: "x", game: "resynced").game(in: apps)?.id == 1) // part of a title
         #expect(LaunchRequest(pc: "x", game: "Celeste").game(in: apps) == nil)
+    }
+
+    @Test func linksCantReachControlsThatActOnAnotherDevice() throws {
+        let end = "\(SessionControl.uuidPrefix)\(SessionControl.end.rawValue)"
+        let monitor = "\(SessionControl.uuidPrefix)\(SessionControl.monitor.rawValue)"
+        let apps = [("1", "Terminate", end), ("2", "Remote Monitor", monitor)]
+            .compactMap { HostApp(fields: ["ID": $0.0, "AppTitle": $0.1, "UUID": $0.2]) }
+        #expect(LaunchRequest(pc: "x", game: end).game(in: apps) == nil)
+        #expect(LaunchRequest(pc: "x", game: "Terminate").game(in: apps) == nil)
+        #expect(LaunchRequest(pc: "x", game: monitor).game(in: apps)?.id == 2) // always listed: stays reachable
+    }
+}
+
+struct AuditFixTests {
+    @Test func rePairingKeepsWhatsKnownAboutThePC() throws {
+        let container = try ModelContainer(for: SavedHost.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = ModelContext(container)
+        let host = SavedHost(uniqueID: "pc", name: "Old", address: "10.0.0.1", serverCert: Data([1]))
+        host.customName = "Den"
+        host.remoteAddress = "home.example.org"
+        host.macAddress = "aa:bb:cc:dd:ee:ff"
+        context.insert(host)
+        try context.save()
+
+        SavedHost.remember(uniqueID: "pc", name: "New", address: "10.0.0.2", httpsPort: 47000, serverCert: Data([2]), in: context)
+        try context.save()
+
+        let saved = try #require(try context.fetch(FetchDescriptor<SavedHost>()).first)
+        #expect(try context.fetchCount(FetchDescriptor<SavedHost>()) == 1)
+        #expect(saved.name == "New" && saved.address == "10.0.0.2" && saved.httpsPort == 47000 && saved.serverCert == Data([2]))
+        #expect(saved.customName == "Den" && saved.remoteAddress == "home.example.org" && saved.macAddress == "aa:bb:cc:dd:ee:ff")
+    }
+
+    @Test func aLookedUpIPNeverReplacesATypedAddress() {
+        #expect(canLearnRemoteAddress(over: nil))
+        #expect(canLearnRemoteAddress(over: " "))
+        #expect(canLearnRemoteAddress(over: "203.0.113.7"))
+        #expect(!canLearnRemoteAddress(over: "home.example.org"))
+        #expect(!canLearnRemoteAddress(over: "203.0.113.7:48000"))
+        #expect(!canLearnRemoteAddress(over: "100.100.1.2")) // Tailscale
+    }
+
+    @Test func fullWidthHexIsRejectedNotACrash() {
+        #expect(Data(hex: "\u{FF11}\u{FF11}") == nil)
+        #expect(Data(hex: "0aFF") == Data([0x0A, 0xFF]))
     }
 }
 

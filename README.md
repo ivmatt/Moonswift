@@ -32,7 +32,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 - A console-style Home and a full game library
 - Automatic covers and backgrounds from [SteamGridDB](https://www.steamgriddb.com) (needs your own free API key), or your own art
 - Favorites, hidden games and voice search
-- Siri Shortcuts and `moonswift://` links to launch a game
+- Siri Shortcuts and `moonswift://` links to launch a game (links ask before starting it)
 
 **Hosts**
 - Find hosts on your network automatically, or add one by address

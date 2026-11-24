@@ -141,7 +141,9 @@ nonisolated extension Data {
         var index = hex.startIndex
         while index < hex.endIndex {
             let next = hex.index(index, offsetBy: 2)
-            bytes.append(UInt8(hex[index..<next], radix: 16)!)
+            // Not force-unwrapped: isHexDigit also accepts full-width digits, which this parser rejects.
+            guard let byte = UInt8(hex[index..<next], radix: 16) else { return nil }
+            bytes.append(byte)
             index = next
         }
         self.init(bytes)

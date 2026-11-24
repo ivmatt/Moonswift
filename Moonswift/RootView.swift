@@ -124,7 +124,11 @@ struct RootView: View {
         }
         // The PC says it's gone (PCDirectory): no Resume for it here either.
         .onChange(of: directory.session) { if directory.session == nil, let session = launcher.session { launcher.forgetSession(on: session.pcID) } }
-        .onOpenURL { url in if let request = LaunchRequest(url: url) { LaunchRouter.shared.pending = request } }
+        .onOpenURL { url in
+            guard let request = LaunchRequest(url: url) else { return }
+            LaunchRouter.shared.isFromLink = true
+            LaunchRouter.shared.pending = request
+        }
         .onChange(of: LaunchRouter.shared.pending) { routePending() }
         // Outermost, so the sheets and the stream presented above get them too.
         .environment(tabBar)
@@ -235,6 +239,7 @@ struct RootView: View {
         }
         guard let status = directory.statuses[host.uniqueID],
               !directory.isWaiting(on: host.uniqueID, launcher) else { return } // still checking
+        let isFromLink = LaunchRouter.shared.isFromLink
         LaunchRouter.shared.pending = nil
         guard status == .online(paired: true) else {
             return menu = .error("It may be asleep or off, or not paired.", title: "\(host.displayName) isn't available")
@@ -245,8 +250,13 @@ struct RootView: View {
             guard let app = request.game(in: catalog.apps[pc.id] ?? []) else {
                 return menu = .error("\(pc.name) has no game called \(request.game).", title: "Game not found")
             }
-            let running = directory.playing[pc.id] ?? 0
-            launcher.play(app, on: pc, running: running, runningTitle: catalog.title(of: running, on: pc.id))
+            let start = {
+                let running = directory.playing[pc.id] ?? 0
+                launcher.play(app, on: pc, running: running, runningTitle: catalog.title(of: running, on: pc.id))
+            }
+            guard isFromLink else { return start() }
+            launcher.menu = MenuSpec(title: "Play \(app.title)?", message: "A link asked to start it on \(pc.name).",
+                                     actions: [.init(title: "Play") { start() }])
         }
     }
 }

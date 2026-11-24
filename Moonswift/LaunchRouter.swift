@@ -34,8 +34,10 @@ nonisolated struct LaunchRequest: Equatable, Sendable, Codable {
     }
 
     /// The exact game first (UUID, then title), else the first title containing the words.
+    /// Never a session control that comes and goes (Join, End…): those act on another device's game.
     func game(in apps: [HostApp]) -> HostApp? {
-        apps.first { $0.uuid == game } ?? apps.first { $0.title.caseInsensitiveCompare(game) == .orderedSame }
+        let apps = apps.filter { $0.sessionControl?.isContextual != true }
+        return apps.first { $0.uuid == game } ?? apps.first { $0.title.caseInsensitiveCompare(game) == .orderedSame }
             ?? apps.first { $0.title.localizedStandardContains(game) }
     }
 
@@ -51,6 +53,8 @@ nonisolated struct LaunchRequest: Equatable, Sendable, Codable {
 @Observable final class LaunchRouter {
     static let shared = LaunchRouter()
     var pending: LaunchRequest?
+    /// `pending` came from a link, which any app or web page can open, so it asks before starting anything.
+    var isFromLink = false
 }
 
 /// Siri and Shortcuts: stream a game by name.
@@ -65,6 +69,7 @@ struct StreamGameIntent: AppIntent {
     static var parameterSummary: some ParameterSummary { Summary("Stream \(\.$game) on \(\.$pc)") }
 
     @MainActor func perform() async throws -> some IntentResult {
+        LaunchRouter.shared.isFromLink = false
         LaunchRouter.shared.pending = LaunchRequest(pc: pc, game: game)
         return .result()
     }
@@ -77,6 +82,7 @@ struct ResumeLastGameIntent: AppIntent {
     static let openAppWhenRun = true
 
     @MainActor func perform() async throws -> some IntentResult {
+        LaunchRouter.shared.isFromLink = false
         LaunchRouter.shared.pending = LaunchRequest.last
         return .result()
     }

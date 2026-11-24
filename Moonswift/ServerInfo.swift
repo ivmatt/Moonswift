@@ -298,6 +298,12 @@ nonisolated func findPublicIPv4() -> String? {
     return ipv4String(networkOrder: address)
 }
 
+/// A looked-up public IP may replace nothing, or an older public IP. A name, a port or a VPN address was typed: it stays.
+nonisolated func canLearnRemoteAddress(over current: String?) -> Bool {
+    guard let current = current?.trimmingCharacters(in: .whitespaces), !current.isEmpty else { return true }
+    return IPv4Address(current) != nil && !isHomeNetworkHost(current)
+}
+
 /// "a.b.c.d" from an IPv4 address in network byte order (the first byte in memory is the first number).
 nonisolated func ipv4String(networkOrder address: UInt32) -> String {
     withUnsafeBytes(of: address) { $0.map(String.init).joined(separator: ".") }

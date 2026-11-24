@@ -114,10 +114,9 @@ struct PairingView: View {
         #endif
         do {
             let paired = try await Pairing.pair(address: address, pin: pin)
-            // Same uniqueID as an existing host updates it (unique attribute), so re-pairing refreshes it.
             let id = paired.info.uniqueID ?? address
-            context.insert(SavedHost(uniqueID: id, name: paired.info.hostname, address: address,
-                                     httpsPort: paired.info.httpsPort, serverCert: paired.serverCert))
+            SavedHost.remember(uniqueID: id, name: paired.info.hostname, address: address,
+                               httpsPort: paired.info.httpsPort, serverCert: paired.serverCert, in: context)
             try? context.save() // autosave is on a timer; a quick force-quit would lose the pairing
             finish(id, paired.info.hostname)
         } catch {
