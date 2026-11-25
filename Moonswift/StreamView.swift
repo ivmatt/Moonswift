@@ -131,14 +131,21 @@ struct StreamView: View {
     /// The game gets no input while a menu, Settings or Control Center is over it, or while it's the small window.
     private var isPlaying: Bool {
         menu == nil && panel == nil && !isEditingPad && !isShowingSettings && scenePhase == .active && !launcher.isMinimized
-            && launcher.splash == nil && !showsTutorial
+            && launcher.splash == nil && tutorial == nil
     }
-    /// The first-stream guide (StreamTutorial): once, when the game first shows.
-    @AppStorage(SettingsKey.streamTutorialSeen) private var tutorialSeen = false
-    @State private var showsTutorial = false
+    /// The guide cards (StreamTutorial) already dismissed, comma-separated.
+    @AppStorage(SettingsKey.streamTutorialsSeen) private var tutorialsSeen = ""
+    @State private var tutorial: StreamTutorial.Card?
+    /// The next card not yet seen for how the stream is played now, once the game is up and in front.
+    private var dueTutorial: StreamTutorial.Card? {
+        guard isPlaying, shownStatus == nil, failure == nil else { return nil }
+        let seen = tutorialsSeen.split(separator: ",").map(String.init)
+        return StreamTutorial.Card.due(touchMode: activeTouchMode, controllerConnected: gamepad.isControllerConnected)
+            .first { !seen.contains($0.rawValue) }
+    }
     private func closeTutorial() {
-        tutorialSeen = true
-        withAnimation { showsTutorial = false }
+        if let tutorial { tutorialsSeen += tutorial.rawValue + "," }
+        withAnimation { tutorial = nil }
     }
     /// The splash's line while it's up: what's happening, in calm words; nil once the picture is in.
     private var splashStatus: String? {
@@ -272,8 +279,9 @@ struct StreamView: View {
                                   quitAndRetry: { retry(fresh: true) }, reconnect: { retry(fresh: false) }, close: { leave(quitting: launcher.canRelaunch) })
                     .transition(.opacity)
             }
-            if showsTutorial {
-                StreamTutorial(touchMode: activeTouchMode, dismiss: closeTutorial)
+            if let tutorial {
+                StreamTutorial(card: tutorial, dismiss: closeTutorial)
+                    .id(tutorial) // the next card fades in, rather than changing in place
                     .transition(.opacity)
                     .zIndex(3)
             }
@@ -291,7 +299,7 @@ struct StreamView: View {
                 Color.clear.onGamepad { command in
                     // Over the splash, once the picture is in, any button skips the hold (and doesn't reach the game).
                     if launcher.splash != nil { if firstPictureAt != nil { launcher.endSplash() }; return }
-                    if showsTutorial { if command == .select || command == .back { closeTutorial() }; return }
+                    if tutorial != nil { if command == .select || command == .back { closeTutorial() }; return }
                     if command == .streamMenu { showMenu(.actions) } // other buttons go to the game once input is sent
                 }
             }
@@ -348,9 +356,10 @@ struct StreamView: View {
             case .connecting: break
             }
         }
-        // The game is up and in front for the first time: the guide, once (it pauses input like a menu).
-        .onChange(of: isPlaying && shownStatus == nil && failure == nil) { _, isShowingGame in
-            if isShowingGame, !tutorialSeen { withAnimation { showsTutorial = true } }
+        // A way of playing in use for the first time (the first stream, a controller connecting, the on-screen
+        // controller turned off): its guide card, once. It pauses input like a menu; dismissing it brings the next.
+        .onChange(of: dueTutorial) { _, card in
+            if let card { withAnimation { tutorial = card } }
         }
         .onChange(of: isPlaying, initial: true) { _, isPlaying in // initial: a first launch starts behind the splash
             // While the menu is up, input drives the menu; held buttons and keys are released on the host.
