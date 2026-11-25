@@ -139,9 +139,13 @@ struct StreamView: View {
     /// The next card not yet seen for how the stream is played now, once the game is up and in front.
     private var dueTutorial: StreamTutorial.Card? {
         guard isPlaying, shownStatus == nil, failure == nil else { return nil }
+        return unseenTutorials.first
+    }
+    /// The cards for how the stream is played now that haven't been dismissed, in order.
+    private var unseenTutorials: [StreamTutorial.Card] {
         let seen = tutorialsSeen.split(separator: ",").map(String.init)
         return StreamTutorial.Card.due(touchMode: activeTouchMode, controllerConnected: gamepad.isControllerConnected)
-            .first { !seen.contains($0.rawValue) }
+            .filter { !seen.contains($0.rawValue) }
     }
     private func closeTutorial() {
         if let tutorial { tutorialsSeen += tutorial.rawValue + "," }
@@ -280,7 +284,7 @@ struct StreamView: View {
                     .transition(.opacity)
             }
             if let tutorial {
-                StreamTutorial(card: tutorial, dismiss: closeTutorial)
+                StreamTutorial(card: tutorial, isLast: unseenTutorials.allSatisfy { $0 == tutorial }, dismiss: closeTutorial)
                     .id(tutorial) // the next card fades in, rather than changing in place
                     .transition(.opacity)
                     .zIndex(3)

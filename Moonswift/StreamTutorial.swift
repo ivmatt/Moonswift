@@ -14,7 +14,10 @@ struct StreamTutorial: View {
     }
 
     let card: Card
+    /// No card after this one: the button says Got It, not Next.
+    let isLast: Bool
     let dismiss: () -> Void
+    private var buttonTitle: String { isLast ? "Got It" : "Next" }
     @State private var shortcuts = KeyShortcutStore()
 
     /// What's set now: the defaults on a first run, or the user's own.
@@ -23,25 +26,30 @@ struct StreamTutorial: View {
     var body: some View {
         ZStack {
             Color.black.opacity(0.7).ignoresSafeArea()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    content
-                    Button("Got It", action: dismiss)
-                        .buttonStyle(.borderedProminent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 6)
-                }
-                .padding(24)
-                .frame(maxWidth: 520, alignment: .leading)
-                .background(.ultraThinMaterial, in: .rect(cornerRadius: 24))
-                .padding()
-                .frame(maxWidth: .infinity)
+            // Centred when it fits; scrolls from the top on a screen too short for it.
+            ViewThatFits(in: .vertical) {
+                panel
+                ScrollView { panel }
             }
-            .scrollBounceBehavior(.basedOnSize)
         }
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
-        .buttonGuide([([.a], "Got It")], reportsLayout: false)
+        .buttonGuide([([.a], buttonTitle)], reportsLayout: false)
+    }
+
+    private var panel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            content
+            Button(buttonTitle, action: dismiss)
+                .buttonStyle(.borderedProminent)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 6)
+        }
+        .padding(24)
+        .frame(maxWidth: 520, alignment: .leading)
+        .background(.ultraThinMaterial, in: .rect(cornerRadius: 24))
+        .padding()
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder private var content: some View {
@@ -57,14 +65,19 @@ struct StreamTutorial: View {
         case .controller:
             title("Controller", symbol: "gamecontroller")
             Text("Press **Menu + View** together to open the control panel.")
-            Text("**Actions**: key shortcuts, the clipboard, Disconnect and Quit. A bumper away, **Quick Settings**: "
-                 + "bitrate, the performance overlay, touch mode and more.")
+            // One literal, not joined with +: only a literal is read as Markdown.
+            Text("""
+                **Actions**: key shortcuts, the clipboard, Disconnect and Quit. A bumper away, **Quick Settings**: \
+                bitrate, the performance overlay, touch mode and more.
+                """)
             note("Everything else on the controller goes to the game.")
         case .onScreenController:
             title("On-Screen Controller", symbol: "rectangle.topthird.inset.filled")
             callout("Gestures are off while the on-screen controller is in use: every touch goes to the game.")
-            Text("Use the **actions row** along the top of the screen instead. Its first button opens the control "
-                 + "panel; the rest are your layout's, like Quick Settings and the keyboard.")
+            Text("""
+                Use the **actions row** along the top of the screen instead. Its first button opens the control \
+                panel; the rest are your layout's, like Quick Settings and the keyboard.
+                """)
             callout("The row doesn't stay: it fades away with the controls when you stop touching the screen, or "
                     + "hides until you touch the top, depending on your layout. Touch the screen to bring it back.")
             note("Switch to Touchscreen or Trackpad in Quick Settings to use gestures.")
