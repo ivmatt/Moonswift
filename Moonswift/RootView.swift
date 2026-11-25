@@ -75,6 +75,10 @@ struct RootView: View {
         .tabBarMinimizeBehavior(.onScrollDown)
         .onAppear { ButtonGuideWindow.install(center: guide, gamepad: gamepad, tabBar: tabBar, launcher: launcher) }
         .onChange(of: tab) { tabBar.isMinimized = false } // a tab change brings the tab bar back
+        // With a controller, the home indicator fades out until the screen is touched: the guide sits on a clean edge.
+        .persistentSystemOverlays(gamepad.isActive ? .hidden : .automatic)
+        // iOS asks the guide's window, which is on top; it passes the question on, but must be told to ask again.
+        .onChange(of: gamepad.isActive, initial: true) { ButtonGuideWindow.refreshSystemOverlays() }
         // Back from a stream (disconnected, or shrunk to Picture in Picture): Home, where its game is (HomeView).
         .onChange(of: launcher.stream == nil || launcher.isMinimized) { _, isBack in if isBack { tab = .home } }
         // Behind everything, out to the screen's edges (on the Duo, the rail's column too): the grey of the grouped
