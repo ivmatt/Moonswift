@@ -739,6 +739,33 @@ private struct HeroCard: View {
         return shortTitleSize
     }
 
+    /// The game's logo, or its name where it has none.
+    @ViewBuilder private var title: some View {
+        if let logo {
+            Image(uiImage: logo)
+                .resizable()
+                .scaledToFit()
+                // About two lines of title tall, and no wider than the title may run.
+                .frame(maxWidth: .infinity, maxHeight: adaptiveTitleSize * (isCompact ? 1.6 : 2.2), alignment: .bottomLeading)
+                .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in width * 0.45 }
+                .shadow(color: .black.opacity(0.5), radius: 8) // stands off bright art
+                .accessibilityLabel(game.title)
+                .accessibilityAddTraits(.isHeader)
+                .id(game.id) // a new picture per game: faded in, not stretched from the last one's shape
+                .transition(.opacity)
+        } else {
+            Text(game.title)
+                .font(.system(size: adaptiveTitleSize, weight: .bold))
+                .foregroundStyle(.primary)
+                .lineLimit(2) // wraps within half the screen; shrinks only past two lines
+                .minimumScaleFactor(0.6)
+                .fixedSize(horizontal: false, vertical: true)
+                .contentTransition(.opacity)
+                // A little over half the screen at most, so a long name wraps rather than running across the art.
+                .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in width * 0.55 }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: isCompact ? 4 : 8) {
             if !subtitle.isEmpty {
@@ -746,27 +773,8 @@ private struct HeroCard: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(isElsewhere ? AnyShapeStyle(.orange) : isRunning ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
             }
-            if let logo {
-                Image(uiImage: logo)
-                    .resizable()
-                    .scaledToFit()
-                    // About two lines of title tall, and no wider than the title may run.
-                    .frame(maxWidth: .infinity, maxHeight: adaptiveTitleSize * (isCompact ? 1.6 : 2.2), alignment: .bottomLeading)
-                    .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in width * 0.45 }
-                    .shadow(color: .black.opacity(0.5), radius: 8) // stands off bright art
-                    .accessibilityLabel(game.title)
-                    .accessibilityAddTraits(.isHeader)
-            } else {
-                Text(game.title)
-                    .font(.system(size: adaptiveTitleSize, weight: .bold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2) // wraps within half the screen; shrinks only past two lines
-                    .minimumScaleFactor(0.6)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .contentTransition(.opacity)
-                    // A little over half the screen at most, so a long name wraps rather than running across the art.
-                    .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in width * 0.55 }
-            }
+            // Overlapping, so switching games crossfades the old title or logo out and the new in.
+            ZStack(alignment: .bottomLeading) { title }
             HStack(spacing: 12) {
                 Button(action: play) {
                     Text(isRunning ? labels.resume : "Play").font(.headline).frame(width: 140)
