@@ -22,6 +22,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 - Picture in Picture, resume and quit, and automatic reconnecting
 - A splash screen that hides the host's desktop while a game launches
 - A Performance Overlay and an in-stream Control Center with quick actions
+- Short one-time guides the first time you stream with gestures, a controller or the on-screen controller
 
 **Touch, keyboard and mouse**
 - On-screen controller with custom layouts, positioned separately for each rotation and for the iPhone Duo folded or unfolded

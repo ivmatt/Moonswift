@@ -1395,3 +1395,11 @@ struct CoverTitleTests {
     @Test func neverShrinksPastHalf() { #expect(CoverArt.titleSize("Observatory", base: 17, width: 1) == 8.5) }
     @Test func emptyTitleKeepsItsSize() { #expect(CoverArt.titleSize("", base: 17, width: 50) == 17) }
 }
+
+@MainActor struct StreamTutorialTests {
+    typealias Card = StreamTutorial.Card
+    @Test func touchOnlyGetsGestures() { #expect(Card.due(touchMode: .touchscreen, controllerConnected: false) == [.gestures]) }
+    @Test func controllerAddsItsCard() { #expect(Card.due(touchMode: .trackpad, controllerConnected: true) == [.gestures, .controller]) }
+    @Test func onScreenControllerSkipsGestures() { #expect(Card.due(touchMode: .controller, controllerConnected: false) == [.onScreenController]) }
+    @Test func controllerModeWithPadConnected() { #expect(Card.due(touchMode: .controller, controllerConnected: true) == [.controller]) }
+}

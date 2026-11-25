@@ -68,6 +68,7 @@ nonisolated enum SettingsKey {
     static let splashScreen = "splashScreen" // Bool, on by default: the game's art from Play until it's showing
     static let splashWait = "splashWait" // Int seconds the splash stays past the first picture; missing: 3
     static let splashEndsOnSound = "splashEndsOnSound" // Bool (beta): the splash goes once the game sounds, Splash Wait at most
+    static let streamTutorialsSeen = "streamTutorialsSeen" // String: the stream guide cards dismissed, comma-separated
     static let fourFingerGestures = "fourFingerGestures" // Bool, off by default: four fingers get the six gestures too
     static let pictureInPicture = "pictureInPicture" // Bool, on by default: pinch or leaving the app floats the stream
 }
