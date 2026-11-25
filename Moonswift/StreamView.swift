@@ -131,7 +131,14 @@ struct StreamView: View {
     /// The game gets no input while a menu, Settings or Control Center is over it, or while it's the small window.
     private var isPlaying: Bool {
         menu == nil && panel == nil && !isEditingPad && !isShowingSettings && scenePhase == .active && !launcher.isMinimized
-            && launcher.splash == nil
+            && launcher.splash == nil && !showsTutorial
+    }
+    /// The first-stream guide (StreamTutorial): once, when the game first shows.
+    @AppStorage(SettingsKey.streamTutorialSeen) private var tutorialSeen = false
+    @State private var showsTutorial = false
+    private func closeTutorial() {
+        tutorialSeen = true
+        withAnimation { showsTutorial = false }
     }
     /// The splash's line while it's up: what's happening, in calm words; nil once the picture is in.
     private var splashStatus: String? {
@@ -265,6 +272,11 @@ struct StreamView: View {
                                   quitAndRetry: { retry(fresh: true) }, reconnect: { retry(fresh: false) }, close: { leave(quitting: launcher.canRelaunch) })
                     .transition(.opacity)
             }
+            if showsTutorial {
+                StreamTutorial(touchMode: activeTouchMode, dismiss: closeTutorial)
+                    .transition(.opacity)
+                    .zIndex(3)
+            }
         }
         .animation(.easeInOut(duration: 0.45), value: shownStatus == nil)
         .animation(.easeInOut(duration: 0.3), value: failure == nil)
@@ -279,6 +291,7 @@ struct StreamView: View {
                 Color.clear.onGamepad { command in
                     // Over the splash, once the picture is in, any button skips the hold (and doesn't reach the game).
                     if launcher.splash != nil { if firstPictureAt != nil { launcher.endSplash() }; return }
+                    if showsTutorial { if command == .select || command == .back { closeTutorial() }; return }
                     if command == .streamMenu { showMenu(.actions) } // other buttons go to the game once input is sent
                 }
             }
@@ -334,6 +347,10 @@ struct StreamView: View {
                 showFailure(message)
             case .connecting: break
             }
+        }
+        // The game is up and in front for the first time: the guide, once (it pauses input like a menu).
+        .onChange(of: isPlaying && shownStatus == nil && failure == nil) { _, isShowingGame in
+            if isShowingGame, !tutorialSeen { withAnimation { showsTutorial = true } }
         }
         .onChange(of: isPlaying, initial: true) { _, isPlaying in // initial: a first launch starts behind the splash
             // While the menu is up, input drives the menu; held buttons and keys are released on the host.
