@@ -126,6 +126,8 @@ private struct ActionMenu: View {
         }
         .popupBox()
         .padding()
+        // Its own hints over the page's, which all just close it. Behind the box so the guide's room doesn't pad it.
+        .background { Color.clear.buttonGuide([([.a], "Select"), ([.b], "Close")], reportsLayout: false) }
         .onGamepad { command in
             switch command {
             case .up, .down: focus = FocusMove.next(focus, count: rows.count, columns: 1, command)
