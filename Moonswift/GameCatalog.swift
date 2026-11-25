@@ -59,6 +59,8 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     /// The file-name part of each kind; "cover" is the 2:3 cover (the only cover there was at first).
     enum Artwork: String, CaseIterable, Codable {
         case hero, cover, cover34, coverSquare
+        /// The game's name as art, drawn on Home in place of the title. Found online only.
+        case logo
 
         static func cover(_ shape: CoverShape) -> Artwork {
             switch shape {
@@ -76,6 +78,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         cover(for: gameID, shape) ?? found(.cover(shape), for: gameID)
     }
     func shownHero(for gameID: String) -> UIImage? { heroArt[gameID] ?? found(.hero, for: gameID) }
+    func shownLogo(for gameID: String) -> UIImage? { found(.logo, for: gameID) }
 
     // MARK: Art found online
 
@@ -84,6 +87,14 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         var gameID: Int?
         var name: String?
         var checked: Date
+        /// When its logo was last looked for; nil for matches made before logos were.
+        var logoChecked: Date?
+    }
+
+    /// A matched game with no logo is looked up again: once for matches from before logos, then weekly.
+    static func needsLogo(_ match: FoundMatch, hasLogo: Bool, now: Date = .now) -> Bool {
+        guard match.gameID != nil, !hasLogo else { return false }
+        return match.logoChecked.map { now.timeIntervalSince($0) > 7 * 86_400 } ?? true
     }
     private(set) var foundMatches: [String: FoundMatch] = [:]
     /// Games whose found art you turned off (a wrong match).
@@ -115,9 +126,17 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     func findArtwork(for games: [CatalogGame], key: String) async {
         let api = SteamGridDB(key: key)
         for game in games where !game.isApp {
-            if let match = foundMatches[game.id], match.gameID != nil || match.checked.timeIntervalSinceNow > -7 * 86_400 { continue }
+            let known = foundMatches[game.id]
+            // Not for art you turned off: saving any found picture turns it back on.
+            let logoOnly = !onlineArtOff.contains(game.id)
+                && known.map { Self.needsLogo($0, hasLogo: foundKinds[game.id]?.contains(.logo) == true) } ?? false
+            if let known, !logoOnly, known.gameID != nil || known.checked.timeIntervalSinceNow > -7 * 86_400 { continue }
             guard !Task.isCancelled else { return }
             do {
+                if logoOnly, let known, let id = known.gameID {
+                    try await fetchFound(game.id, match: SteamGridDB.Match(id: id, name: known.name ?? ""), api: api, kinds: [.logo])
+                    continue
+                }
                 guard let match = try await api.search(SteamGridDB.cleaned(game.originalTitle)) else {
                     saveMatch(FoundMatch(checked: .now), for: game.id)
                     continue
@@ -132,11 +151,12 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     }
 
     /// Each kind's picture for a match, saved as the game's found art; then the match itself. Steam's own store
-    /// picture where there is one (a Steam game's 2:3 cover and hero), else SteamGridDB's top rated.
-    private func fetchFound(_ gameID: String, match: SteamGridDB.Match, api: SteamGridDB) async throws {
+    /// picture where there is one (a Steam game's 2:3 cover, hero and logo), else SteamGridDB's top rated.
+    private func fetchFound(_ gameID: String, match: SteamGridDB.Match, api: SteamGridDB,
+                            kinds: [Artwork] = Artwork.allCases) async throws {
         let steamAppID = try? await api.steamAppID(game: match.id)
         var saved = false, failed = false
-        for kind in Artwork.allCases {
+        for kind in kinds {
             if let appID = steamAppID, let url = SteamGridDB.steamPicture(kind, appID: appID),
                (try? await setFound(from: url, kind, for: gameID)) != nil { // Steam may have none: a 404
                 saved = true
@@ -152,7 +172,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         }
         // Nothing came through: not saved as done, so the next look-up tries this game again.
         if failed, !saved { throw URLError(.cannotLoadFromNetwork) }
-        saveMatch(FoundMatch(gameID: match.id, name: match.name, checked: .now), for: gameID)
+        saveMatch(FoundMatch(gameID: match.id, name: match.name, checked: .now, logoChecked: .now), for: gameID)
     }
 
     /// The picker's "this is the right game": its art replaces what the wrong one brought.
@@ -169,11 +189,14 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     /// A picture picked (or the top-rated one), downloaded and saved as the game's found art of that kind.
     func setFound(from url: URL, _ kind: Artwork, for gameID: String) async throws {
         let (data, response) = try await URLSession.shared.data(from: url)
-        guard (response as? HTTPURLResponse)?.statusCode == 200, let image = UIImage(data: data), let jpeg = Self.scaled(image, kind).jpegData(compressionQuality: 0.85) else {
+        let scaled = UIImage(data: data).map { Self.scaled($0, kind) }
+        // A logo keeps its see-through background, which JPEG would fill in.
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              let encoded = kind == .logo ? scaled?.pngData() : scaled?.jpegData(compressionQuality: 0.85) else {
             throw URLError(.cannotDecodeContentData)
         }
         let file = foundFile(gameID, kind)
-        try jpeg.write(to: file)
+        try encoded.write(to: file)
         foundCache.removeObject(forKey: file.path as NSString)
         foundKinds[gameID, default: []].insert(kind)
         foundVersion += 1 // the same kind replaced: views showing it look again
@@ -184,7 +207,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     }
 
     private func foundFile(_ gameID: String, _ kind: Artwork) -> URL {
-        Self.foundFolder.appending(path: "\(Self.fileKey(gameID: gameID)).\(kind.rawValue).jpg")
+        Self.foundFolder.appending(path: "\(Self.fileKey(gameID: gameID)).\(kind.rawValue).\(kind == .logo ? "png" : "jpg")")
     }
 
     private func saveMatch(_ match: FoundMatch, for gameID: String) {
@@ -198,9 +221,13 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         return url
     }
 
-    /// Scaled down to what the screen needs: a hero fills it, a cover is at most about a third of it.
+    /// Scaled down to what the screen needs: a hero fills it, a logo is about half its width, a cover at most a third.
     private static func scaled(_ image: UIImage, _ kind: Artwork) -> UIImage {
-        let longest: CGFloat = kind == .hero ? 2400 : 900
+        let longest: CGFloat = switch kind {
+        case .hero: 2400
+        case .logo: 1200
+        case .cover, .cover34, .coverSquare: 900
+        }
         let scale = min(1, longest / max(image.size.width, image.size.height))
         return image.preparingThumbnail(of: CGSize(width: image.size.width * scale, height: image.size.height * scale)) ?? image
     }

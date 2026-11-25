@@ -1299,6 +1299,19 @@ struct SteamGridDBTests {
         #expect(SteamGridDB.cleaned("Hollow Knight: Silksong") == "Hollow Knight: Silksong")
         #expect(SteamGridDB.cleaned("Assassin's Creed Black Flag Resynced") == "Assassin's Creed Black Flag Resynced")
     }
+
+    @Test @MainActor func logosAreLookedUpOnceThenWeekly() {
+        let now = Date.now
+        let old = GameCatalog.FoundMatch(gameID: 7, name: "Celeste", checked: now) // matched before logos
+        #expect(GameCatalog.needsLogo(old, hasLogo: false, now: now))
+        #expect(!GameCatalog.needsLogo(old, hasLogo: true, now: now))
+        var tried = old
+        tried.logoChecked = now.addingTimeInterval(-86_400)
+        #expect(!GameCatalog.needsLogo(tried, hasLogo: false, now: now)) // none yesterday: not again yet
+        tried.logoChecked = now.addingTimeInterval(-8 * 86_400)
+        #expect(GameCatalog.needsLogo(tried, hasLogo: false, now: now))
+        #expect(!GameCatalog.needsLogo(GameCatalog.FoundMatch(checked: now), hasLogo: false, now: now)) // no match: nothing to look up
+    }
 }
 
 struct QuietRetryTests {

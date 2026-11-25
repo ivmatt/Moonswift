@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The Edit sheet's Choose Artwork: a game's covers (in the chosen cover shape) or heroes on SteamGridDB, best rated
+/// The Edit sheet's Choose Artwork: a game's covers (in the chosen cover shape), heroes or logos on SteamGridDB, best rated
 /// first and more as you scroll, with Steam's own store picture first for a Steam game. Picking one makes it the game's
 /// found art of that kind. Change Game searches SteamGridDB for the right game when the name matched the wrong one.
-/// Controller: arrows move, A picks, LB/RB switch Cover and Hero, Y changes the game, B closes.
+/// Controller: arrows move, A picks, LB/RB switch between Cover, Hero and Logo, Y changes the game, B closes.
 struct ArtworkPicker: View {
     let game: CatalogGame
 
@@ -12,7 +12,7 @@ struct ArtworkPicker: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
 
-    private enum Kind: String, CaseIterable { case cover = "Cover", hero = "Hero" }
+    private enum Kind: String, CaseIterable { case cover = "Cover", hero = "Hero", logo = "Logo" }
     private struct Choice: Hashable {
         let thumb: URL
         let url: URL
@@ -41,9 +41,15 @@ struct ArtworkPicker: View {
     /// In Change Game: -1 the search field, then the matches.
     @State private var gameFocus = 0
 
-    private var artwork: GameCatalog.Artwork { kind == .hero ? .hero : .cover(coverShape) }
+    private var artwork: GameCatalog.Artwork {
+        switch kind {
+        case .cover: .cover(coverShape)
+        case .hero: .hero
+        case .logo: .logo
+        }
+    }
     private var match: GameCatalog.FoundMatch? { catalog.foundMatches[game.id] }
-    private var columns: Int { kind == .hero ? 2 : 4 }
+    private var columns: Int { kind == .cover ? 4 : kind == .logo ? 3 : 2 }
 
     var body: some View {
         NavigationStack {
@@ -65,7 +71,7 @@ struct ArtworkPicker: View {
                 }
             }
             .buttonGuide(isChoosingGame ? [([.a], "Select"), ([.b], "Back")]
-                         : [([.a], "Choose"), ([.l1, .r1], "Cover / Hero"), ([.y], "Change Game"), ([.b], "Done")],
+                         : [([.a], "Choose"), ([.l1, .r1], "Cover / Hero / Logo"), ([.y], "Change Game"), ([.b], "Done")],
                          reportsLayout: false)
             .onGamepad(handle)
         }
@@ -78,7 +84,7 @@ struct ArtworkPicker: View {
             HStack {
                 Picker("Kind", selection: $kind) { ForEach(Kind.allCases, id: \.self) { Text($0.rawValue) } }
                     .pickerStyle(.segmented)
-                    .frame(maxWidth: 240)
+                    .frame(maxWidth: 320)
                 Spacer()
                 Button(match?.name.map { "\($0) · Change Game" } ?? "Find Game") { openGameSearch() }
                     .lineLimit(1)
@@ -119,11 +125,12 @@ struct ArtworkPicker: View {
 
     private func tile(_ choice: Choice, isFocused: Bool) -> some View {
         Color.clear
-            .aspectRatio(kind == .hero ? 1920 / 620 : coverShape.ratio, contentMode: .fit)
+            .aspectRatio(kind == .cover ? coverShape.ratio : kind == .hero ? 1920 / 620 : 2, contentMode: .fit)
+            .background { if kind == .logo { Color(white: 0.18) } } // a see-through logo needs something behind it
             .overlay {
                 AsyncImage(url: choice.thumb) { phase in
                     if let image = phase.image {
-                        image.resizable().scaledToFill()
+                        if kind == .logo { image.resizable().scaledToFit().padding(12) } else { image.resizable().scaledToFill() }
                     } else if phase.error != nil {
                         Image(systemName: "photo").foregroundStyle(.secondary) // Steam has none of this kind
                     } else {
@@ -278,8 +285,8 @@ struct ArtworkPicker: View {
             focus = FocusMove.next(focus, count: choices.count, columns: columns, command)
             if focus >= choices.count - columns { loadMore() }
         case .select: if choices.indices.contains(focus) { choose(choices[focus]) }
-        case .previousTab: kind = .cover
-        case .nextTab: kind = .hero
+        case .previousTab: kind = Kind.allCases[max(0, (Kind.allCases.firstIndex(of: kind) ?? 0) - 1)]
+        case .nextTab: kind = Kind.allCases[min(Kind.allCases.count - 1, (Kind.allCases.firstIndex(of: kind) ?? 0) + 1)]
         case .menu: openGameSearch()
         case .back: dismiss()
         default: break

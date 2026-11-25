@@ -353,7 +353,7 @@ struct HomeView: View {
                     .padding(.trailing, heroFold.maxWidth == nil ? -railInsets.trailing : 0)
                     .transition(.opacity)
                 } else if let game = selectedGame {
-                    HeroCard(game: game, subtitle: heroSubtitle(game), isShort: isShort, isCompact: isShortAndWide,
+                    HeroCard(game: game, logo: catalog.shownLogo(for: game.id), subtitle: heroSubtitle(game), isShort: isShort, isCompact: isShortAndWide,
                              isRunning: game.isRunning(directory), labels: game.runningLabels(directory, catalog),
                              isElsewhere: game.elsewhere(directory, catalog) != nil, focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
                              play: { start(game) }, quit: { quit(game) }, isPressingPlay: isPressingPlay,
@@ -703,6 +703,8 @@ private struct HeroCard: View {
     /// The title and buttons' margin from the card's leading edge.
     static let inset: CGFloat = 36
     let game: CatalogGame
+    /// The game's logo, found online: shown in place of the title.
+    let logo: UIImage?
     let subtitle: String
     /// On a short screen: a smaller title.
     var isShort = false
@@ -744,15 +746,27 @@ private struct HeroCard: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(isElsewhere ? AnyShapeStyle(.orange) : isRunning ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
             }
-            Text(game.title)
-                .font(.system(size: adaptiveTitleSize, weight: .bold))
-                .foregroundStyle(.primary)
-                .lineLimit(2) // wraps within half the screen; shrinks only past two lines
-                .minimumScaleFactor(0.6)
-                .fixedSize(horizontal: false, vertical: true)
-                .contentTransition(.opacity)
-                // A little over half the screen at most, so a long name wraps rather than running across the art.
-                .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in width * 0.55 }
+            if let logo {
+                Image(uiImage: logo)
+                    .resizable()
+                    .scaledToFit()
+                    // About two lines of title tall, and no wider than the title may run.
+                    .frame(maxWidth: .infinity, maxHeight: adaptiveTitleSize * (isCompact ? 1.6 : 2.2), alignment: .bottomLeading)
+                    .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in width * 0.45 }
+                    .shadow(color: .black.opacity(0.5), radius: 8) // stands off bright art
+                    .accessibilityLabel(game.title)
+                    .accessibilityAddTraits(.isHeader)
+            } else {
+                Text(game.title)
+                    .font(.system(size: adaptiveTitleSize, weight: .bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2) // wraps within half the screen; shrinks only past two lines
+                    .minimumScaleFactor(0.6)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+                    // A little over half the screen at most, so a long name wraps rather than running across the art.
+                    .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in width * 0.55 }
+            }
             HStack(spacing: 12) {
                 Button(action: play) {
                     Text(isRunning ? labels.resume : "Play").font(.headline).frame(width: 140)

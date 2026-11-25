@@ -62,7 +62,7 @@ nonisolated struct SteamGridDB {
         return matches ?? []
     }
 
-    /// The top-rated picture of one kind for a matched game: a cover for each cover shape, or a hero.
+    /// The top-rated picture of one kind for a matched game: a cover for each cover shape, a hero, or a logo.
     func imageURL(_ kind: GameCatalog.Artwork, game: Int) async throws -> URL? {
         try await pictures(kind, game: game).first?.url
     }
@@ -75,6 +75,7 @@ nonisolated struct SteamGridDB {
         case .cover34: "grids/game/\(game)?dimensions=660x930,342x482&\(query)" // its nearest to 3:4
         case .coverSquare: "grids/game/\(game)?dimensions=1024x1024,512x512&\(query)"
         case .hero: "heroes/game/\(game)?\(query)"
+        case .logo: "logos/game/\(game)?styles=official,white,custom&\(query)" // not black: it vanishes on dark art
         }
         let pictures: [Picture]? = try await get(path)
         return pictures ?? []
@@ -99,12 +100,13 @@ nonisolated struct SteamGridDB {
     }
 
     /// Steam's own store picture of this kind (what the site's "Original Steam Assets" shows): its 2:3 library cover
-    /// and its hero; Steam has none in 3:4 or square.
+    /// its hero and its logo; Steam has none in 3:4 or square.
     static func steamPicture(_ kind: GameCatalog.Artwork, appID: Int) -> URL? {
         let base = "https://cdn.cloudflare.steamstatic.com/steam/apps/\(appID)"
         return switch kind {
         case .cover: URL(string: "\(base)/library_600x900_2x.jpg")
         case .hero: URL(string: "\(base)/library_hero.jpg")
+        case .logo: URL(string: "\(base)/logo.png")
         case .cover34, .coverSquare: nil
         }
     }
