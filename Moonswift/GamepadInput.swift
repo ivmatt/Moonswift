@@ -422,7 +422,7 @@ private struct ButtonGuidePlacement: ViewModifier {
     func body(content: Content) -> some View {
         let shows = mode.isShown(controllerConnected: gamepad.isControllerConnected) && !hints.isEmpty
         content
-            .modifier(GuideBacking(isOn: shows && backs && UIDevice.current.userInterfaceIdiom == .phone, center: center, tabBar: tabBar))
+            .modifier(GuideBacking(isOn: shows && backs && UIDevice.current.userInterfaceIdiom == .phone, center: center, tabBar: reportsLayout ? tabBar : nil))
             // Room at the bottom for the guide (drawn above everything, by ButtonGuideWindow), with no spacing of the
             // system's own: Home's covers end the same 28 points above it as Play is above them. The guide sits 4
             // points into the margin below, so it looks balanced there.
@@ -449,41 +449,33 @@ private struct ButtonGuidePlacement: ViewModifier {
 }
 
 /// EXPLORATION (temporary): ways to keep a page's content out from under an iPhone's guide, picked with the launch
-/// argument `-debugGuideBacking off|band|fade|system`. Not while a tab bar shows along the bottom: it covers the guide.
+/// argument `-debugGuideBacking off|band|fade`. Not while a tab bar shows along the bottom: it covers the guide.
 private struct GuideBacking: ViewModifier {
     let isOn: Bool
     let center: ButtonGuideCenter?
-    let tabBar: TabBarMinimize?
+    let tabBar: TabBarMinimize? // a tab page's; nil for a sheet's, which the tab bar is never over
     @AppStorage("debugGuideBacking") private var style = "off"
 
     func body(content: Content) -> some View {
-        let tabBarShows = (center?.isTabBarBelow ?? false) && !(tabBar?.isHidden ?? true) && !(tabBar?.isMinimized ?? true)
+        let tabBarShows = tabBar != nil && (center?.isTabBarBelow ?? false) && !(tabBar?.isHidden ?? true) && !(tabBar?.isMinimized ?? true)
         // The guide's top, from the screen's bottom, less the window's own bottom inset, which pages already keep.
         let guideTop = PhoneButtonGuide.bottomFromEdge + (center?.height ?? 20) + 4
-        let band = max(1, guideTop - HomeView.windowBottomInset)
         let on = isOn && !tabBarShows
-        // Only the launch-time style picks the structure: the rest change amounts, so a page keeps its scroll position.
-        switch style {
-        case "band": // the page ends above the guide: nothing scrolls under it
-            content.padding(.bottom, on ? band : 0)
-        case "fade": // room to scroll the last row clear, and content fading out above the guide
-            content
-                .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: on ? band : 0) }
-                .mask {
-                    VStack(spacing: 0) {
-                        Color.black
-                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: on ? 28 : 0)
-                        Color.clear.frame(height: on ? guideTop - 4 : 0)
-                    }
-                    .ignoresSafeArea()
+        let band = on && style == "band" ? max(1, guideTop - HomeView.windowBottomInset) : 0 // the page ends above the guide: nothing scrolls under it
+        let fades = on && style == "fade" // content fades out above the guide, with room to scroll the last row clear
+        // One structure for every style, so a page keeps its state (and scroll position) as they change.
+        // (Tried: safeAreaBar with a soft scroll edge effect. With nothing in the bar, it draws nothing.)
+        content
+            .padding(.bottom, band)
+            .contentMargins(.bottom, fades ? max(1, guideTop - 4 - HomeView.windowBottomInset) : 0, for: .scrollContent)
+            .mask {
+                VStack(spacing: 0) {
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: fades ? 28 : 0)
+                    Color.clear.frame(height: fades ? guideTop - 4 : 0)
                 }
-        case "system": // the system's own soft scroll edge, as under a toolbar
-            content
-                .safeAreaBar(edge: .bottom, spacing: 0) { Color.clear.frame(height: on ? band : 0) }
-                .scrollEdgeEffectStyle(on ? .soft : .automatic, for: .bottom)
-        default:
-            content
-        }
+                .ignoresSafeArea()
+            }
     }
 }
 
