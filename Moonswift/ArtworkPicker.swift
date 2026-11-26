@@ -33,6 +33,7 @@ struct ArtworkPicker: View {
     /// Picked here: ticked. While it downloads: a spinner on it.
     @State private var chosen: URL?
     @State private var saving: URL?
+    @State private var insets = EdgeInsets()
 
     @State private var isChoosingGame = false
     @State private var query = ""
@@ -51,6 +52,9 @@ struct ArtworkPicker: View {
         }
     }
     private var match: GameCatalog.FoundMatch? { catalog.foundMatches[game.id] }
+    /// The folded Duo puts the bar's title at the safe area's edge, by the camera: the header and grid start there too,
+    /// under it. Elsewhere the title is centred, so the usual 20.
+    private var leadingMargin: CGFloat { TabToolbar<EmptyView>.isRailOnLeft(insets: insets) ? 0 : 20 }
     private var columns: Int { kind == .cover ? 4 : kind == .logo ? 3 : 2 }
 
     var body: some View {
@@ -85,11 +89,10 @@ struct ArtworkPicker: View {
         // One 12-point gap between field, picker and grid: the grid's own top padding is that gap, with just room for
         // the focused top row's ring and lift.
         VStack(spacing: 0) {
-            nameField.padding(.horizontal, 20)
+            nameField.padding(.leading, leadingMargin).padding(.trailing, 20)
             Picker("Kind", selection: $kind) { ForEach(Kind.allCases, id: \.self) { Text($0.rawValue) } }
                 .pickerStyle(.segmented)
-                .controlSize(.large)
-                .padding(.horizontal, 20)
+                .padding(.leading, leadingMargin).padding(.trailing, 20)
                 .padding(.top, 12)
             ScrollViewReader { scroller in
                 ScrollView {
@@ -101,7 +104,7 @@ struct ArtworkPicker: View {
                                 .onAppear { if index == choices.count - 1 { loadMore() } }
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.leading, leadingMargin).padding(.trailing, 20)
                     .padding(.vertical, 12)
                     if isLoading { ProgressView().padding() }
                 }
@@ -123,6 +126,7 @@ struct ArtworkPicker: View {
                 }
             }
         }
+        .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets = $0 }
         .onChange(of: kind) { focus = min(focus, 0); choices = [] } // at once: not the old kind's pictures under the new highlight
         .task(id: "\(kind)|\(coverShape)|\(match?.gameID ?? -1)") { await reload() }
     }
@@ -139,7 +143,7 @@ struct ArtworkPicker: View {
             Image(systemName: "pencil").foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
-        .frame(height: 48) // as tall as the large picker below it
+        .frame(height: 40)
         .background(Color(.tertiarySystemFill), in: .capsule) // flat, like a system search field
         .contentShape(.capsule)
         .focusRing(gamepad.isActive && focus == -1, cornerRadius: .infinity, scale: 1.015)
