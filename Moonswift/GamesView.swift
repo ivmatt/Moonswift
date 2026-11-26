@@ -126,12 +126,13 @@ struct GamesView: View {
                     if new < columns { // the search bar and its close button too
                         withAnimation { scroller.scrollTo("top", anchor: .top) }
                     } else if shown.indices.contains(new) {
-                        // By game, not position: identifying covers by position kept each spot's old art after a sort or filter.
-                        // A list row is the page's whole width: scrolled "only as far as it takes" (no anchor), it also
-                        // shifted the page sideways. Centred across, it only moves up and down: low down going down.
+                        // The cover's whole row, margins and all, not the cover: scrollTo sometimes lines its target's left
+                        // edge up with the screen's, which for a cover in from the edge moved the whole page sideways (and
+                        // nothing moved it back). A target as wide as the page can only move up and down. A list row low
+                        // down going down: "only as far as it takes" left it under the legend.
                         let anchor: UnitPoint? = layout == .list ? UnitPoint(x: 0.5, y: new < old ? 0.5 : 0.85)
                             : new < old ? .center : nil
-                        withAnimation { scroller.scrollTo(shown[new].id, anchor: anchor) }
+                        withAnimation { scroller.scrollTo(layout == .list ? AnyHashable(shown[new].id) : AnyHashable(Self.rowID(new / columns)), anchor: anchor) }
                     }
                 }
                 // No covers to land on: the controller starts on the apps.
@@ -199,33 +200,48 @@ struct GamesView: View {
                     // How far the wall has moved up from where it rests (its top padding below).
                     .onGeometryChange(for: CGFloat.self) { contentTop - $0.frame(in: .scrollView).minY } action: { scroll.offset = $0 }
                 // Part of the wall, so it scrolls away with it; not while searching, which is about the games.
-                if hasShortcutRow { shortcutRow }
-                Group {
-                    if layout == .list {
-                        LazyVStack(spacing: 10) {
-                            ForEach(Array(shown.enumerated()), id: \.element.id) { index, game in
-                                listRow(game, isFocused: gamepad.isActive && !isSearchFocused && index == focus)
-                            }
+                if hasShortcutRow { shortcutRow.padding(.horizontal, 36) }
+                if layout == .list {
+                    LazyVStack(spacing: 10) {
+                        ForEach(Array(shown.enumerated()), id: \.element.id) { index, game in
+                            listRow(game, isFocused: gamepad.isActive && !isSearchFocused && index == focus)
+                                .padding(coverMargins)
                         }
-                    } else {
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: columns), spacing: 18) {
-                            ForEach(Array(shown.enumerated()), id: \.element.id) { index, game in
-                                cover(game, isFocused: gamepad.isActive && !isSearchFocused && index == focus)
+                    }
+                } else {
+                    LazyVStack(spacing: 18) {
+                        ForEach(0..<(shown.count + columns - 1) / columns, id: \.self) { row in
+                            HStack(alignment: .top, spacing: 18) {
+                                // By game, not position: identifying covers by position kept each spot's old art after a sort or filter.
+                                ForEach(Array(shown.enumerated())[row * columns..<min(shown.count, (row + 1) * columns)], id: \.element.id) { index, game in
+                                    cover(game, isFocused: gamepad.isActive && !isSearchFocused && index == focus)
+                                        .frame(minWidth: 0, maxWidth: .infinity) // equal columns
+                                }
+                                ForEach(0..<columns - min(columns, shown.count - row * columns), id: \.self) { _ in
+                                    Color.clear.frame(height: 0).frame(minWidth: 0, maxWidth: .infinity) // a short last row's empty spots
+                                }
                             }
+                            .padding(coverMargins)
+                            .id(Self.rowID(row))
                         }
                     }
                 }
-                .padding(.leading, max(0, 2 * foldShift)) // the title and header stay put
-                .padding(.trailing, max(0, -2 * foldShift))
             }
             // A tap between the covers puts the readied one away.
             .background { Color.clear.contentShape(.rect).onTapGesture { withAnimation(.snappy) { readied = nil } } }
-            .padding(.horizontal, 36)
             .padding(.top, contentTop) // the status bar's room, as the bar's is ignored below
             .padding(.bottom, 24)
         }
         .onScrollPhaseChange { _, phase in if phase != .idle, readied != nil { withAnimation(.snappy) { readied = nil } } }
     }
+
+    /// The covers' margins, inside each row so a row is a scroll target as wide as the page (see the focus scrolling).
+    /// Off the fold on a half-open Duo; the title and header stay put.
+    private var coverMargins: EdgeInsets {
+        EdgeInsets(top: 0, leading: 36 + max(0, 2 * foldShift), bottom: 0, trailing: 36 + max(0, -2 * foldShift))
+    }
+
+    private static func rowID(_ row: Int) -> String { "row \(row)" }
 
     /// iPhone: the tab bar goes while searching, and while the controller is below the first row (back at the top row,
     /// it comes back).
