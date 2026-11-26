@@ -39,7 +39,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 - Find hosts on your network automatically, or add one by address (needs Local Network access; if it was denied, Add a Host says so and links to Settings)
 - PIN pairing with pinned certificates
 - A remote address for playing away from home, with a Local or Remote label on each host
-- Wake a sleeping PC on the same network (needs Wake-on-LAN turned on for the PC, ideally over Ethernet)
+- Wake a sleeping PC on the same network (needs Wake-on-LAN turned on for the PC, ideally over Ethernet), from Home too when its games haven't loaded yet
 - Layouts that keep content off the fold on iPhone Duo
 
 ### Features that need Vibepollo
