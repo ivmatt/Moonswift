@@ -1331,6 +1331,16 @@ struct SteamGridDBTests {
         #expect(GameCatalog.needsLogo(tried, hasLogo: false, now: now))
         #expect(!GameCatalog.needsLogo(GameCatalog.FoundMatch(checked: now), hasLogo: false, now: now)) // no match: nothing to look up
     }
+
+    @Test func aLogoIsTrimmedToItsVisiblePixels() {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let padded = UIGraphicsImageRenderer(size: CGSize(width: 640, height: 360), format: format).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 100, y: 150, width: 300, height: 40)) // a thin wordmark in a lot of empty canvas
+        }
+        #expect(GameCatalog.trimmed(padded).size == CGSize(width: 300, height: 40))
+    }
 }
 
 struct QuietRetryTests {

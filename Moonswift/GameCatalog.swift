@@ -52,6 +52,8 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     @ObservationIgnored private var gamesCache: [[String]: [CatalogGame]] = [:]
     /// Seconds the launch splash stays past the first picture, for games that need more (or less) than the default.
     private(set) var splashWaits: [String: Int] = [:]
+    /// How big each game's logo shows on Home, in percent of its usual size, by game ID; missing is 100.
+    private(set) var logoSizes: [String: Int] = [:]
     /// The on-screen controller layout last used with each game, by game ID.
     private(set) var padLayouts: [String: String] = [:]
     /// Your pictures by kind, then game ID: a hero, and a cover for each cover shape.
@@ -111,9 +113,32 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         guard !onlineArtOff.contains(gameID), foundKinds[gameID]?.contains(kind) == true else { return nil }
         let file = foundFile(gameID, kind)
         if let image = foundCache.object(forKey: file.path as NSString) { return image }
-        guard let image = UIImage(contentsOfFile: file.path) else { return nil }
+        guard var image = UIImage(contentsOfFile: file.path) else { return nil }
+        if kind == .logo { image = Self.trimmed(image) } // at load, so logos saved before trimming are covered too
         foundCache.setObject(image, forKey: file.path as NSString)
         return image
+    }
+
+    /// Cropped to its visible pixels: Steam's logos sit in a fixed 640×360 canvas with any amount of empty space.
+    nonisolated static func trimmed(_ image: UIImage) -> UIImage {
+        guard let cg = image.cgImage else { return image }
+        let width = cg.width, height = cg.height
+        var alpha = [UInt8](repeating: 0, count: width * height)
+        let found: CGRect? = alpha.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+                                          bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return nil }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+            var minX = width, minY = height, maxX = -1, maxY = -1
+            for y in 0..<height {
+                for x in 0..<width where buffer[y * width + x] > 24 { // ignores faint glow and shadow edges
+                    minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+                }
+            }
+            return maxX < 0 ? nil : CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
+        }
+        guard let found, let cropped = cg.cropping(to: found) else { return image }
+        return UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
     }
 
     func setOnlineArt(_ isOn: Bool, for game: CatalogGame) {
@@ -260,6 +285,9 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         if let data = try? Data(contentsOf: custom.appending(path: "splashWaits.json")) {
             splashWaits = (try? JSONDecoder().decode([String: Int].self, from: data)) ?? [:]
         }
+        if let data = try? Data(contentsOf: custom.appending(path: "logoSizes.json")) {
+            logoSizes = (try? JSONDecoder().decode([String: Int].self, from: data)) ?? [:]
+        }
         if let data = try? Data(contentsOf: custom.appending(path: "padLayouts.json")) {
             padLayouts = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
         }
@@ -324,6 +352,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         save(showAs, Self.customFolder, "showAs.json")
         save(splashWaits, Self.customFolder, "splashWaits.json")
         save(padLayouts, Self.customFolder, "padLayouts.json")
+        save(logoSizes, Self.customFolder, "logoSizes.json")
     }
 
     /// An empty or unchanged name removes the nickname.
@@ -347,6 +376,12 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     /// nil: the default from Settings.
     func setSplashWait(_ seconds: Int?, for game: CatalogGame) {
         splashWaits[game.id] = seconds
+        saveSettings()
+    }
+
+    /// nil: the usual size.
+    func setLogoSize(_ percent: Int?, for game: CatalogGame) {
+        logoSizes[game.id] = percent
         saveSettings()
     }
 
@@ -431,6 +466,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
             hidden.remove(id)
             showAs[id] = nil
             splashWaits[id] = nil
+            logoSizes[id] = nil
             padLayouts[id] = nil
         }
         saveSettings()
