@@ -524,6 +524,8 @@ private struct PageFade: UIViewRepresentable {
         override func didMoveToWindow() {
             super.didMoveToWindow()
             if window == nil, let page, page.layer.mask === gradient { page.layer.mask = nil }
+            // Back with it (a tab shown again): mask again, as SwiftUI won't call for an update when nothing changed.
+            if window != nil { setNeedsLayout() }
         }
 
         override func layoutSubviews() {
