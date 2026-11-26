@@ -36,8 +36,7 @@ struct PairingView: View {
                 Text("\(pairedHost.name) is paired").font(.title2.bold())
                 PermissionsConfirmation(isConfirmed: $hasAllowedPermissions)
                 Button { onPaired(pairedHost.id, pairedHost.name) } label: { Text("Done").frame(width: AddHostView.buttonWidth) }
-                    .buttonStyle(.glassProminent)
-                    .tint(.blue)
+                    .primaryButton()
                     .controlSize(.large)
                     .disabled(!hasAllowedPermissions)
             }
@@ -53,7 +52,7 @@ struct PairingView: View {
             if let error {
                 Text(error).foregroundStyle(.red).multilineTextAlignment(.center)
                 Button("Try Again", action: retry)
-                    .buttonStyle(.borderedProminent)
+                    .primaryButton()
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     step(1, "Open the host's web page: on \(name) itself, go to localhost:\(webPort) in a browser.")

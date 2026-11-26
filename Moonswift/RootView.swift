@@ -154,19 +154,20 @@ struct RootView: View {
                         HomeView(switchTab: step, openSettings: openSettings, refresh: { Task { await refresh() } })
                     }
                 }
-                .tint(.accentColor)
+                .tint(nil)
             }
             Tab(TabID.library.title, systemImage: TabID.library.symbol, value: .library) {
                 Group { if isUnderStream { Color.black } else { GamesView(switchTab: step, openSettings: openSettings) } }
-                    .tint(.accentColor)
+                    .tint(nil)
             }
             Tab(TabID.pcs.title, systemImage: TabID.pcs.symbol, value: .pcs) {
                 Group { if isUnderStream { Color.black } else { PCsView(openSettings: openSettings, switchTab: step) } }
-                    .tint(.accentColor)
+                    .tint(nil)
             }
         }
         // The iPad's floating tab bar takes its colour from the tab view and ignores the UITabBar appearance (MyApp):
-        // its selected tab white (black in light mode), while each tab puts the accent colour back for its contents.
+        // its selected tab white (black in light mode), while each tab puts the system's default tint back for its
+        // contents: the same as Settings, opened outside the tabs (white toolbar buttons, green switches, blue links).
         .tint(.primary)
     }
 

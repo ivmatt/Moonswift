@@ -281,6 +281,12 @@ extension View {
         )
     }
 
+    /// A page's main action (Continue, Connect, Done): filled blue glass, headline text. Blue even under a page's
+    /// white tint, which made it white on white. Secondary actions are `.glass` (white), destructive ones red.
+    func primaryButton() -> some View {
+        buttonStyle(.glassProminent).tint(.blue).font(.headline)
+    }
+
     /// The controller focus highlight: slightly bigger, a thin ring (white in dark mode, black in light) an even gap outside the shape, and a shadow.
     /// `cornerRadius` is the shape's own; `.infinity` for a capsule. `scale`: how much bigger; less for something wide.
     func focusRing(_ isOn: Bool, cornerRadius: CGFloat = 12, scale: CGFloat = 1.05) -> some View {

@@ -273,8 +273,7 @@ struct FirstRunSetup: View {
 
     private var buttons: some View {
         Button { next() } label: { Text("Continue").frame(width: AddHostView.buttonWidth) }
-            .buttonStyle(.glassProminent)
-            .tint(.blue)
+            .primaryButton()
             .controlSize(.large)
             .disabled(!canContinue)
             .focusRing(focused(rowCount - 1), cornerRadius: .infinity)

@@ -58,9 +58,9 @@ struct EditPCView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                // The standard blue checkmark; a spinner while the addresses are checked.
+                // Words like every other sheet's Done; a spinner while the addresses are checked.
                 ToolbarItem(placement: .confirmationAction) {
-                    if isSaving { ArcSpinner(size: 18) } else { Button(role: .confirm) { Task { await save() } } /* no title: the system's checkmark */ }
+                    if isSaving { ArcSpinner(size: 18) } else { Button("Save") { Task { await save() } } }
                 }
             }
             .onAppear {

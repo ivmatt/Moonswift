@@ -179,8 +179,7 @@ struct AddHostView: View {
                   + "that aren't added won't appear here.", isImportant: true),
         ]) {
             Button { advance(to: .find) } label: { Text("Continue").frame(width: Self.buttonWidth) }
-                .buttonStyle(.glassProminent)
-                .tint(.blue) // the page's white tint made it white on white
+                .primaryButton()
                 .controlSize(.large)
                 .focusRing(gamepad.isActive, cornerRadius: .infinity)
         }
@@ -342,8 +341,7 @@ struct AddHostView: View {
                     }
                     .frame(width: Self.buttonWidth)
                 }
-                .buttonStyle(.glassProminent)
-                .tint(.blue)
+                .primaryButton()
                 .controlSize(.large)
                 .disabled(isConnecting || address.trimmingCharacters(in: .whitespaces).isEmpty)
                 .frame(maxWidth: .infinity) // centred
@@ -464,8 +462,7 @@ struct AddHostView: View {
         VStack(spacing: 16) {
             PermissionsConfirmation(isConfirmed: $hasAllowedPermissions, isFocused: gamepad.isActive && focus == 0)
             Button { finishPairing() } label: { Text(isFirstHost ? "Continue" : "Done").frame(width: Self.buttonWidth) }
-                .buttonStyle(.glassProminent)
-                .tint(.blue) // the page's white tint made it white on white
+                .primaryButton()
                 .controlSize(.large)
                 .disabled(!hasAllowedPermissions)
                 .focusRing(gamepad.isActive && focus == 1, cornerRadius: .infinity)
@@ -600,8 +597,7 @@ struct WelcomeView: View {
             }
             Button("Add a Host") { add() }
                 .font(window.isShort ? .headline : .title3.weight(.semibold))
-                .buttonStyle(.glassProminent)
-                .tint(.blue)
+                .primaryButton()
                 .controlSize(.large)
                 .focusRing(gamepad.isActive, cornerRadius: .infinity)
                 .padding(.top, 6)
