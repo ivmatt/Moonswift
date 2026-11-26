@@ -55,7 +55,8 @@ struct AddHostView: View {
                     .id(step) // a new view for each step, so it slides in as the last slides out
                     .transition(Self.slide(forward: isForward))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity) // the whole screen, even for a page shorter than it
+            // The whole screen, never more or less: a page too tall for it mustn't grow the window it's measured by.
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .onGeometryChange(for: CGSize.self) { $0.fullSize } action: { window = $0 }
             .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { sideInsets = $0 }
             // Its own bar: the Duo's system one scrolled away for good and couldn't centre its title on the screen.
@@ -117,8 +118,8 @@ struct AddHostView: View {
         switch step {
         case .ready: ready
         // Narrower than the room, or a list's margins differ on the side of the Duo's column.
-        case .find: find.frame(maxWidth: 500)
-        case .address: enterAddress.frame(maxWidth: 500)
+        case .find: find.frame(maxWidth: 500).scrollBounceBehavior(.basedOnSize) // still while it fits
+        case .address: enterAddress.scrollBounceBehavior(.basedOnSize)
         case .troubleshoot: troubleshooting
         case let .pair(address, name):
             PairingView(address: address, name: name, onBack: back, confirmsPermissions: false) { id, name in
@@ -161,26 +162,51 @@ struct AddHostView: View {
     // MARK: Steps
 
     private var ready: some View {
-        ScrollView { // the Air in landscape is too short for it all
-        VStack(alignment: .leading, spacing: 20) {
-            Image(systemName: "link")
-                .font(.system(size: iconSize, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 8)
-            HostChecklist()
+        fittedPage("link") { HostChecklist(isCompact: $0) } action: {
             Button { advance(to: .find) } label: { Text("Continue").frame(width: 200) }
                 .buttonStyle(.glassProminent)
                 .tint(.blue) // the page's white tint made it white on white
                 .controlSize(.large)
                 .focusRing(gamepad.isActive, cornerRadius: .infinity)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 8)
         }
-        .padding(28)
-        .frame(maxWidth: 560)
-        .frame(maxWidth: .infinity)
+    }
+
+    /// The pages before pairing, with no scrolling: a large symbol over a heading and its points (and a button). Roomy
+    /// if it fits, tighter if not; on a short, wide screen the symbol (and button) beside the points.
+    private func fittedPage(_ symbol: String, @ViewBuilder points: @escaping (_ isCompact: Bool) -> some View,
+                            @ViewBuilder action: () -> some View = { EmptyView() }) -> some View {
+        let action = action()
+        return Group {
+            if window.isShortAndWide {
+                HStack(spacing: 32) {
+                    VStack(spacing: 20) { pageSymbol(symbol, size: 48); action }.frame(maxWidth: .infinity)
+                    points(true).frame(maxWidth: 480)
+                }
+                .padding(.horizontal, 28)
+                .padding(.vertical, 12)
+            } else {
+                ViewThatFits(in: .vertical) {
+                    ForEach([false, true], id: \.self) { isCompact in
+                        VStack(alignment: .leading, spacing: isCompact ? 12 : 20) {
+                            pageSymbol(symbol, size: isCompact ? 48 : 88).padding(.bottom, isCompact ? 0 : 8)
+                            points(isCompact)
+                            action.frame(maxWidth: .infinity).padding(.top, isCompact ? 4 : 8)
+                        }
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 12) // centred anyway: room for the roomy one on an iPad's sheet
+                        .frame(maxWidth: 560)
+                    }
+                }
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity) // centred, like the welcome
+    }
+
+    private func pageSymbol(_ name: String, size: CGFloat) -> some View {
+        Image(systemName: name)
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
     }
 
     private var find: some View {
@@ -222,6 +248,17 @@ struct AddHostView: View {
     }
 
     private var enterAddress: some View {
+        HStack(spacing: 32) {
+            addressForm.frame(maxWidth: 500)
+            // Short and wide, the help goes beside the form, so Connect still fits below it.
+            if window.isShortAndWide && !isAddressFocused {
+                addressHelp.font(.footnote).foregroundStyle(.secondary).frame(maxWidth: 320)
+            }
+        }
+        .padding(.trailing, window.isShortAndWide && !isAddressFocused ? 28 : 0)
+    }
+
+    private var addressForm: some View {
         Form {
             Section {
                 TextField("192.168.1.50", text: $address)
@@ -229,6 +266,7 @@ struct AddHostView: View {
                     .textInputAutocapitalization(.never)
                     .keyboardType(.numbersAndPunctuation)
                     .focused($isAddressFocused)
+                    .submitLabel(.go)
                     .onSubmit(connect)
             } header: {
                 Text("Your PC's IP address")
@@ -246,15 +284,11 @@ struct AddHostView: View {
                         }
                         .padding(.bottom, 6)
                     }
-                    Text("Where to find it").font(.footnote.weight(.semibold))
-                    hint("1", "On Windows: Settings › Network & internet › your connection › Properties, then IPv4 address.")
-                    hint("2", "Or open a terminal on the PC and run ipconfig.")
-                    hint("3", "Or look in your router's list of connected devices.")
-                    Text("Using a custom port? Add it after a colon, like 192.168.1.50:47989.").padding(.top, 2)
+                    if !window.isShortAndWide && !isTypingOnShortScreen { addressHelp }
                 }
                 .padding(.top, 4)
             }
-            Section {
+            if !isTypingOnShortScreen { Section {
                 Button(action: connect) {
                     // The same height connecting or not: the spinner takes the text's place.
                     ZStack {
@@ -270,10 +304,24 @@ struct AddHostView: View {
                 .frame(maxWidth: .infinity) // centred
             }
             .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
+            .listRowInsets(EdgeInsets()) }
         }
         .onAppear { isAddressFocused = true }
     }
+
+    private var addressHelp: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Where to find it").font(.footnote.weight(.semibold))
+            hint("1", "On Windows: Settings › Network & internet › your connection › Properties, then IPv4 address.")
+            hint("2", "Or open a terminal on the PC and run ipconfig.")
+            hint("3", "Or look in your router's list of connected devices.")
+            Text("Using a custom port? Add it after a colon, like 192.168.1.50:47989.").padding(.top, 2)
+        }
+    }
+
+    /// A short screen's keyboard leaves room only for the field: its Go key connects, and the help and Connect are back
+    /// once it goes.
+    private var isTypingOnShortScreen: Bool { isAddressFocused && window.isShort }
 
     private func hint(_ number: String, _ text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -284,23 +332,18 @@ struct AddHostView: View {
 
     /// Laid out like Before you start: a large symbol, a heading, then the checks.
     private var troubleshooting: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Image(systemName: "wrench.and.screwdriver")
-                    .font(.system(size: iconSize, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 8)
-                Text("Things to check:").font(.title2.bold())
-                tip("checkmark.circle", "The address is four numbers separated by dots, like 192.168.1.50.")
-                tip("power", "The PC is awake and its host is running.")
-                tip("wifi", "Both are on the same network, not a guest network.")
-                tip("shield", "The PC's firewall lets the host through: TCP 47984–47990 and UDP 47998–48010.")
-                tip("arrow.clockwise", "Restarting the host on the PC, then trying again, can help.")
+        fittedPage("wrench.and.screwdriver") { isCompact in
+            VStack(alignment: .leading, spacing: isCompact ? 12 : 20) {
+                Text("Things to check:").font(isCompact ? .title3.bold() : .title2.bold())
+                Group {
+                    tip("checkmark.circle", "The address is four numbers separated by dots, like 192.168.1.50.")
+                    tip("power", "The PC is awake and its host is running.")
+                    tip("wifi", "Both are on the same network, not a guest network.")
+                    tip("shield", "The PC's firewall lets the host through: TCP 47984–47990 and UDP 47998–48010.")
+                    tip("arrow.clockwise", "Restarting the host on the PC, then trying again, can help.")
+                }
+                .font(isCompact ? .callout : .body)
             }
-            .padding(28)
-            .frame(maxWidth: 560)
-            .frame(maxWidth: .infinity)
         }
     }
 
@@ -491,11 +534,14 @@ struct AddHostView: View {
     }
 }
 
-/// What to have ready before adding a host: Add Host's first step, and the Hosts page while there are none.
+/// What to have ready before adding a host: Add Host's first step.
 struct HostChecklist: View {
+    /// Tighter and smaller, for a screen it wouldn't otherwise fit.
+    var isCompact = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Before you start, make sure that:").font(.title2.bold())
+        VStack(alignment: .leading, spacing: isCompact ? 12 : 20) {
+            Text("Before you start, make sure that:").font(isCompact ? .title3.bold() : .title2.bold())
             check("power", "Your PC is on.")
             check("play.display", "A Sunshine-based host is installed and running on it (Vibepollo recommended).")
             check("wifi", "It's on the same network as this device. Remote access can be set up after pairing.")
@@ -510,6 +556,7 @@ struct HostChecklist: View {
         HStack(alignment: .center, spacing: 14) {
             Image(systemName: symbol).frame(width: 30).foregroundStyle(isImportant ? Color.orange : .secondary)
             Text(text)
+                .font(isCompact ? .callout : .body)
                 .fontWeight(isImportant ? .semibold : nil)
                 .fixedSize(horizontal: false, vertical: true) // wraps, never "…"
         }
