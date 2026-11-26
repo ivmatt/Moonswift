@@ -46,7 +46,7 @@ import SwiftUI
         splashStatus = nil
         let wait = isResume ? 0 : catalog.splashWaits[title.lowercased()]
             ?? UserDefaults.standard.object(forKey: SettingsKey.splashWait) as? Int ?? LaunchSplash.defaultWait
-        var new = LaunchSplash(title: title, catalog: catalog, from: launchesFromHero ? homeHeroFrame : nil, wait: wait)
+        var new = LaunchSplash(title: title, catalog: catalog, from: launchesFromHero && !UIAccessibility.isReduceMotionEnabled ? homeHeroFrame : nil, wait: wait)
         guard new.from != nil else { return withAnimation(.easeInOut(duration: 0.35)) { splash = new } }
         new.isGrown = false
         splash = new // exactly over Home's hero, then it grows to fill the screen

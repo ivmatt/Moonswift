@@ -214,7 +214,7 @@ struct SettingsView: View {
                         row(.splashWait) {
                             choiceRow(.splashWait, "Splash Wait", $splashWait, LaunchSplash.waitChoices, name: Self.seconds)
                         }
-                        row(.splashSound) { Toggle("End on Game Sound (Beta)", isOn: $splashEndsOnSound) }
+                        row(.splashSound) { Toggle("End on Game Sound", isOn: $splashEndsOnSound) }
                     }
                 } header: {
                     Text("Launching")

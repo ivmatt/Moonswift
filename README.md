@@ -27,7 +27,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 **Touch, keyboard and mouse**
 - On-screen controller with custom layouts, positioned separately for each rotation and for the iPhone Duo folded or unfolded
 - Touchscreen and trackpad modes, with customizable gestures
-- Hardware keyboard and mouse support, plus custom key shortcuts
+- Hardware keyboard and mouse support (the pointer is captured while you play on iPad), plus custom key shortcuts
 
 **Your library**
 - A console-style Home and a full game library
@@ -75,6 +75,18 @@ xcodebuild -scheme Moonswift -destination 'platform=iOS Simulator,name=iPhone Du
 ```
 
 To run on your own device, open `Moonswift.xcodeproj` in Xcode, then set your own Team and Bundle Identifier under **Signing & Capabilities**.
+
+## Releases
+
+Each App Store build has a tag, `v<version>-build<build>` (for example `v1.0-build1`), in this repository and the same tag in the [moonlight-common-c fork](https://github.com/ivmatt/moonlight-common-c) on the commit this release pins, so the exact GPL source of every release stays findable. When releasing, tag both:
+
+```bash
+git tag v1.0-build1 && git push origin v1.0-build1
+```
+
+```bash
+cd Packages/MoonlightCore/moonlight-common-c && git tag v1.0-build1 && git push origin v1.0-build1
+```
 
 ## Documentation
 

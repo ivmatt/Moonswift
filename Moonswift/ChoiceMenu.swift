@@ -95,6 +95,7 @@ private struct ChoiceMenu: View {
     let spec: ChoiceMenuSpec
     let dismiss: () -> Void
     @Environment(GamepadInput.self) private var gamepad
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var focus: Int
     /// Grown out of the row's value to full size; it starts and ends shrunk into it.
     @State private var isOpen = false
@@ -127,14 +128,15 @@ private struct ChoiceMenu: View {
             let left = max(Self.margin, min(row.minX, proxy.size.width - spec.width - Self.margin))
             let top = max(Self.margin, min(row.minY - 6, proxy.size.height - height - Self.margin))
             let seed = spec.opensRight ? row.size : Self.seed
-            let size = isOpen ? CGSize(width: spec.width, height: height) : seed
-            let y = isOpen ? top + height / 2 : row.midY
+            let isFull = isOpen || reduceMotion // Reduce Motion: it only fades
+            let size = isFull ? CGSize(width: spec.width, height: height) : seed
+            let y = isFull ? top + height / 2 : row.midY
             ZStack(alignment: .topLeading) {
                 Color.clear.contentShape(.rect).onTapGesture { close() }
                 panel
                     .frame(width: size.width, height: size.height, alignment: spec.opensRight ? .topLeading : .topTrailing)
-                    .clipShape(.rect(cornerRadius: isOpen ? 28 : seed.height / 2))
-                    .glassEffect(.regular, in: .rect(cornerRadius: isOpen ? 28 : seed.height / 2))
+                    .clipShape(.rect(cornerRadius: isFull ? 28 : seed.height / 2))
+                    .glassEffect(.regular, in: .rect(cornerRadius: isFull ? 28 : seed.height / 2))
                     .opacity(isOpen ? 1 : 0) // grows and fades in together, shrinks and fades out together
                     .position(x: spec.opensRight ? left + size.width / 2 : right - size.width / 2, y: y)
             }
