@@ -31,15 +31,23 @@ struct GamesView: View {
     nonisolated static func columns(forWidth width: CGFloat, height: CGFloat = .infinity, ratio: CGFloat = 2 / 3) -> Int {
         // A first layout pass measures the wall with no height: that once meant covers of no width, hundreds of
         // columns, and a grid too wide to lay out (Library froze). Only a real height narrows the covers.
-        let maxWidth = height > 100 ? height * 0.27 * ratio : .infinity
-        let room = width - 72 + 18 // less the 36-point margins, plus one gap
-        let fit = room / (min(minCoverWidth, maxWidth) + 18)
+        let dense = isDense(height: height)
+        let maxWidth = dense ? height * 0.27 * ratio : minCoverWidth
+        let gap = gap(height: height)
+        let room = width - 72 + gap // less the 36-point margins, plus one gap
+        let fit = room / (maxWidth + gap)
         // Rounded up, as rounding down (to an even count, too) let the covers grow past the height: four 120-point
         // covers and one row on the folded Duo. But never narrower than a title can be read on (an iPhone's wall is
         // shorter than its screen); no fold to keep between columns on a screen this short.
-        if maxWidth < minCoverWidth { return max(2, min(Int(fit.rounded(.up)), Int(room / (minReadableWidth + 18)))) }
+        if dense { return max(2, min(Int(fit.rounded(.up)), Int(room / (minReadableWidth + gap)))) }
         return max(2, Int(fit) - Int(fit) % 2)
     }
+    /// A short screen's covers are small: a tighter gap between them and tighter corners (Home's small covers' 10).
+    /// Short: an iPhone in landscape, the folded Duo (466 points); not the open Duo (669), whose fold needs even columns.
+    nonisolated static func isDense(height: CGFloat) -> Bool { height > 100 && height < 520 }
+    nonisolated static func gap(height: CGFloat) -> CGFloat { isDense(height: height) ? 12 : 18 }
+    private var gap: CGFloat { Self.gap(height: wallSize.height) }
+    private var coverCorner: CGFloat { Self.isDense(height: wallSize.height) ? 10 : 14 }
 
     /// Hidden shows only what you hid (games and shortcuts), so you can unhide it.
     private enum Filter: String, CaseIterable {
@@ -215,9 +223,9 @@ struct GamesView: View {
                         }
                     }
                 } else {
-                    LazyVStack(spacing: 18) {
+                    LazyVStack(spacing: gap) {
                         ForEach(0..<(shown.count + columns - 1) / columns, id: \.self) { row in
-                            HStack(alignment: .top, spacing: 18) {
+                            HStack(alignment: .top, spacing: gap) {
                                 // By game, not position: identifying covers by position kept each spot's old art after a sort or filter.
                                 ForEach(Array(shown.enumerated())[row * columns..<min(shown.count, (row + 1) * columns)], id: \.element.id) { index, game in
                                     cover(game, isFocused: gamepad.isActive && !isSearchFocused && index == focus)
@@ -427,10 +435,10 @@ struct GamesView: View {
     private func cover(_ game: CatalogGame, isFocused: Bool) -> some View {
         return CoverTile(game: game, client: client(for: game), isRunning: game.isRunning(directory),
                          unavailable: game.unavailable(hosts: hosts, directory: directory), isFocused: isFocused,
-                         isElsewhere: game.elsewhere(directory, catalog) != nil)
+                         isElsewhere: game.elsewhere(directory, catalog) != nil, cornerRadius: coverCorner)
             // Two layers, so each has its own transition: the dimming fades, the button grows as it fades.
             .overlay {
-                if readied == game.id { RoundedRectangle(cornerRadius: 14).fill(.black.opacity(0.35)).transition(.opacity) }
+                if readied == game.id { RoundedRectangle(cornerRadius: coverCorner).fill(.black.opacity(0.35)).transition(.opacity) }
             }
             .overlay { if readied == game.id { playButton(game).transition(.opacity.combined(with: .scale(scale: 0.9))) } }
             .scaleEffect(readied == game.id ? 1.04 : 1)

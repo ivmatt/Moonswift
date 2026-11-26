@@ -948,7 +948,7 @@ struct LibraryColumnsTests {
         #expect(GamesView.columns(forWidth: 867) == 6) // Duo, open
         #expect(GamesView.columns(forWidth: 594) == 4) // Duo, closed
         #expect(GamesView.columns(forWidth: 200) == 2) // never fewer than two
-        #expect(GamesView.columns(forWidth: 788, height: 420) == 8) // iPhone Air in landscape: two rows fit above the tab bar
+        #expect(GamesView.columns(forWidth: 788, height: 420) == 9) // iPhone Air in landscape: two rows fit above the tab bar
         #expect(GamesView.columns(forWidth: 594, height: 466) == 6) // Duo, closed: two whole rows, more than Home's row
         #expect(GamesView.columns(forWidth: 750, height: 280) == 8) // iPhone 18 Pro: the short wall can't shrink covers past readable
         #expect(GamesView.columns(forWidth: 867, height: 669) == 6) // Duo, open: the height changes nothing
