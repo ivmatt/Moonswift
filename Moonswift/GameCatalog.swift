@@ -52,8 +52,10 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     @ObservationIgnored private var gamesCache: [[String]: [CatalogGame]] = [:]
     /// Seconds the launch splash stays past the first picture, for games that need more (or less) than the default.
     private(set) var splashWaits: [String: Int] = [:]
-    /// How big each game's logo shows on Home, in percent of its usual size, by game ID; missing is 100.
+    /// How big each game's logo shows on Home, in percent of its usual size, by game ID; missing follows Settings.
     private(set) var logoSizes: [String: Int] = [:]
+    /// Logo Size's steps, in Settings and Edit Game.
+    nonisolated static let logoSizeChoices = [75, 90, 100, 110, 125]
     /// The on-screen controller layout last used with each game, by game ID.
     private(set) var padLayouts: [String: String] = [:]
     /// Your pictures by kind, then game ID: a hero, and a cover for each cover shape.
@@ -379,7 +381,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         saveSettings()
     }
 
-    /// nil: the usual size.
+    /// nil: the size set in Settings.
     func setLogoSize(_ percent: Int?, for game: CatalogGame) {
         logoSizes[game.id] = percent
         saveSettings()
@@ -404,10 +406,23 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         artwork[kind, default: [:]][game.id] = scaled
     }
 
-    /// Back to the PC's name and art.
+    /// Back to the PC's name, your pictures gone, and Show As, Splash Wait, Logo Size and Use Online Artwork to their
+    /// defaults. Favorite, Hidden and the art picked in Choose Artwork stay: they're your library, not overrides.
     func resetCustomizations(for game: CatalogGame) {
-        setNickname("", for: game)
         for kind in Artwork.allCases { setArtwork(nil, kind, for: game) }
+        nicknames[game.id] = nil
+        showAs[game.id] = nil
+        splashWaits[game.id] = nil
+        logoSizes[game.id] = nil
+        onlineArtOff.remove(game.id)
+        saveSettings()
+    }
+
+    /// Something Reset would change.
+    func hasCustomizations(for game: CatalogGame) -> Bool {
+        let id = game.id
+        return nicknames[id] != nil || showAs[id] != nil || splashWaits[id] != nil || logoSizes[id] != nil
+            || onlineArtOff.contains(id) || Artwork.allCases.contains { artwork[$0]?[id] != nil }
     }
 
     private static var folder: URL {

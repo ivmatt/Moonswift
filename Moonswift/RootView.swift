@@ -23,7 +23,7 @@ struct RootView: View {
     @State private var tab: TabID
     /// The first host is being added: the welcome stays until its success page's Get Started.
     @State private var isSettingUp = false
-    @AppStorage(SettingsKey.onlineArtwork) private var findsArtwork = true
+    @AppStorage(SettingsKey.onlineArtwork) private var findsArtwork = SettingsDefault.onlineArtwork
     @AppStorage(SettingsKey.artworkKeyVersion) private var artworkKeyVersion = 0
 
     /// `startingTab` is for previews; the app starts on Home (or a debug launch argument's tab).

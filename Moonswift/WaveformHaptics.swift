@@ -17,7 +17,7 @@ nonisolated struct WaveformFrame: Equatable, Sendable {
 
     /// Settings › Controller › DualSense Haptics, on unless turned off.
     static var isOn: Bool {
-        UserDefaults.standard.object(forKey: SettingsKey.dualSenseHaptics) as? Bool ?? true
+        UserDefaults.standard.object(forKey: SettingsKey.dualSenseHaptics) as? Bool ?? SettingsDefault.dualSenseHaptics
     }
 
     static let sampleRate: Float = 48_000

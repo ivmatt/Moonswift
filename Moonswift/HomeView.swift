@@ -54,7 +54,7 @@ struct HomeView: View {
     @State private var pillFrame = RowFrames()
     @State private var isPressingPlay = false
     @State private var topInset: CGFloat = 0
-    @AppStorage(SettingsKey.buttonLegend) private var legendMode = ButtonLegendMode.automatic
+    @AppStorage(SettingsKey.buttonLegend) private var legendMode = SettingsDefault.buttonLegend
     /// The title shows in full on arriving at Home, then fades back so it doesn't compete with the hero, still readable.
     /// The tab rail's width on either side: the hero art reaches under it, so it spans the whole screen.
     @State private var railInsets = EdgeInsets()
@@ -70,7 +70,8 @@ struct HomeView: View {
     @State private var heroTitleX: CGFloat?
     @State private var statusX: CGFloat?
     @State private var statusShift: CGFloat = 0
-    @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
+    @AppStorage(SettingsKey.coverShape) private var coverShape = SettingsDefault.coverShape
+    @AppStorage(SettingsKey.logoSize) private var logoSize = SettingsDefault.logoSize
 
     /// Games only: the shortcuts (Desktop, Steam Big Picture…) are in Library's row of their own.
     private var games: [CatalogGame] { catalog.games(on: hosts.map(\.uniqueID)).filter { !$0.isApp && !$0.isHidden } }
@@ -412,7 +413,7 @@ struct HomeView: View {
                     .transition(.opacity)
                 } else if let game = selectedGame {
                     HeroCard(game: game, logo: catalog.shownLogo(for: game.id),
-                             logoScale: CGFloat(catalog.logoSizes[game.id] ?? 100) / 100, subtitle: heroSubtitle(game), isShort: isShort, isCompact: isShortAndWide,
+                             logoScale: CGFloat(catalog.logoSizes[game.id] ?? logoSize) / 100, subtitle: heroSubtitle(game), isShort: isShort, isCompact: isShortAndWide,
                              isRunning: game.isRunning(directory), labels: game.runningLabels(directory, catalog),
                              isElsewhere: game.elsewhere(directory, catalog) != nil, focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
                              play: { start(game) }, quit: { quit(game) }, isPressingPlay: isPressingPlay,
@@ -899,7 +900,7 @@ struct CoverTile: View {
     /// Tighter for small covers (Home's row on an iPhone in landscape).
     var cornerRadius: CGFloat = 14
     @Environment(GameCatalog.self) private var catalog
-    @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
+    @AppStorage(SettingsKey.coverShape) private var coverShape = SettingsDefault.coverShape
 
     var body: some View {
         Color.clear

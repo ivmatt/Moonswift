@@ -1455,3 +1455,44 @@ struct SavedHostStoreTests {
         #expect(!SavedHostStore.open(at: url).recovered) // and opens cleanly next launch
     }
 }
+
+@MainActor struct SettingsResetTests {
+    /// A value of the same kind that isn't the default.
+    private func changed(_ value: Any) -> Any {
+        switch value {
+        case let flag as Bool: return !flag
+        case let number as Int: return number + 1
+        case let text as String: return text + "x"
+        default: Issue.record("Unexpected default \(value)"); return value
+        }
+    }
+
+    @Test(arguments: [true, false]) func resetRestoresEveryValueOnItsPage(stream: Bool) throws {
+        let defaults = try #require(UserDefaults(suiteName: "SettingsResetTests"))
+        defaults.removePersistentDomain(forName: "SettingsResetTests")
+        let page = stream ? SettingsDefault.streamPage : SettingsDefault.interfacePage
+        let other = stream ? SettingsDefault.interfacePage : SettingsDefault.streamPage
+        #expect(Set(page.values.keys).isDisjoint(with: other.values.keys))
+        for (key, value) in page.values.merging(other.values, uniquingKeysWith: { a, _ in a }) { defaults.set(changed(value), forKey: key) }
+        for key in page.unseen { defaults.set(7, forKey: key) }
+        #expect(!page.isAtDefault(in: defaults))
+
+        page.reset(in: defaults)
+
+        #expect(page.isAtDefault(in: defaults))
+        for key in Array(page.values.keys) + page.unseen { #expect(defaults.object(forKey: key) == nil, "\(key)") } // @AppStorage's default
+        #expect(!other.isAtDefault(in: defaults)) // the other page is untouched
+        defaults.removePersistentDomain(forName: "SettingsResetTests")
+    }
+
+    @Test func aValueSetBackToItsDefaultCountsAsDefault() throws {
+        let defaults = try #require(UserDefaults(suiteName: "SettingsResetTests2"))
+        defaults.removePersistentDomain(forName: "SettingsResetTests2")
+        defaults.set(SettingsDefault.coverShape.rawValue, forKey: SettingsKey.coverShape)
+        defaults.set(SettingsDefault.logoSize, forKey: SettingsKey.logoSize)
+        #expect(SettingsDefault.interfacePage.isAtDefault(in: defaults))
+        defaults.set(125, forKey: SettingsKey.logoSize)
+        #expect(!SettingsDefault.interfacePage.isAtDefault(in: defaults))
+        defaults.removePersistentDomain(forName: "SettingsResetTests2")
+    }
+}

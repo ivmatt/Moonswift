@@ -71,7 +71,7 @@ struct GamesView: View {
     @Environment(GamepadInput.self) private var gamepad
     @Query(sort: \SavedHost.name) private var hosts: [SavedHost]
     @AppStorage("libraryOrder") private var order = Order.recent
-    @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
+    @AppStorage(SettingsKey.coverShape) private var coverShape = SettingsDefault.coverShape
     @AppStorage("libraryFilter") private var filter = Filter.all
     @AppStorage("libraryLayout") private var layout = Layout.grid
     /// What the search field filters the wall by (Library is where search lives; there's no Search tab).

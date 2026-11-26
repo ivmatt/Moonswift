@@ -404,7 +404,7 @@ private struct ButtonLegendPlacement: ViewModifier {
     @Environment(ButtonLegendCenter.self) private var center: ButtonLegendCenter?
     @Environment(TabBarMinimize.self) private var tabBar: TabBarMinimize?
     @Environment(GamepadInput.self) private var gamepad
-    @AppStorage(SettingsKey.buttonLegend) private var mode = ButtonLegendMode.automatic
+    @AppStorage(SettingsKey.buttonLegend) private var mode = SettingsDefault.buttonLegend
 
     func body(content: Content) -> some View {
         let shows = mode.isShown(controllerConnected: gamepad.isControllerConnected) && !hints.isEmpty
@@ -535,7 +535,7 @@ struct ControllerHints: View {
     let hints: [(buttons: [Button], label: String)]
     @ScaledMetric(relativeTo: .caption) private var iconSize: CGFloat = 18 // the art has a margin inside its square
     @Environment(GamepadInput.self) private var gamepad
-    @AppStorage(SettingsKey.buttonLegend) private var mode = ButtonLegendMode.automatic
+    @AppStorage(SettingsKey.buttonLegend) private var mode = SettingsDefault.buttonLegend
 
     var body: some View {
         if mode.isShown(controllerConnected: gamepad.isControllerConnected), !hints.isEmpty {

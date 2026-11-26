@@ -206,7 +206,7 @@ struct QuickSettingsPanel: View {
     let moreSettings: () -> Void
     let close: () -> Void
 
-    @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic
+    @AppStorage(SettingsKey.bitrate) private var bitrate = SettingsDefault.bitrate // kbps; 0 = automatic
     @Environment(GamepadInput.self) private var gamepad
     @State private var focusIndex = 0
 

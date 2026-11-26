@@ -19,35 +19,36 @@ struct SettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(GamepadInput.self) private var gamepad
-    @AppStorage(SettingsKey.resolution) private var resolution = ResolutionOption.fullScreen
+    @AppStorage(SettingsKey.resolution) private var resolution = SettingsDefault.resolution
     @AppStorage(SettingsKey.customWidth) private var customWidth = 0
     @AppStorage(SettingsKey.customHeight) private var customHeight = 0
     /// The Custom size as typed; saved when the field is left or submitted, so a half-typed number never reaches a stream.
     @State private var widthText = ""
     @State private var heightText = ""
     @FocusState private var typingSide: Row?
-    @AppStorage(SettingsKey.fps) private var fps = ScreenInfo.defaultFPS
-    @AppStorage(SettingsKey.codec) private var codec = CodecOption.automatic
-    @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
-    @AppStorage(SettingsKey.onlineArtwork) private var findsArtwork = true
+    @AppStorage(SettingsKey.fps) private var fps = SettingsDefault.fps
+    @AppStorage(SettingsKey.codec) private var codec = SettingsDefault.codec
+    @AppStorage(SettingsKey.coverShape) private var coverShape = SettingsDefault.coverShape
+    @AppStorage(SettingsKey.onlineArtwork) private var findsArtwork = SettingsDefault.onlineArtwork
+    @AppStorage(SettingsKey.logoSize) private var logoSize = SettingsDefault.logoSize
     @AppStorage(SettingsKey.artworkKeyVersion) private var artworkKeyVersion = 0
     /// SteamGridDB's key as typed; saved to the Keychain when the field is left or submitted.
     @State private var artworkKey = SteamGridDB.savedKey ?? ""
     @FocusState private var isKeyFocused: Bool
-    @AppStorage(SettingsKey.bitrate) private var bitrate = 0 // kbps; 0 = automatic
-    @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = SettingsKey.adaptiveBitrateDefault
-    @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
-    @AppStorage(SettingsKey.playAudioOnPC) private var playAudioOnPC = false
-    @AppStorage(SettingsKey.touchMode) private var touchMode = TouchMode.automatic
-    @AppStorage(SettingsKey.hdr) private var hdr = ScreenInfo.supportsHDR
-    @AppStorage(SettingsKey.buttonLegend) private var buttonLegend = ButtonLegendMode.automatic
-    @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = true
-    @AppStorage(SettingsKey.splashScreen) private var showsSplash = true
-    @AppStorage(SettingsKey.splashWait) private var splashWait = LaunchSplash.defaultWait
-    @AppStorage(SettingsKey.splashEndsOnSound) private var splashEndsOnSound = false
-    @AppStorage(SettingsKey.dualSenseHaptics) private var dualSenseHaptics = true
-    @AppStorage(SettingsKey.phoneRumble) private var phoneRumble = true
-    @AppStorage(SettingsKey.controlCenterSide) private var controlCenterSide = ControlCenterSide.right
+    @AppStorage(SettingsKey.bitrate) private var bitrate = SettingsDefault.bitrate // kbps; 0 = automatic
+    @AppStorage(SettingsKey.adaptiveBitrate) private var adaptive = SettingsDefault.adaptiveBitrate
+    @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = SettingsDefault.performanceOverlay
+    @AppStorage(SettingsKey.playAudioOnPC) private var playAudioOnPC = SettingsDefault.playAudioOnPC
+    @AppStorage(SettingsKey.touchMode) private var touchMode = SettingsDefault.touchMode
+    @AppStorage(SettingsKey.hdr) private var hdr = SettingsDefault.hdr
+    @AppStorage(SettingsKey.buttonLegend) private var buttonLegend = SettingsDefault.buttonLegend
+    @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = SettingsDefault.pictureInPicture
+    @AppStorage(SettingsKey.splashScreen) private var showsSplash = SettingsDefault.splashScreen
+    @AppStorage(SettingsKey.splashWait) private var splashWait = SettingsDefault.splashWait
+    @AppStorage(SettingsKey.splashEndsOnSound) private var splashEndsOnSound = SettingsDefault.splashEndsOnSound
+    @AppStorage(SettingsKey.dualSenseHaptics) private var dualSenseHaptics = SettingsDefault.dualSenseHaptics
+    @AppStorage(SettingsKey.phoneRumble) private var phoneRumble = SettingsDefault.phoneRumble
+    @AppStorage(SettingsKey.controlCenterSide) private var controlCenterSide = SettingsDefault.controlCenterSide
     @State private var focus = 0
     @State private var liveBitrateNote: String?
     @State private var bitrateChange: Task<Void, Never>?
@@ -56,9 +57,13 @@ struct SettingsView: View {
     @State private var isShowingGestures = false
     /// A setting's choices, for the controller, beside its row.
     @State private var choice: ChoiceMenuSpec?
+    /// Reset's confirmation.
+    @State private var menu: MenuSpec?
+    /// Bumped as anything is saved: Reset reads what's saved, which a toggle's redraw can come before.
+    @State private var savedVersion = 0
     @State private var rowFrames = RowFrames()
 
-    private enum Row: Hashable { case reconnect, resolution, customWidth, customHeight, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, dualSenseHaptics, phoneRumble, buttonLegend, coverShape, onlineArtwork, artworkKey, about }
+    private enum Row: Hashable { case reconnect, resolution, customWidth, customHeight, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, dualSenseHaptics, phoneRumble, buttonLegend, coverShape, onlineArtwork, artworkKey, logoSize, reset, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
     private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
     @State private var page = Self.rememberedPage
@@ -80,10 +85,10 @@ struct SettingsView: View {
     }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures, .buttonLegend, .buttonMapping, .dualSenseHaptics] + (PhoneRumble.isAvailable ? [.phoneRumble] : []) + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
+        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures, .buttonLegend, .buttonMapping, .dualSenseHaptics] + (PhoneRumble.isAvailable ? [.phoneRumble] : []) + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey, .logoSize] : []) : []) + [.reset, .about] }
         return (needsReconnect ? [.reconnect] : []) + [.resolution] + (resolution == .custom ? [.customWidth, .customHeight] : [])
             + [.fps, .codec] + (showsHDR ? [.hdr] : [])
-            + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .touch, .overlay]
+            + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .touch, .overlay, .reset]
     }
     private var videoFormats: Int32 {
         StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware, av1InHardware: ScreenInfo.av1InHardware,
@@ -198,7 +203,9 @@ struct SettingsView: View {
                          + "controller, or uses the touchscreen while a real controller is connected. The overlay shows frame rate, "
                          + "bitrate, delay and packet loss.")
                 }
-                Section {} footer: { // a note under the list, not a row that looks tappable
+                Section {
+                    resetRow
+                } footer: {
                     if live != nil {
                         Text(liveBitrateNote ?? "Bitrate changes apply right away.")
                     } else {
@@ -273,16 +280,21 @@ struct SettingsView: View {
                                     .textInputAutocapitalization(.never)
                                     .onSubmit(saveArtworkKey)
                             }
+                            row(.logoSize) {
+                                choiceRow(.logoSize, "Logo Size", $logoSize, GameCatalog.logoSizeChoices, name: { "\($0)%" })
+                            }
                         }
                     } header: {
                         Text("Library")
                     } footer: {
                         Text("2:3 suits Steam art, 3:4 most hosts'. Online Artwork sends your game names to SteamGridDB to find art; "
-                             + "get a free API key from your steamgriddb.com profile. Your own pictures always show first.")
+                             + "get a free API key from your steamgriddb.com profile. Your own pictures always show first. "
+                             + "Logo Size sets how big game logos show on Home; Edit Game can change it for one game.")
                     }
                     .onChange(of: isKeyFocused) { if !isKeyFocused { saveArtworkKey() } }
                     .onDisappear(perform: saveArtworkKey)
                 }
+                Section { resetRow }
                 Section {
                     row(.about) { Button("About Moonswift") { isShowingAbout = true }.foregroundStyle(.primary) }
                 }
@@ -310,6 +322,8 @@ struct SettingsView: View {
             .buttonLegend(live == nil ? [([.a], "Select"), ([.l1, .r1], "Stream / Interface"), ([.b], "Close")] : [([.a], "Select"), ([.b], "Close")],
                          reportsLayout: false)
             .choiceMenu($choice)
+            .actionMenu($menu)
+            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in savedVersion += 1 }
             .navigationDestination(isPresented: $isShowingAbout) { AboutView() }
             .navigationDestination(isPresented: $isShowingButtonMapping) { ButtonMappingView() }
             .navigationDestination(isPresented: $isShowingGestures) { GesturesView() }
@@ -454,13 +468,39 @@ struct SettingsView: View {
         case .dualSenseHaptics: dualSenseHaptics.toggle()
         case .phoneRumble: phoneRumble.toggle()
         case .about: isShowingAbout = true
+        case .reset: if !settingsPage.isAtDefault() { confirmReset() }
         case .onlineArtwork: findsArtwork.toggle()
         case .artworkKey: isKeyFocused = true
+        case .logoSize: choices("Logo Size", GameCatalog.logoSizeChoices, current: logoSize, name: { "\($0)%" }) { logoSize = $0 }
         case .reconnect:
             saveCustomSize()
             dismiss()
             live?.reconnect()
         }
+    }
+
+    /// This page's saved values and their defaults.
+    private var settingsPage: SettingsDefault.Page { page == .stream ? SettingsDefault.streamPage : SettingsDefault.interfacePage }
+
+    /// Puts only this page's settings back; disabled while they already are.
+    private var resetRow: some View {
+        row(.reset) {
+            Button("Reset \(page.rawValue) Settings", role: .destructive, action: confirmReset)
+                .disabled(savedVersion >= 0 && settingsPage.isAtDefault()) // savedVersion: redraws as settings are saved
+        }
+    }
+
+    private func confirmReset() {
+        // Short: on a phone in landscape the box has room for two lines.
+        let message = page == .stream ? "Picture, Quality and While Streaming go back to their defaults."
+            : "Everything here goes back to its default, but not your SteamGridDB key."
+        menu = MenuSpec(title: "Reset \(page.rawValue) Settings?", message: message,
+                        actions: [.init(title: "Reset", isDestructive: true) {
+                            settingsPage.reset()
+                            showCustomSize()
+                            focus = rows.firstIndex(of: .reset) ?? 0 // rows may have gone (Custom's size, the splash's)
+                        }],
+                        cancelTitle: "Cancel")
     }
 
     /// In a stream, sends a new bitrate once the slider or controller has rested for a moment.

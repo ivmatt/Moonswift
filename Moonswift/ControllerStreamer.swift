@@ -68,7 +68,7 @@ nonisolated enum PhoneRumble {
     /// iPads and the simulator have no motor apps can use.
     static var isAvailable: Bool { CHHapticEngine.capabilitiesForHardware().supportsHaptics }
     /// Settings › Controller › Phone Rumble, on unless turned off.
-    static var isOn: Bool { UserDefaults.standard.object(forKey: SettingsKey.phoneRumble) as? Bool ?? true }
+    static var isOn: Bool { UserDefaults.standard.object(forKey: SettingsKey.phoneRumble) as? Bool ?? SettingsDefault.phoneRumble }
 
     /// Only for the first player (who's holding the phone), only if their pad can't rumble, and never behind a menu.
     static func plays(pad: Int, firstPad: Int?, padCanRumble: Bool, isOn: Bool, isPaused: Bool) -> Bool {

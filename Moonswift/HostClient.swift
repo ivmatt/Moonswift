@@ -208,7 +208,7 @@ nonisolated struct HostClient: Sendable {
     private func start(_ path: String, app: HostApp, width: Int, height: Int, fps: Int, videoFormats: Int32) async throws -> LaunchSession {
         let key = Pairing.randomBytes(16), keyID = Int32.random(in: .min ... .max)
         let query = Self.launchQuery(app: app, width: width, height: height, fps: fps, rikey: key, rikeyID: keyID,
-                                     playAudioOnPC: UserDefaults.standard.bool(forKey: SettingsKey.playAudioOnPC),
+                                     playAudioOnPC: UserDefaults.standard.object(forKey: SettingsKey.playAudioOnPC) as? Bool ?? SettingsDefault.playAudioOnPC,
                                      hdr: videoFormats & VIDEO_FORMAT_MASK_10BIT != 0)
             + Self.libraryLaunchQuery(String(cString: LiGetLaunchUrlQueryParameters()))
         let fields = try parseHostResponse(await data(path, timeout: 120, query: query))

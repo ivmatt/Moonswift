@@ -3,13 +3,14 @@ import SwiftUI
 
 /// A game's page for how Moonswift shows it: a nickname, your own hero picture and a cover for each cover shape (2:3,
 /// 3:4, square; a shape without one shows the PC's art; apps have no art options), favourite, hidden, game or app, how long its launch splash waits, and its logo's size on Home. The PC's own name and art stay as they are,
-/// and Reset brings them back. Controller: up/down move between rows; A types the name, picks a picture (or offers
+/// and Reset brings them back (asking first; Favorite, Hidden and art from Choose Artwork stay). Controller: up/down move between rows; A types the name, picks a picture (or offers
 /// Change and Remove for one that's set), flips Favorite or presses Reset; B saves and closes.
 struct GameEditView: View {
     let game: CatalogGame
 
     @Environment(GameCatalog.self) private var catalog
-    @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
+    @AppStorage(SettingsKey.coverShape) private var coverShape = SettingsDefault.coverShape
+    @AppStorage(SettingsKey.logoSize) private var defaultLogoSize = SettingsDefault.logoSize
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var heroItem: PhotosPickerItem?
@@ -20,8 +21,9 @@ struct GameEditView: View {
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
         let art: [Row] = current.isApp ? []
-            : (match != nil ? [.onlineArt] : []) + (hasArtworkKey ? [.chooseArt] : []) + [.hero, .cover(coverShape)]
-        return [.name] + art + [.favorite, .hidden, .showAs, .splashWait] + (hasLogo ? [.logoSize] : []) + [.reset]
+            : (match != nil ? [.onlineArt] : []) + (hasArtworkKey ? [.chooseArt] : []) + (hasLogo ? [.logoSize] : [])
+                + [.hero, .cover(coverShape)]
+        return [.name] + art + [.favorite, .hidden, .showAs, .splashWait, .reset]
     }
     /// Logo Size shows only for a game with a logo.
     private var hasLogo: Bool { catalog.shownLogo(for: game.id) != nil }
@@ -36,6 +38,8 @@ struct GameEditView: View {
     @State private var pickerKind: GameCatalog.Artwork?
     @State private var pickedItem: PhotosPickerItem?
     @State private var choice: ChoiceMenuSpec?
+    /// Reset's confirmation.
+    @State private var menu: MenuSpec?
     @State private var rowFrames = RowFrames()
     @Environment(GamepadInput.self) private var gamepad
 
@@ -71,6 +75,18 @@ struct GameEditView: View {
                         if hasArtworkKey {
                             row(.chooseArt) {
                                 Button("Choose Artwork…") { isChoosingArt = true }.foregroundStyle(.primary)
+                            }
+                        }
+                        if hasLogo {
+                            row(.logoSize) {
+                                ChoiceRow(title: "Logo Size", value: logoSizeTitle(catalog.logoSizes[game.id]),
+                                          isValueHidden: choice?.source == AnyHashable(Row.logoSize)) {
+                                    Picker("Logo Size", selection: Binding(get: { catalog.logoSizes[game.id] },
+                                                                           set: { catalog.setLogoSize($0, for: game) })) {
+                                        ForEach(logoSizeOptions, id: \.self) { Text(logoSizeTitle($0)).tag($0) }
+                                    }
+                                    .pickerStyle(.inline)
+                                }
                             }
                         }
                     } header: {
@@ -131,25 +147,10 @@ struct GameEditView: View {
                 } footer: {
                     Text("How long the splash stays after the game's picture appears. Default uses Settings.")
                 }
-                if hasLogo {
-                    Section {
-                        row(.logoSize) {
-                            ChoiceRow(title: "Logo Size", value: logoSizeTitle(catalog.logoSizes[game.id]),
-                                      isValueHidden: choice?.source == AnyHashable(Row.logoSize)) {
-                                Picker("Logo Size", selection: Binding(get: { catalog.logoSizes[game.id] },
-                                                                       set: { catalog.setLogoSize($0, for: game) })) {
-                                    ForEach(logoSizeOptions, id: \.self) { Text(logoSizeTitle($0)).tag($0) }
-                                }
-                                .pickerStyle(.inline)
-                            }
-                        }
-                    } footer: {
-                        Text("How big the game's logo shows on Home.")
-                    }
-                }
                 Section {
                     row(.reset) {
-                        Button("Reset to Original", role: .destructive, action: reset)
+                        Button("Reset to Original", role: .destructive, action: confirmReset)
+                            .disabled(!canReset)
                     }
                 }
             }
@@ -175,6 +176,7 @@ struct GameEditView: View {
                 pickedItem = nil
             }
             .choiceMenu($choice)
+            .actionMenu($menu)
             .sheet(isPresented: $isChoosingArt) { ArtworkPicker(game: game) }
             .buttonLegend([([.a], "Select"), ([.b], "Done")], reportsLayout: false)
             .onGamepad(handle)
@@ -229,7 +231,7 @@ struct GameEditView: View {
                                       selected: options.firstIndex(of: catalog.logoSizes[game.id]) ?? 0,
                                       anchor: rowFrames.frames[row] ?? .zero) { catalog.setLogoSize(options[$0], for: game) }
             withAnimation(.easeOut(duration: 0.12)) { choice = spec }
-        case .reset: reset()
+        case .reset: if canReset { confirmReset() }
         }
     }
 
@@ -258,14 +260,25 @@ struct GameEditView: View {
 
     /// Default (nil), then the seconds.
     private var waitOptions: [Int?] { [nil] + LaunchSplash.waitChoices.map(Optional.some) }
-    /// Default (nil, 100%), then smaller and larger steps.
-    private var logoSizeOptions: [Int?] { [nil, 75, 90, 110, 125] }
-    private func logoSizeTitle(_ percent: Int?) -> String { percent.map { "\($0)%" } ?? "Default" }
+    /// Default (nil: Settings' size), then each step.
+    private var logoSizeOptions: [Int?] { [nil] + GameCatalog.logoSizeChoices.map(Optional.some) }
+    private func logoSizeTitle(_ percent: Int?) -> String { percent.map { "\($0)%" } ?? "Default (\(defaultLogoSize)%)" }
     private func waitTitle(_ seconds: Int?) -> String { seconds.map(SettingsView.seconds) ?? "Default" }
 
-    private func reset() {
-        catalog.resetCustomizations(for: game)
-        name = game.originalTitle
+    /// Something here differs from the host's and the defaults, including a name typed but not yet saved.
+    private var canReset: Bool {
+        let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return catalog.hasCustomizations(for: game) || !(typed.isEmpty || typed == game.originalTitle)
+    }
+
+    private func confirmReset() {
+        menu = MenuSpec(title: "Reset \(game.title)?",
+                        message: "Its name, your pictures and its settings here go back. Favorite, Hidden and chosen art stay.",
+                        actions: [.init(title: "Reset", isDestructive: true) {
+                            catalog.resetCustomizations(for: game)
+                            name = game.originalTitle
+                        }],
+                        cancelTitle: "Cancel")
     }
 
     private func artworkRow(_ label: String, _ image: UIImage?, aspect: CGFloat, item: Binding<PhotosPickerItem?>,
