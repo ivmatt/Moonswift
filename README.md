@@ -27,7 +27,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 **Touch, keyboard and mouse**
 - On-screen controller with custom layouts, positioned separately for each rotation and for the iPhone Duo folded or unfolded
 - Touchscreen and trackpad modes, with customizable gestures
-- Hardware keyboard and mouse support, plus custom key shortcuts
+- Hardware keyboard and mouse support (the pointer is captured while you play on iPad), plus custom key shortcuts
 
 **Your library**
 - A console-style Home and a full game library

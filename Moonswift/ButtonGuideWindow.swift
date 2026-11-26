@@ -1,3 +1,4 @@
+import GameController
 import SwiftUI
 import UIKit
 
@@ -65,6 +66,12 @@ enum ButtonGuideWindow {
         window?.rootViewController?.setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
     }
 
+    /// A stream is playing (no menu or panel): a hardware mouse's pointer is locked to it on iPad, as in moonlight-ios.
+    /// Moves still arrive through GCMouse (KeyboardMouseStreamer); a trackpad's tap to click doesn't while locked.
+    static var locksPointer = false { didSet { if locksPointer != oldValue { refreshPointerLock() } } }
+
+    static func refreshPointerLock() { window?.rootViewController?.setNeedsUpdateOfPrefersPointerLocked() }
+
     private final class PassthroughWindow: UIWindow {
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
     }
@@ -80,6 +87,9 @@ enum ButtonGuideWindow {
         override var childForStatusBarStyle: UIViewController? { appScreen }
         override var childForHomeIndicatorAutoHidden: UIViewController? { appScreen }
         override var childForScreenEdgesDeferringSystemGestures: UIViewController? { appScreen }
+        // Here rather than on the app's screen, which is SwiftUI's own controller. Only with a mouse: the lock turns
+        // off UIKit's pointer events, which touch input still uses for a trackpad's taps.
+        override var prefersPointerLocked: Bool { ButtonGuideWindow.locksPointer && !GCMouse.mice().isEmpty }
     }
 }
 

@@ -78,19 +78,21 @@ final class KeyboardMouseStreamer {
     private var modifiers: Int8 = 0
     private var mouseRemainder = (x: Float(0), y: Float(0))
     private var observer: (any NSObjectProtocol)?
-    var isPaused = false { didSet { if isPaused { releaseAll() } } }
+    var isPaused = false { didSet { if isPaused { releaseAll() }; ButtonGuideWindow.locksPointer = !isPaused } }
 
     func start(gamepad: GamepadInput) {
         self.gamepad = gamepad
         gamepad.keyboardOverride = { [weak self] key, down in self?.key(key, down: down) }
         observer = NotificationCenter.default.addObserver(forName: .GCMouseDidConnect, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.attachMice() }
+            MainActor.assumeIsolated { self?.attachMice(); ButtonGuideWindow.refreshPointerLock() }
         }
         attachMice()
+        ButtonGuideWindow.locksPointer = !isPaused // the menus and panel need the pointer, so only while playing
     }
 
     func stop() {
         releaseAll()
+        ButtonGuideWindow.locksPointer = false
         gamepad?.keyboardOverride = nil
         if let observer { NotificationCenter.default.removeObserver(observer) }
         for mouse in GCMouse.mice() {
