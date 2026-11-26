@@ -821,6 +821,7 @@ private struct HeroCard: View {
                 // About two lines of title tall, and no wider than the title may run.
                 .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .bottomLeading)
                 .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in width * 0.45 }
+                .padding(.bottom, isCompact ? 6 : 12) // a trimmed logo has no empty space of its own above the buttons
                 .shadow(color: .black.opacity(0.5), radius: 8) // stands off bright art
                 .accessibilityLabel(game.title)
                 .accessibilityAddTraits(.isHeader)
