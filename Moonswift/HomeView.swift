@@ -542,7 +542,7 @@ struct HomeView: View {
     static let legendGap: CGFloat = 16
     /// An iPhone's legend: the covers, buttons and title move up by this to clear it, and the covers keep their size.
     private var phoneLegendLift: CGFloat {
-        UIDevice.current.userInterfaceIdiom == .phone && legendMode.isShown(controllerConnected: gamepad.isControllerConnected) && !games.isEmpty ? 16 : 0
+        UIDevice.current.userInterfaceIdiom == .phone && legendMode.isShown(controllerConnected: gamepad.isControllerConnected) && !games.isEmpty ? 26 : 0
     }
     /// Covers are bigger without a controller (easier to tap), smaller with one to make room for its legend; and on a
     /// short screen (the Duo's outer display) no taller than 38% of Home, so the hero keeps its room.

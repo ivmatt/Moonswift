@@ -122,8 +122,8 @@ struct FixedButtonLegend: View {
     /// shortcut: the same 36 as HeroCard's inset, kept in step by hand; share one constant if a third place needs it.
     private static let pageInset: CGFloat = 36
     // Tuned by eye.
-    private static let bottomFromEdge: CGFloat = 8
-    private static let bottomOverIndicator: CGFloat = 18 // iPad and the open Duo in landscape: the home indicator is under the hints
+    /// Above the home indicator on every device (at 8, an iPhone's hints sat on it).
+    private static let bottomOverIndicator: CGFloat = 18
     /// Inside a sheet that ends above the screen's bottom (iPad): up from its edge, clear of its rounded corners.
     static let bottomInSheet: CGFloat = 18
     private static let bottomOverTabBar: CGFloat = 6
@@ -166,7 +166,7 @@ struct FixedButtonLegend: View {
                         .shadow(color: .black.opacity(0.7), radius: 4)
                         .padding(.leading, leadingEdge)
                         .padding(.trailing, trailingEdge)
-                        .padding(.bottom, clearance > 0 ? Self.bottomOverTabBar : isFloating ? screen.height - box.maxY + Self.bottomInSheet : Self.bottom(screen))
+                        .padding(.bottom, clearance > 0 ? Self.bottomOverTabBar : isFloating ? screen.height - box.maxY + Self.bottomInSheet : Self.bottomOverIndicator)
                         .padding(.leading, railLeading)
                         .padding(.trailing, railTrailing)
                         .padding(.bottom, clearance > 0 ? windowBottom + clearance : 0)
@@ -180,12 +180,9 @@ struct FixedButtonLegend: View {
         .allowsHitTesting(false)
     }
 
-    /// From the screen's bottom edge to the hints, without a tab bar to clear.
-    static func bottom(_ screen: CGSize) -> CGFloat { screen.isShort ? bottomFromEdge : bottomOverIndicator }
     /// The hints' top, from the screen's bottom edge: where room kept for them starts.
     static func top(_ center: ButtonLegendCenter?) -> CGFloat {
-        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
-        return bottom(window?.bounds.size ?? .zero) + (center?.height ?? 20)
+        bottomOverIndicator + (center?.height ?? 20)
     }
 }
 
