@@ -71,6 +71,7 @@ struct HomeView: View {
     @State private var statusX: CGFloat?
     @State private var statusShift: CGFloat = 0
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
+    @AppStorage(SettingsKey.logoSize) private var logoSize = 100
 
     /// Games only: the shortcuts (Desktop, Steam Big Picture…) are in Library's row of their own.
     private var games: [CatalogGame] { catalog.games(on: hosts.map(\.uniqueID)).filter { !$0.isApp && !$0.isHidden } }
@@ -412,7 +413,7 @@ struct HomeView: View {
                     .transition(.opacity)
                 } else if let game = selectedGame {
                     HeroCard(game: game, logo: catalog.shownLogo(for: game.id),
-                             logoScale: CGFloat(catalog.logoSizes[game.id] ?? 100) / 100, subtitle: heroSubtitle(game), isShort: isShort, isCompact: isShortAndWide,
+                             logoScale: CGFloat(catalog.logoSizes[game.id] ?? logoSize) / 100, subtitle: heroSubtitle(game), isShort: isShort, isCompact: isShortAndWide,
                              isRunning: game.isRunning(directory), labels: game.runningLabels(directory, catalog),
                              isElsewhere: game.elsewhere(directory, catalog) != nil, focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
                              play: { start(game) }, quit: { quit(game) }, isPressingPlay: isPressingPlay,

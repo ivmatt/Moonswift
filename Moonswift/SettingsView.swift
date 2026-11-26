@@ -30,6 +30,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.codec) private var codec = CodecOption.automatic
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
     @AppStorage(SettingsKey.onlineArtwork) private var findsArtwork = true
+    @AppStorage(SettingsKey.logoSize) private var logoSize = 100
     @AppStorage(SettingsKey.artworkKeyVersion) private var artworkKeyVersion = 0
     /// SteamGridDB's key as typed; saved to the Keychain when the field is left or submitted.
     @State private var artworkKey = SteamGridDB.savedKey ?? ""
@@ -58,7 +59,7 @@ struct SettingsView: View {
     @State private var choice: ChoiceMenuSpec?
     @State private var rowFrames = RowFrames()
 
-    private enum Row: Hashable { case reconnect, resolution, customWidth, customHeight, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, dualSenseHaptics, phoneRumble, buttonLegend, coverShape, onlineArtwork, artworkKey, about }
+    private enum Row: Hashable { case reconnect, resolution, customWidth, customHeight, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, dualSenseHaptics, phoneRumble, buttonLegend, coverShape, onlineArtwork, artworkKey, logoSize, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
     private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
     @State private var page = Self.rememberedPage
@@ -80,7 +81,7 @@ struct SettingsView: View {
     }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures, .buttonLegend, .buttonMapping, .dualSenseHaptics] + (PhoneRumble.isAvailable ? [.phoneRumble] : []) + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
+        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures, .buttonLegend, .buttonMapping, .dualSenseHaptics] + (PhoneRumble.isAvailable ? [.phoneRumble] : []) + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey, .logoSize] : []) : []) + [.about] }
         return (needsReconnect ? [.reconnect] : []) + [.resolution] + (resolution == .custom ? [.customWidth, .customHeight] : [])
             + [.fps, .codec] + (showsHDR ? [.hdr] : [])
             + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .touch, .overlay]
@@ -273,12 +274,16 @@ struct SettingsView: View {
                                     .textInputAutocapitalization(.never)
                                     .onSubmit(saveArtworkKey)
                             }
+                            row(.logoSize) {
+                                choiceRow(.logoSize, "Logo Size", $logoSize, GameCatalog.logoSizeChoices, name: { "\($0)%" })
+                            }
                         }
                     } header: {
                         Text("Library")
                     } footer: {
                         Text("2:3 suits Steam art, 3:4 most hosts'. Online Artwork sends your game names to SteamGridDB to find art; "
-                             + "get a free API key from your steamgriddb.com profile. Your own pictures always show first.")
+                             + "get a free API key from your steamgriddb.com profile. Your own pictures always show first. "
+                             + "Logo Size sets how big game logos show on Home; Edit Game can change it for one game.")
                     }
                     .onChange(of: isKeyFocused) { if !isKeyFocused { saveArtworkKey() } }
                     .onDisappear(perform: saveArtworkKey)
@@ -456,6 +461,7 @@ struct SettingsView: View {
         case .about: isShowingAbout = true
         case .onlineArtwork: findsArtwork.toggle()
         case .artworkKey: isKeyFocused = true
+        case .logoSize: choices("Logo Size", GameCatalog.logoSizeChoices, current: logoSize, name: { "\($0)%" }) { logoSize = $0 }
         case .reconnect:
             saveCustomSize()
             dismiss()

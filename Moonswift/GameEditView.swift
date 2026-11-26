@@ -10,6 +10,7 @@ struct GameEditView: View {
 
     @Environment(GameCatalog.self) private var catalog
     @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
+    @AppStorage(SettingsKey.logoSize) private var defaultLogoSize = 100
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var heroItem: PhotosPickerItem?
@@ -20,8 +21,9 @@ struct GameEditView: View {
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
         let art: [Row] = current.isApp ? []
-            : (match != nil ? [.onlineArt] : []) + (hasArtworkKey ? [.chooseArt] : []) + [.hero, .cover(coverShape)]
-        return [.name] + art + [.favorite, .hidden, .showAs, .splashWait] + (hasLogo ? [.logoSize] : []) + [.reset]
+            : (match != nil ? [.onlineArt] : []) + (hasArtworkKey ? [.chooseArt] : []) + (hasLogo ? [.logoSize] : [])
+                + [.hero, .cover(coverShape)]
+        return [.name] + art + [.favorite, .hidden, .showAs, .splashWait, .reset]
     }
     /// Logo Size shows only for a game with a logo.
     private var hasLogo: Bool { catalog.shownLogo(for: game.id) != nil }
@@ -71,6 +73,18 @@ struct GameEditView: View {
                         if hasArtworkKey {
                             row(.chooseArt) {
                                 Button("Choose Artwork…") { isChoosingArt = true }.foregroundStyle(.primary)
+                            }
+                        }
+                        if hasLogo {
+                            row(.logoSize) {
+                                ChoiceRow(title: "Logo Size", value: logoSizeTitle(catalog.logoSizes[game.id]),
+                                          isValueHidden: choice?.source == AnyHashable(Row.logoSize)) {
+                                    Picker("Logo Size", selection: Binding(get: { catalog.logoSizes[game.id] },
+                                                                           set: { catalog.setLogoSize($0, for: game) })) {
+                                        ForEach(logoSizeOptions, id: \.self) { Text(logoSizeTitle($0)).tag($0) }
+                                    }
+                                    .pickerStyle(.inline)
+                                }
                             }
                         }
                     } header: {
@@ -130,22 +144,6 @@ struct GameEditView: View {
                     }
                 } footer: {
                     Text("How long the splash stays after the game's picture appears. Default uses Settings.")
-                }
-                if hasLogo {
-                    Section {
-                        row(.logoSize) {
-                            ChoiceRow(title: "Logo Size", value: logoSizeTitle(catalog.logoSizes[game.id]),
-                                      isValueHidden: choice?.source == AnyHashable(Row.logoSize)) {
-                                Picker("Logo Size", selection: Binding(get: { catalog.logoSizes[game.id] },
-                                                                       set: { catalog.setLogoSize($0, for: game) })) {
-                                    ForEach(logoSizeOptions, id: \.self) { Text(logoSizeTitle($0)).tag($0) }
-                                }
-                                .pickerStyle(.inline)
-                            }
-                        }
-                    } footer: {
-                        Text("How big the game's logo shows on Home.")
-                    }
                 }
                 Section {
                     row(.reset) {
@@ -258,9 +256,9 @@ struct GameEditView: View {
 
     /// Default (nil), then the seconds.
     private var waitOptions: [Int?] { [nil] + LaunchSplash.waitChoices.map(Optional.some) }
-    /// Default (nil, 100%), then smaller and larger steps.
-    private var logoSizeOptions: [Int?] { [nil, 75, 90, 110, 125] }
-    private func logoSizeTitle(_ percent: Int?) -> String { percent.map { "\($0)%" } ?? "Default" }
+    /// Default (nil: Settings' size), then each step.
+    private var logoSizeOptions: [Int?] { [nil] + GameCatalog.logoSizeChoices.map(Optional.some) }
+    private func logoSizeTitle(_ percent: Int?) -> String { percent.map { "\($0)%" } ?? "Default (\(defaultLogoSize)%)" }
     private func waitTitle(_ seconds: Int?) -> String { seconds.map(SettingsView.seconds) ?? "Default" }
 
     private func reset() {

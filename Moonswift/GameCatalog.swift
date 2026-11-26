@@ -52,8 +52,10 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     @ObservationIgnored private var gamesCache: [[String]: [CatalogGame]] = [:]
     /// Seconds the launch splash stays past the first picture, for games that need more (or less) than the default.
     private(set) var splashWaits: [String: Int] = [:]
-    /// How big each game's logo shows on Home, in percent of its usual size, by game ID; missing is 100.
+    /// How big each game's logo shows on Home, in percent of its usual size, by game ID; missing follows Settings.
     private(set) var logoSizes: [String: Int] = [:]
+    /// Logo Size's steps, in Settings and Edit Game.
+    nonisolated static let logoSizeChoices = [75, 90, 100, 110, 125]
     /// The on-screen controller layout last used with each game, by game ID.
     private(set) var padLayouts: [String: String] = [:]
     /// Your pictures by kind, then game ID: a hero, and a cover for each cover shape.
@@ -379,7 +381,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         saveSettings()
     }
 
-    /// nil: the usual size.
+    /// nil: the size set in Settings.
     func setLogoSize(_ percent: Int?, for game: CatalogGame) {
         logoSizes[game.id] = percent
         saveSettings()

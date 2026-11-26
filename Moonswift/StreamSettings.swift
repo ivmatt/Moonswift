@@ -50,6 +50,7 @@ nonisolated enum SettingsKey {
     static let touchMode = "touchMode" // TouchMode
     static let coverShape = "coverShape"
     static let onlineArtwork = "onlineArtwork" // Bool, on by default: art from SteamGridDB, once its key is set
+    static let logoSize = "logoSize" // Int percent of a logo's usual size on Home; missing: 100. Edit Game can override it.
     static let artworkKeyVersion = "artworkKeyVersion" // Int, bumped as the SteamGridDB key changes: looks up again
     static let resolution = "resolution"
     static let customWidth = "customWidth" // Int pixels for the Custom resolution; missing until Custom is first picked

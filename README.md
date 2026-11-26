@@ -31,7 +31,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 
 **Your library**
 - A console-style Home and a full game library
-- Automatic covers, backgrounds and logos from [SteamGridDB](https://www.steamgriddb.com) (needs your own free API key), or your own art; logos are sized evenly, with a per-game Logo Size in Edit Game
+- Automatic covers, backgrounds and logos from [SteamGridDB](https://www.steamgriddb.com) (needs your own free API key), or your own art; logos are sized evenly, with a Logo Size in Settings and per game in Edit Game
 - Favorites, hidden games and voice search
 - Siri Shortcuts and `moonswift://` links to launch a game (links ask before starting it)
 
