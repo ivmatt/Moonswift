@@ -345,8 +345,8 @@ extension View {
         modifier(ButtonLegendPlacement(hints: hints, reportsLayout: reportsLayout, backs: backs))
     }
 
-    /// For a scrolling page: follows the tab bar's shrinking (scrolling down) and coming back (scrolling up), which iOS
-    /// doesn't report, so the button legend can move with it.
+    /// For a scrolling page: keeps up with the tab bar shrinking as it scrolls, which iOS doesn't report, so the page's
+    /// fade above the button legend can follow it.
     func tracksTabBarMinimize() -> some View { modifier(TabBarMinimizeTracking()) }
 
     /// Whether the tab bar runs along the bottom, from this page's bottom inset, not counting the keyboard's: its height
@@ -391,26 +391,43 @@ private struct PhoneTabBarHiding: ViewModifier {
     }
 }
 
-/// Whether the tab bar is shrunk to its corner, as far as scrolling tells. RootView resets it on a tab change.
+/// Whether the tab bar is shrunk to its corner button. Read while pages scroll, on a tab change, and when the bar comes back.
 @Observable final class TabBarMinimize {
     var isMinimized = false
     /// A page has hidden it (`hidesTabBarOnPhone`).
     var isHidden = false
     /// Home has tucked it away (an iPhone in landscape): the legend stays where it was, as the bar will be back.
     var isAway = false
+    /// shortcut: iOS doesn't say when it shrinks the tab bar to its button, and guessing from the scroll direction was
+    /// wrong (scrolling up doesn't bring it back). This reads the bar's own view, which hides while it's shrunk, and
+    /// watches it for a tap bringing the bar back. Not found (another iOS): taken as the full bar, so pages don't fade
+    /// and nothing overlaps. Revisit if iOS makes the state public.
+    @ObservationIgnored private weak var fullBar: UIView?
+    @ObservationIgnored private var watch: NSKeyValueObservation?
+
+    func sync() {
+        if fullBar == nil {
+            let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+            fullBar = window.flatMap(Self.tabBar(in:))?.subviews.first { String(describing: type(of: $0)) == "_UITabBarItemPlatterView" }
+            watch = fullBar?.observe(\.isHidden) { [weak self] _, _ in MainActor.assumeIsolated { self?.sync() } }
+        }
+        let minimized = fullBar?.isHidden ?? false
+        if minimized != isMinimized { isMinimized = minimized }
+    }
+
+    private static func tabBar(in view: UIView) -> UITabBar? {
+        if let bar = view as? UITabBar { return bar }
+        return view.subviews.lazy.compactMap(tabBar(in:)).first
+    }
 }
 
 private struct TabBarMinimizeTracking: ViewModifier {
     @Environment(TabBarMinimize.self) private var tabBar: TabBarMinimize? // none in a sheet over a stream, or a preview
 
     func body(content: Content) -> some View {
-        content.onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { old, new in
-            guard let tabBar else { return }
-            // shortcut: the system's own rule is private; this follows its direction (down shrinks, up brings it back).
-            // If the legend and tab bar disagree, revisit.
-            let minimized = new - old > 2 ? true : old - new > 2 ? false : tabBar.isMinimized
-            if minimized != tabBar.isMinimized { tabBar.isMinimized = minimized }
-        }
+        content
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, _ in tabBar?.sync() }
+            .onAppear { tabBar?.sync() }
     }
 }
 
@@ -480,7 +497,8 @@ private struct LegendBacking: ViewModifier {
         content
             // Scrolled to the end, the last row stops above the fade. Added to the safe area, which keeps the home
             // indicator's room (a floating sheet has none).
-            .safeAreaPadding(.bottom, on ? max(0, hintsTop + Self.gap - (isFloating ? 0 : HomeView.windowBottomInset)) : 0)
+            // While the legend shows, whatever the tab bar does: changing it mid-scroll made the page jump.
+            .safeAreaPadding(.bottom, isOn ? max(0, hintsTop + Self.gap - (isFloating ? 0 : HomeView.windowBottomInset)) : 0)
             // From the page's frame, not its safe area, which includes the padding above.
             .onGeometryChange(for: Bool.self) { proxy in
                 let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.bounds.height ?? 0

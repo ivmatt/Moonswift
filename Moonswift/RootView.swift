@@ -81,7 +81,7 @@ struct RootView: View {
                               title: "Saved hosts couldn't be loaded")
             }
         }
-        .onChange(of: tab) { tabBar.isMinimized = false } // a tab change brings the tab bar back
+        .onChange(of: tab) { tabBar.sync() }
         // With a controller, the home indicator fades out until the screen is touched: the legend sits on a clean edge.
         .persistentSystemOverlays(gamepad.isActive ? .hidden : .automatic)
         // iOS asks the legend's window, which is on top; it passes the question on, but must be told to ask again.
