@@ -7,6 +7,8 @@ import SwiftUI
 /// Change and Remove for one that's set), flips Favorite or presses Reset; B saves and closes.
 struct GameEditView: View {
     let game: CatalogGame
+    /// Home's Change Logo Size: the sheet closes and Home shows a slider under the logo. Nil elsewhere (no logo shows there).
+    var changeLogoSize: (() -> Void)? = nil
 
     @Environment(GameCatalog.self) private var catalog
     @AppStorage(SettingsKey.coverShape) private var coverShape = SettingsDefault.coverShape
@@ -26,7 +28,7 @@ struct GameEditView: View {
         return [.name] + art + [.favorite, .hidden, .showAs, .splashWait, .reset]
     }
     /// Logo Size shows only for a game with a logo.
-    private var hasLogo: Bool { catalog.shownLogo(for: game.id) != nil }
+    private var hasLogo: Bool { changeLogoSize != nil && catalog.shownLogo(for: game.id) != nil }
     /// A SteamGridDB key is set: art can be chosen there. Read once: it's in the Keychain.
     @State private var hasArtworkKey = SteamGridDB.savedKey != nil
     @State private var isChoosingArt = false
@@ -79,14 +81,10 @@ struct GameEditView: View {
                         }
                         if hasLogo {
                             row(.logoSize) {
-                                ChoiceRow(title: "Logo Size", value: logoSizeTitle(catalog.logoSizes[game.id]),
-                                          isValueHidden: choice?.source == AnyHashable(Row.logoSize)) {
-                                    Picker("Logo Size", selection: Binding(get: { catalog.logoSizes[game.id] },
-                                                                           set: { catalog.setLogoSize($0, for: game) })) {
-                                        ForEach(logoSizeOptions, id: \.self) { Text(logoSizeTitle($0)).tag($0) }
-                                    }
-                                    .pickerStyle(.inline)
+                                Button(action: openLogoSize) {
+                                    LabeledContent("Change Logo Size", value: "\(catalog.logoSizes[game.id] ?? defaultLogoSize)%")
                                 }
+                                .foregroundStyle(.primary)
                             }
                         }
                     } header: {
@@ -225,12 +223,7 @@ struct GameEditView: View {
                                       selected: options.firstIndex(of: catalog.splashWaits[game.id]) ?? 0,
                                       anchor: rowFrames.frames[row] ?? .zero) { catalog.setSplashWait(options[$0], for: game) }
             withAnimation(.easeOut(duration: 0.12)) { choice = spec }
-        case .logoSize:
-            let options = logoSizeOptions
-            let spec = ChoiceMenuSpec(source: row, options: options.map(logoSizeTitle),
-                                      selected: options.firstIndex(of: catalog.logoSizes[game.id]) ?? 0,
-                                      anchor: rowFrames.frames[row] ?? .zero) { catalog.setLogoSize(options[$0], for: game) }
-            withAnimation(.easeOut(duration: 0.12)) { choice = spec }
+        case .logoSize: openLogoSize()
         case .reset: if canReset { confirmReset() }
         }
     }
@@ -260,9 +253,11 @@ struct GameEditView: View {
 
     /// Default (nil), then the seconds.
     private var waitOptions: [Int?] { [nil] + LaunchSplash.waitChoices.map(Optional.some) }
-    /// Default (nil: Settings' size), then each step.
-    private var logoSizeOptions: [Int?] { [nil] + GameCatalog.logoSizeChoices.map(Optional.some) }
-    private func logoSizeTitle(_ percent: Int?) -> String { percent.map { "\($0)%" } ?? "Default (\(defaultLogoSize)%)" }
+    /// Saves the name as closing does, then hands over to Home's slider.
+    private func openLogoSize() {
+        done()
+        changeLogoSize?()
+    }
     private func waitTitle(_ seconds: Int?) -> String { seconds.map(SettingsView.seconds) ?? "Default" }
 
     /// Something here differs from the host's and the defaults, including a name typed but not yet saved.
