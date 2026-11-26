@@ -24,6 +24,7 @@ struct ArtworkPicker: View {
     @State private var page = 0
     @State private var isAtEnd = false
     @State private var isLoading = false
+    @State private var isPreparing = false
     /// Which reload a page belongs to: one that arrives after a switch to the other kind (or game) is dropped.
     @State private var generation = 0
     @State private var steamAppID: Int?
@@ -36,6 +37,7 @@ struct ArtworkPicker: View {
     @State private var isChoosingGame = false
     @State private var query = ""
     @State private var matches: [SteamGridDB.Match] = []
+    @State private var isSearching = false
     @State private var isRematching = false
     @FocusState private var isQueryFocused: Bool
     /// In Change Game: -1 the search field, then the matches.
@@ -104,7 +106,9 @@ struct ArtworkPicker: View {
                     if isLoading { ProgressView().padding() }
                 }
                 .overlay {
-                    if match?.gameID == nil {
+                    if isPreparing && choices.isEmpty {
+                        ProgressView("Finding artwork…")
+                    } else if match?.gameID == nil {
                         ContentUnavailableView("No Game Matched", systemImage: "magnifyingglass",
                                                description: Text("Find the game on SteamGridDB to choose its art."))
                     } else if let problem, choices.isEmpty {
@@ -163,6 +167,8 @@ struct ArtworkPicker: View {
     private func reload() async {
         generation += 1
         choices = []; page = 0; isAtEnd = false; focus = 0; problem = nil; chosen = nil; isLoading = false
+        isPreparing = true
+        defer { if generation == self.generation { isPreparing = false } }
         guard let id = match?.gameID, let key = SteamGridDB.savedKey else { return }
         let generation = generation
         if steamAppID == nil { steamAppID = try? await SteamGridDB(key: key).steamAppID(game: id) }
@@ -238,7 +244,7 @@ struct ArtworkPicker: View {
             }
         }
         .disabled(isRematching)
-        .busyBox(isRematching ? "Getting its art…" : nil)
+        .busyBox(isRematching ? "Getting its art…" : isSearching ? "Searching SteamGridDB…" : nil)
     }
 
     private func openGameSearch() {
@@ -251,7 +257,11 @@ struct ArtworkPicker: View {
     private func search() {
         guard let key = SteamGridDB.savedKey else { return }
         let query = query
-        Task { matches = (try? await SteamGridDB(key: key).matches(query)) ?? [] }
+        isSearching = true
+        Task {
+            matches = (try? await SteamGridDB(key: key).matches(query)) ?? []
+            isSearching = false
+        }
     }
 
     private func rematch(_ candidate: SteamGridDB.Match) {
