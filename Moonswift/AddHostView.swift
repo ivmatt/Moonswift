@@ -664,10 +664,14 @@ private extension View {
 /// A list doesn't follow `defaultScrollAnchor`, so the room left above and below is split as a top margin.
 private struct StepList: ViewModifier {
     @State private var spare: CGFloat = 0
+    @State private var sides = EdgeInsets()
 
     func body(content: Content) -> some View {
         content
-            .contentMargins(.horizontal, 28, for: .scrollContent)
+            // A list's margins count from its edge, a safe area only a minimum (the Duo's side column): 28 past it.
+            .contentMargins(.leading, 28 + sides.leading, for: .scrollContent)
+            .contentMargins(.trailing, 28 + sides.trailing, for: .scrollContent)
+            .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { sides = $0 }
             .contentMargins(.top, spare / 2, for: .scrollContent)
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 // The room the list leaves, its own margins aside, so the top margin doesn't feed back into it.

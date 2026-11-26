@@ -39,9 +39,7 @@ struct PCsView: View {
     @State private var menu: MenuSpec?
     @State private var topInset: CGFloat = 0
     @State private var insets = EdgeInsets()
-    /// Where the list's safe content starts on screen, and its width inside its safe area.
-    @State private var listEdge = ListEdge()
-    nonisolated private struct ListEdge: Equatable { var leading: CGFloat = 0, width: CGFloat = 0 }
+    @State private var width: CGFloat = 0
     private var statuses: [String: HostStatus] { directory.statuses }
     private var activeAddresses: [String: String] { directory.activeAddresses }
     private var sleepable: Set<String> { directory.sleepable }
@@ -85,13 +83,11 @@ struct PCsView: View {
                     }
                 }
                 // The cards start at the title's edge, 36 points in, and stop at a readable width on a big iPad.
-                // The title is placed from the window's safe area; on the Duo the list starts beside its side column
-                // without that inset, so the difference is made up here.
-                .contentMargins(.leading, 36 + max(0, HomeView.windowLeadingInset - listEdge.leading), for: .scrollContent)
-                .contentMargins(.trailing, max(36, listEdge.width - 36 - HomeView.readableWidth), for: .scrollContent)
-                .onGeometryChange(for: ListEdge.self) {
-                    ListEdge(leading: $0.frame(in: .global).minX + $0.safeAreaInsets.leading, width: $0.size.width)
-                } action: { listEdge = $0 }
+                // A list's margins count from the screen's edge, the safe area only a minimum, so the window's
+                // inset is added: the cards start at the title's edge, and end as far in on the other side.
+                .contentMargins(.leading, 36 + insets.leading, for: .scrollContent)
+                .contentMargins(.trailing, max(36 + insets.trailing, width - 36 - insets.leading - HomeView.readableWidth), for: .scrollContent)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width + $0.safeAreaInsets.leading + $0.safeAreaInsets.trailing } action: { width = $0 }
                 .refreshable { await directory.checkAll(hosts, context: context, isManual: true) } // pull down: fresh status now
                 .onChange(of: focusIndex) { if items.indices.contains(focusIndex) { withAnimation { scroller.scrollTo(items[focusIndex].id) } } }
             }
