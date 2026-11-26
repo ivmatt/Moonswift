@@ -39,6 +39,7 @@ struct PCsView: View {
     @State private var menu: MenuSpec?
     @State private var topInset: CGFloat = 0
     @State private var insets = EdgeInsets()
+    @State private var width: CGFloat = 0
     private var statuses: [String: HostStatus] { directory.statuses }
     private var activeAddresses: [String: String] { directory.activeAddresses }
     private var sleepable: Set<String> { directory.sleepable }
@@ -81,6 +82,10 @@ struct PCsView: View {
                         }
                     }
                 }
+                // The cards start at the title's edge, 36 points in, and stop at a readable width on a big iPad.
+                .contentMargins(.leading, 36, for: .scrollContent)
+                .contentMargins(.trailing, max(36, width - insets.leading - insets.trailing - 36 - HomeView.readableWidth), for: .scrollContent)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width + $0.safeAreaInsets.leading + $0.safeAreaInsets.trailing } action: { width = $0 }
                 .refreshable { await directory.checkAll(hosts, context: context, isManual: true) } // pull down: fresh status now
                 .onChange(of: focusIndex) { if items.indices.contains(focusIndex) { withAnimation { scroller.scrollTo(items[focusIndex].id) } } }
             }

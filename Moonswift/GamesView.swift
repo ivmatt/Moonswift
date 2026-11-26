@@ -678,6 +678,7 @@ private struct LibraryHeader<Pills: View>: View {
                 .opacity(min(max((shown - 0.65) / 0.35, 0), 1)) // they go with the bar's contents
                 .allowsHitTesting(shown > 0.65)
         }
+        .frame(maxWidth: HomeView.readableWidth, alignment: .leading) // not edge to edge on a big iPad
         .tint(.primary)
     }
 }
