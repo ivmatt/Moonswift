@@ -345,10 +345,6 @@ extension View {
         modifier(ButtonLegendPlacement(hints: hints, reportsLayout: reportsLayout, backs: backs))
     }
 
-    /// For a scrolling page: follows the tab bar's shrinking (scrolling down) and coming back (scrolling up), which iOS
-    /// doesn't report, so the button legend can move with it.
-    func tracksTabBarMinimize() -> some View { modifier(TabBarMinimizeTracking()) }
-
     /// Whether the tab bar runs along the bottom, from this page's bottom inset, not counting the keyboard's: its height
     /// read as a tab bar, so the Duo and iPad were taken for iPhones (the legend went to the top, the tab bar was hidden,
     /// and both stayed so).
@@ -391,27 +387,12 @@ private struct PhoneTabBarHiding: ViewModifier {
     }
 }
 
-/// Whether the tab bar is shrunk to its corner, as far as scrolling tells. RootView resets it on a tab change.
+/// The tab bar's state where pages set it, for the legend's placement.
 @Observable final class TabBarMinimize {
-    var isMinimized = false
     /// A page has hidden it (`hidesTabBarOnPhone`).
     var isHidden = false
     /// Home has tucked it away (an iPhone in landscape): the legend stays where it was, as the bar will be back.
     var isAway = false
-}
-
-private struct TabBarMinimizeTracking: ViewModifier {
-    @Environment(TabBarMinimize.self) private var tabBar: TabBarMinimize? // none in a sheet over a stream, or a preview
-
-    func body(content: Content) -> some View {
-        content.onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { old, new in
-            guard let tabBar else { return }
-            // shortcut: the system's own rule is private; this follows its direction (down shrinks, up brings it back).
-            // If the legend and tab bar disagree, revisit.
-            let minimized = new - old > 2 ? true : old - new > 2 ? false : tabBar.isMinimized
-            if minimized != tabBar.isMinimized { tabBar.isMinimized = minimized }
-        }
-    }
 }
 
 private struct ButtonLegendPlacement: ViewModifier {
@@ -428,17 +409,11 @@ private struct ButtonLegendPlacement: ViewModifier {
     func body(content: Content) -> some View {
         let shows = mode.isShown(controllerConnected: gamepad.isControllerConnected) && !hints.isEmpty
         content
-            .modifier(LegendBacking(id: id, isOn: shows && backs, center: center, tabBar: reportsLayout ? tabBar : nil))
+            .modifier(LegendBacking(isOn: shows && backs, isTab: reportsLayout, center: center))
             // iPad's Home: room at the bottom for the legend, with no spacing of the system's own: the covers end the
             // same 28 points above it as Play is above them. (An iPhone's Home lifts its content instead.)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if shows, !backs, UIDevice.current.userInterfaceIdiom == .pad { Color.clear.frame(height: max(0, FixedButtonLegend.top(center) - HomeView.windowBottomInset)) }
-            }
-            // A tab's legend is drawn here, in the page, so the tab bar stays on top of it.
-            .overlay {
-                if let center, reportsLayout, !center.isSheetOnTop, !center.isTabFaded {
-                    FixedButtonLegend(hints: hints, center: center)
-                }
             }
             .onTabBarBelowChange { if reportsLayout, !(tabBar?.isHidden ?? false), !(tabBar?.isAway ?? false) { center?.isTabBarBelow = $0 } }
             .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets in
@@ -450,53 +425,49 @@ private struct ButtonLegendPlacement: ViewModifier {
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
                 if !reportsLayout, backs { center?.setFrame(id, frame) }
             }
-            .onAppear { center?.set(id, isOverTabs: !reportsLayout, hints) }
+            .onAppear {
+                center?.set(id, isOverTabs: !reportsLayout, hints)
+                if reportsLayout { ButtonLegendWindow.installTabLayer() }
+            }
             .onDisappear { center?.remove(id) }
             .onChange(of: hints.map(\.label)) { center?.set(id, isOverTabs: !reportsLayout, hints) }
     }
 }
 
-/// Keeps a page's content out from under the legend without moving the legend: content fades out in the gap above the
-/// hints, and scrolling content gets room to end above that fade. Not while a tab bar shows along the bottom: it covers
-/// the legend.
+/// Keeps a page's content out from under the legend without moving the legend: content fades out behind and above the
+/// hints, and scrolling content gets room to end above them. On whatever the tab bar does: the tabs' legend is drawn
+/// outside the pages, so the bar can cover it either way.
 private struct LegendBacking: ViewModifier {
-    let id: UUID
     let isOn: Bool
+    /// A tab's page; a sheet's otherwise.
+    let isTab: Bool
     let center: ButtonLegendCenter?
-    let tabBar: TabBarMinimize? // a tab page's; nil for a sheet's, which the tab bar is never over
 
     /// Between the hints and content above them: the same 28 points as Home's between Play and its covers.
     private static let gap: CGFloat = 28
-    /// The part of that gap nearest the hints, where nothing shows; the rest is the fade.
-    private static let clear: CGFloat = 4
+    /// The fade runs from the hints' bottom, where nothing shows, to this far above their top.
+    private static let fadeAbove: CGFloat = 32
     /// The page ends above the screen's bottom: a floating sheet (iPad), which the legend sits inside.
     @State private var isFloating = false
 
     func body(content: Content) -> some View {
-        let tabBarShows = tabBar != nil && (center?.isTabBarBelow ?? false) && !(tabBar?.isHidden ?? true) && !(tabBar?.isMinimized ?? true)
-        let on = isOn && !tabBarShows
         // The hints' top, from the page's bottom edge.
         let hintsTop = isFloating ? FixedButtonLegend.bottomInSheet + (center?.height ?? 20) : FixedButtonLegend.top(center)
         content
             // Scrolled to the end, the last row stops above the fade. Added to the safe area, which keeps the home
             // indicator's room (a floating sheet has none).
-            .safeAreaPadding(.bottom, on ? max(0, hintsTop + Self.gap - (isFloating ? 0 : HomeView.windowBottomInset)) : 0)
+            .safeAreaPadding(.bottom, isOn ? max(0, hintsTop + Self.gap - (isFloating ? 0 : HomeView.windowBottomInset)) : 0)
             // From the page's frame, not its safe area, which includes the padding above.
             .onGeometryChange(for: Bool.self) { proxy in
                 let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.bounds.height ?? 0
                 return screen - proxy.frame(in: .global).maxY > HomeView.windowBottomInset + 1 // past the safe area's edge
-            } action: { isFloating = $0 }
+            } action: { isFloating = $0 && !isTab } // only a sheet floats: a tab's page on iPhone measured as one
             // In UIKit, on the page's own view: a SwiftUI mask or compositing group re-hosts a List, which then loses
             // its side margins (Settings' rows widened 8 points).
-            .background { PageFade(fade: on ? Self.gap - Self.clear : 0, clear: on ? hintsTop + Self.clear : 0) }
-            // A tab's page owns the flag while it fades; leaving or stopping clears only its own.
-            .onChange(of: on, initial: true) { setFaded(on) }
-            .onDisappear { setFaded(false) }
-    }
-
-    private func setFaded(_ faded: Bool) {
-        guard tabBar != nil, let center else { return }
-        if faded { center.fadedTab = id } else if center.fadedTab == id { center.fadedTab = nil }
+            .background {
+                let hints = center?.height ?? 20
+                PageFade(fade: isOn ? hints + Self.fadeAbove : 0, clear: isOn ? hintsTop - hints : 0)
+            }
     }
 }
 
@@ -524,6 +495,8 @@ private struct PageFade: UIViewRepresentable {
         override func didMoveToWindow() {
             super.didMoveToWindow()
             if window == nil, let page, page.layer.mask === gradient { page.layer.mask = nil }
+            // Back with it (a tab shown again): mask again, as SwiftUI won't call for an update when nothing changed.
+            if window != nil { setNeedsLayout() }
         }
 
         override func layoutSubviews() {
@@ -541,8 +514,13 @@ private struct PageFade: UIViewRepresentable {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             gradient.frame = page.bounds
-            gradient.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor, UIColor.clear.cgColor]
-            gradient.locations = [0, (height - clearInPage - fade) / height, (height - clearInPage) / height, 1].map { NSNumber(value: Double($0)) }
+            // Eased (smoothstep) rather than straight, so neither end of the fade shows as an edge, with the gentlest middle
+            // of the eased curves: no line across the hints.
+            let steps = (0...16).map { CGFloat($0) / 16 }
+            let start = height - clearInPage - fade
+            gradient.colors = ([UIColor.black] + steps.map { .black.withAlphaComponent(1 - $0 * $0 * (3 - 2 * $0)) } + [.clear])
+                .map(\.cgColor)
+            gradient.locations = ([0] + steps.map { max(0, start + fade * $0) / height } + [1]).map { NSNumber(value: Double($0)) }
             page.layer.mask = gradient
             CATransaction.commit()
         }

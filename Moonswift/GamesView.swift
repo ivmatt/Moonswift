@@ -123,7 +123,6 @@ struct GamesView: View {
                 // Only the title blurs as it goes (the system's edge blur reached the covers too).
                 .scrollEdgeEffectHidden(true, for: .top)
                 .scrollDismissesKeyboard(.immediately) // the keyboard goes, the search stays on until its close button
-                .tracksTabBarMinimize()
                 .overlay(alignment: .top) { header }
                 .choiceMenu($choice)
                 .buttonLegend(legendHints)

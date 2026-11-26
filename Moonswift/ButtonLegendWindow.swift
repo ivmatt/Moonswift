@@ -13,14 +13,14 @@ import UIKit
     /// The topmost screen's hints: a sheet's over a tab's (whichever came on screen last; at launch a tab can after
     /// its sheet), then the newest.
     private(set) var current: [Hint] = []
+    /// The newest tab's hints, for the layer the tabs' legend is drawn in (`ButtonLegendWindow.installTabLayer`).
+    private(set) var tabHints: [Hint] = []
     /// A sheet's legend is showing rather than a tab's.
     private(set) var isSheetOnTop = false
     /// The topmost sheet on screen, which the legend sits inside (a popup menu over it reports none).
     private(set) var sheetFrame: CGRect?
-    /// The tab's page is fading out under the legend, which would fade the legend too if drawn in it: it's drawn in the
-    /// legend's window meanwhile, in the same place.
-    var fadedTab: UUID?
-    var isTabFaded: Bool { fadedTab != nil }
+    /// The tabs' legend has its layer among the pages; until then (or without one) the legend's window draws it.
+    var hasTabLayer = false
     /// The tabs' tab bar runs along the bottom (iPhones other than the Duo): the legend goes to the top, or to the
     /// bottom while the tab bar is shrunk or hidden. Otherwise bottom left.
     var isTabBarBelow = false
@@ -50,6 +50,8 @@ import UIKit
     private func update() {
         let hints = (entries.last { $0.isOverTabs } ?? entries.last)?.hints ?? []
         if hints.map(\.label) != current.map(\.label) { current = hints }
+        let tab = entries.last { !$0.isOverTabs }?.hints ?? []
+        if tab.map(\.label) != tabHints.map(\.label) { tabHints = tab }
         let sheetOnTop = entries.contains { $0.isOverTabs }
         if sheetOnTop != isSheetOnTop { isSheetOnTop = sheetOnTop }
         let frame = entries.last { $0.isOverTabs && frames[$0.id] != nil }.flatMap { frames[$0.id] }
@@ -61,7 +63,35 @@ import UIKit
 enum ButtonLegendWindow {
     private static var window: UIWindow?
 
+    private static var parts: (ButtonLegendCenter, GamepadInput, StreamLauncher)?
+    private static var tabLayer: UIViewController?
+
+    /// The tabs' legend, in a layer of its own in the pages' container, above the pages: their fade (a mask on each
+    /// page) leaves it whole, the tab bar draws over it, and the bar's glass blurs it, as it does the pages. (In the bar's
+    /// own container, the glass showed it sharp once the bar settled.) Called as each tab's page appears.
+    /// shortcut: relies on SwiftUI's TabView being a UITabBarController; without one, the legend's window draws the tabs'
+    /// legend instead, over the tab bar.
+    static func installTabLayer() {
+        if let view = tabLayer?.view, view.window != nil { view.superview?.bringSubviewToFront(view); return } // above a page just added
+        tabLayer?.view.removeFromSuperview() // the tabs were rebuilt (after the welcome)
+        guard let (center, gamepad, launcher) = parts else { return }
+        func tabs(in controller: UIViewController) -> UITabBarController? {
+            (controller as? UITabBarController) ?? controller.children.lazy.compactMap(tabs(in:)).first
+        }
+        let root = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.rootViewController
+        guard let parent = root.flatMap(tabs(in:))?.selectedViewController?.view.superview else { return center.hasTabLayer = false }
+        let host = UIHostingController(rootView: TabLegend(center: center, launcher: launcher).environment(gamepad))
+        host.view.backgroundColor = .clear
+        host.view.isUserInteractionEnabled = false
+        host.view.frame = parent.bounds
+        host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        parent.addSubview(host.view)
+        tabLayer = host
+        center.hasTabLayer = true
+    }
+
     static func install(center: ButtonLegendCenter, gamepad: GamepadInput, launcher: StreamLauncher) {
+        parts = (center, gamepad, launcher)
         guard window == nil,
               let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
         let window = PassthroughWindow(windowScene: scene)
@@ -122,8 +152,8 @@ struct FixedButtonLegend: View {
     /// shortcut: the same 36 as HeroCard's inset, kept in step by hand; share one constant if a third place needs it.
     private static let pageInset: CGFloat = 36
     // Tuned by eye.
-    private static let bottomFromEdge: CGFloat = 8
-    private static let bottomOverIndicator: CGFloat = 18 // iPad and the open Duo in landscape: the home indicator is under the hints
+    /// Above the home indicator on every device (at 8, an iPhone's hints sat on it).
+    private static let bottomOverIndicator: CGFloat = 18
     /// Inside a sheet that ends above the screen's bottom (iPad): up from its edge, clear of its rounded corners.
     static let bottomInSheet: CGFloat = 18
     private static let bottomOverTabBar: CGFloat = 6
@@ -166,7 +196,7 @@ struct FixedButtonLegend: View {
                         .shadow(color: .black.opacity(0.7), radius: 4)
                         .padding(.leading, leadingEdge)
                         .padding(.trailing, trailingEdge)
-                        .padding(.bottom, clearance > 0 ? Self.bottomOverTabBar : isFloating ? screen.height - box.maxY + Self.bottomInSheet : Self.bottom(screen))
+                        .padding(.bottom, clearance > 0 ? Self.bottomOverTabBar : isFloating ? screen.height - box.maxY + Self.bottomInSheet : Self.bottomOverIndicator)
                         .padding(.leading, railLeading)
                         .padding(.trailing, railTrailing)
                         .padding(.bottom, clearance > 0 ? windowBottom + clearance : 0)
@@ -180,12 +210,27 @@ struct FixedButtonLegend: View {
         .allowsHitTesting(false)
     }
 
-    /// From the screen's bottom edge to the hints, without a tab bar to clear.
-    static func bottom(_ screen: CGSize) -> CGFloat { screen.isShort ? bottomFromEdge : bottomOverIndicator }
     /// The hints' top, from the screen's bottom edge: where room kept for them starts.
     static func top(_ center: ButtonLegendCenter?) -> CGFloat {
-        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
-        return bottom(window?.bounds.size ?? .zero) + (center?.height ?? 20)
+        bottomOverIndicator + (center?.height ?? 20)
+    }
+}
+
+/// The tabs' legend, in its layer among the pages. Not while a sheet's shows, or a stream.
+private struct TabLegend: View {
+    let center: ButtonLegendCenter
+    let launcher: StreamLauncher
+
+    var body: some View {
+        ZStack {
+            Color.clear
+            if !center.isSheetOnTop, launcher.stream == nil, launcher.splash == nil {
+                FixedButtonLegend(hints: center.tabHints, center: center)
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .animation(.easeInOut(duration: 0.2), value: center.tabHints.map(\.label))
     }
 }
 
@@ -198,9 +243,8 @@ private struct ButtonLegendOverlay: View {
     var body: some View {
         ZStack {
             Color.clear
-            // A sheet's legend, or a faded tab's: a tab's is otherwise drawn in its page, under the tab bar
-            // (`ButtonLegendPlacement`).
-            if center.isSheetOnTop || center.isTabFaded, launcher.stream == nil, launcher.splash == nil {
+            // A sheet's legend; a tab's is drawn in its layer among the pages (`TabLegend`), here only without one.
+            if center.isSheetOnTop || !center.hasTabLayer, launcher.stream == nil, launcher.splash == nil {
                 FixedButtonLegend(hints: center.current, center: center, sheet: center.isSheetOnTop ? center.sheetFrame : nil)
             }
         }
