@@ -293,7 +293,7 @@ extension View {
                     .padding(-(gap + line))
                     .opacity(isOn ? 1 : 0)
             }
-            .scaleEffect(isOn ? scale : 1)
+            .scaleEffect(isOn && !UIAccessibility.isReduceMotionEnabled ? scale : 1)
             .shadow(color: .black.opacity(isOn ? 0.3 : 0), radius: 12, y: 6)
             .zIndex(isOn ? 1 : 0)
             .animation(.snappy(duration: 0.15), value: isOn)

@@ -133,7 +133,8 @@ struct AddHostView: View {
 
     /// Forward: the next step slides in from the trailing edge as this one leaves by the leading; back, the reverse.
     static func slide(forward: Bool) -> AnyTransition {
-        .asymmetric(insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
+        if UIAccessibility.isReduceMotionEnabled { return .opacity }
+        return .asymmetric(insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
                     removal: .move(edge: forward ? .leading : .trailing).combined(with: .opacity))
     }
 

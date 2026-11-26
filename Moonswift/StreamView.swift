@@ -40,6 +40,7 @@ struct StreamView: View {
     @Environment(PCDirectory.self) private var directory
     @Environment(GameCatalog.self) private var catalog
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage(SettingsKey.touchMode) private var touchMode = TouchMode.automatic
     @State private var session = StreamSession()
@@ -260,7 +261,7 @@ struct StreamView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isPanelOnLeft ? .leading : .trailing)
                 .offset(x: panel == nil && panelPull == nil ? 0
                            : ControlPanel<EmptyView>.travel * (1 - panelShown) * (isPanelOnLeft ? -1 : 1))
-                .transition(.move(edge: isPanelOnLeft ? .leading : .trailing))
+                .transition(reduceMotion ? .opacity : .move(edge: isPanelOnLeft ? .leading : .trailing))
                 .zIndex(2) // above the video's layer as it slides away, or it vanishes rather than sliding
             }
             if let status = shownStatus {
