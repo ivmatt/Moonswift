@@ -34,6 +34,7 @@ struct ArtworkPicker: View {
     @State private var chosen: URL?
     @State private var saving: URL?
     @State private var insets = EdgeInsets()
+    @State private var gridSize = CGSize.zero
 
     @State private var isChoosingGame = false
     @State private var query = ""
@@ -55,7 +56,16 @@ struct ArtworkPicker: View {
     /// The folded Duo puts the bar's title at the safe area's edge, by the camera: the header and grid start there too,
     /// under it. Elsewhere the title is centred, so the usual 20.
     private var leadingMargin: CGFloat { TabToolbar<EmptyView>.isRailOnLeft(insets: insets) ? 0 : 20 }
-    private var columns: Int { kind == .cover ? 4 : kind == .logo ? 3 : 2 }
+    private var columns: Int {
+        guard kind == .cover else { return kind == .logo ? 3 : 2 }
+        // Four, or more when a cover that wide would be taller than the room (an iPhone in landscape), so a whole row
+        // shows above the legend's text. The grid's height stops at the legend, but its pictures show on under the
+        // legend's fade for about 40 points.
+        // shortcut: 40 is measured, not read from the legend; reading the safe area here looped the layout.
+        let room = gridSize.height + 40
+        guard room > 0 else { return 4 } // not measured yet
+        return max(4, Int((gridSize.width / (room * coverShape.ratio)).rounded(.up)))
+    }
 
     var body: some View {
         NavigationStack {
@@ -108,6 +118,7 @@ struct ArtworkPicker: View {
                     .padding(.vertical, 12)
                     if isLoading { ProgressView().padding() }
                 }
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { gridSize = $0 }
                 .overlay {
                     if isPreparing && choices.isEmpty {
                         ProgressView("Finding artwork…")
