@@ -16,6 +16,7 @@ struct AddHostView: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(GamepadInput.self) private var gamepad
     @Environment(GameCatalog.self) private var catalog
     @Query private var hosts: [SavedHost]
@@ -65,6 +66,8 @@ struct AddHostView: View {
             .interactiveDismissDisabled(!isClosable)
             .onAppear { discovery.start() }
             .onDisappear { discovery.stop() }
+            // Back from Settings: a browser denied once stays waiting even after access is turned on, so start afresh.
+            .onChange(of: scenePhase) { if scenePhase == .active && discovery.isDenied { discovery.stop(); discovery.start() } }
             .buttonGuide(hints, reportsLayout: false)
             .onGamepad(handle)
         }
@@ -204,14 +207,15 @@ struct AddHostView: View {
             } header: {
                 if !found.isEmpty { Text("We found these hosts on your network") }
             } footer: {
-                Button("Not showing up?") { advance(to: .address) }
+                // Denied, a typed address can't be reached either: Open Settings is the only way on.
+                if !discovery.isDenied { Button("Not showing up?") { advance(to: .address) }
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.tint)
                     .tint(.blue)
                     .padding(.vertical, 4)
                     .padding(.horizontal, 6)
-                    .focusedRowBackground(gamepad.isActive && focus == findRowCount - 1)
-                    .padding(.top, 6)
+                    .focusedRowBackground(gamepad.isActive && focus == found.count)
+                    .padding(.top, 6) }
             }
         }
     }
@@ -423,9 +427,6 @@ struct AddHostView: View {
         }
     }
 
-    /// Found hosts, Open Settings while Local Network access is denied, then Not showing up?
-    private var findRowCount: Int { found.count + (discovery.isDenied ? 2 : 1) }
-
     private func openSettings() {
         if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
     }
@@ -460,7 +461,7 @@ struct AddHostView: View {
         case .ready: if command == .select { advance(to: .find) }
         case .find:
             switch command {
-            case .up, .down: focus = FocusMove.next(focus, count: findRowCount, columns: 1, command)
+            case .up, .down: focus = FocusMove.next(focus, count: found.count + 1, columns: 1, command) // + Open Settings, or Not showing up?
             case .select:
                 if found.indices.contains(focus) { advance(to: .pair(address: found[focus].address, name: found[focus].info.hostname)) }
                 else if discovery.isDenied && focus == found.count { openSettings() }
