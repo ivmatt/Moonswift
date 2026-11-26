@@ -35,6 +35,9 @@ struct HomeView: View {
     /// Where the system draws its bar and its shrunk button, read as it tucks away.
     @State private var tabBarFrames = TabBarFrames.current
     @State private var editing: CatalogGame?
+    /// Change Logo Size from Edit Game: the game whose logo the slider sizes, and the size shown while it moves.
+    @State private var sizingLogo: CatalogGame?
+    @State private var logoDraft: Double = 100
     /// The selected game, by ID: playing one moves it to the front of the row, and the selection goes with it.
     /// Controller focus is on the row (1), the hero's buttons (0), or the host status pill (-1).
     @State private var selectedID: String?
@@ -273,6 +276,7 @@ struct HomeView: View {
             }
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { pillFrame.frames["page"] = $0 }
             .choiceMenu($statusMenu)
+            .overlay(alignment: .bottom) { if sizingLogo != nil { logoSizeBar } }
             .buttonLegend(legendHints, backs: false) // inside the insets measured below, which say where the tab bar is
             .navigationTitle("") // drawn by TabTitle instead, lined up with the content 36 points in
             .toolbar {
@@ -317,7 +321,7 @@ struct HomeView: View {
                 heroButton = 0
             }
             .addHostCover(isPresented: $isAdding)
-            .sheet(item: $editing) { GameEditView(game: $0) }
+            .sheet(item: $editing) { game in GameEditView(game: game) { startSizingLogo(game) } }
             .onGamepad(handle)
             // A sheet's keyboard mustn't push Home's covers and hero up behind it. Inside the stack: outside, it doesn't reach the page.
             .ignoresSafeArea(.keyboard)
@@ -326,6 +330,7 @@ struct HomeView: View {
 
     /// The button legend's buttons: the selected game's, then the page's.
     private var legendHints: [(buttons: [ControllerHints.Button], label: String)] {
+        if sizingLogo != nil { return [([.a], "Save"), ([.b], "Cancel")] }
         if hasNoGames { return [([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")] }
         if isUnreachable {
             return [([.a], unreachableWakeTarget == nil ? "Refresh" : "Wake"), ([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")]
@@ -413,7 +418,8 @@ struct HomeView: View {
                     .transition(.opacity)
                 } else if let game = selectedGame {
                     HeroCard(game: game, logo: catalog.shownLogo(for: game.id),
-                             logoScale: CGFloat(catalog.logoSizes[game.id] ?? logoSize) / 100, subtitle: heroSubtitle(game), isShort: isShort, isCompact: isShortAndWide,
+                             logoScale: (sizingLogo?.id == game.id ? logoDraft : Double(catalog.logoSizes[game.id] ?? logoSize)) / 100,
+                             subtitle: heroSubtitle(game), isShort: isShort, isCompact: isShortAndWide,
                              isRunning: game.isRunning(directory), labels: game.runningLabels(directory, catalog),
                              isElsewhere: game.elsewhere(directory, catalog) != nil, focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
                              play: { start(game) }, quit: { quit(game) }, isPressingPlay: isPressingPlay,
@@ -707,8 +713,52 @@ struct HomeView: View {
         }
     }
 
+    /// The slider and Save along the bottom, over the covers, while a logo is being sized.
+    private var logoSizeBar: some View {
+        HStack(spacing: 16) {
+            Image(systemName: "textformat.size.smaller").foregroundStyle(.secondary)
+            Slider(value: $logoDraft, in: 50...150, step: 5)
+            Image(systemName: "textformat.size.larger").foregroundStyle(.secondary)
+            Text("\(Int(logoDraft))%").monospacedDigit().frame(width: 52, alignment: .trailing)
+            Button("Save") { endSizingLogo(save: true) }
+                .font(.headline)
+                .buttonStyle(.glass)
+                .focusRing(gamepad.isActive, cornerRadius: .infinity)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .glassEffect(in: .capsule)
+        .frame(maxWidth: 640)
+        .padding(.horizontal, 36)
+        .padding(.bottom, 16)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    private func startSizingLogo(_ game: CatalogGame) {
+        logoDraft = Double(catalog.logoSizes[game.id] ?? logoSize)
+        selectedID = game.id // Edit Game can come from any cover's menu: its logo is the one shown
+        withAnimation(.snappy) { sizingLogo = game }
+    }
+
+    /// Back to Edit Game either way; a size equal to Settings' is saved as following it.
+    private func endSizingLogo(save: Bool) {
+        guard let game = sizingLogo else { return }
+        if save { catalog.setLogoSize(Int(logoDraft) == logoSize ? nil : Int(logoDraft), for: game) }
+        withAnimation(.snappy) { sizingLogo = nil }
+        editing = game
+    }
+
     private func handle(_ command: GamepadCommand) {
         tuckTabBarAway() // any press on the page sends the floating tab bar away
+        if sizingLogo != nil {
+            switch command {
+            case .left, .right: logoDraft = min(max(logoDraft + (command == .left ? -5 : 5), 50), 150)
+            case .select: endSizingLogo(save: true)
+            case .back: endSizingLogo(save: false)
+            default: break
+            }
+            return
+        }
         // A running app can still be selected with no games on screen: A mustn't act on it unseen.
         guard launcher.busy == nil, !hasNoGames, let game = selectedGame else {
             if command == .previousTab { switchTab(-1) } else if command == .nextTab { switchTab(1) } else if command == .settings { openSettings() }
