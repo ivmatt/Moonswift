@@ -92,7 +92,7 @@ struct PCsView: View {
                 .onChange(of: focusIndex) { if items.indices.contains(focusIndex) { withAnimation { scroller.scrollTo(items[focusIndex].id) } } }
             }
             .tint(.primary) // rows are buttons, but shouldn't look like links
-            .tracksTabBarMinimize().hidesTabBarOnPhone(gamepad.isActive && focusIndex > 0).buttonLegend([([.y], "Host Menu"), ([.view], "Add Host"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")])
+            .hidesTabBarOnPhone(gamepad.isActive && focusIndex > 0).buttonLegend([([.y], "Host Menu"), ([.view], "Add Host"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")])
             .navigationTitle("") // the title is TabTitle, placed like Home's; the bar holds only the gear
             .toolbar {
                 TabToolbar(hasTopBar: TabToolbar<EmptyView>.hasTopBar(insets: insets), openSettings: openSettings) {
