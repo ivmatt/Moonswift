@@ -485,7 +485,7 @@ private struct LegendBacking: ViewModifier {
             .onGeometryChange(for: Bool.self) { proxy in
                 let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.bounds.height ?? 0
                 return screen - proxy.frame(in: .global).maxY > HomeView.windowBottomInset + 1 // past the safe area's edge
-            } action: { isFloating = $0 }
+            } action: { isFloating = $0 && tabBar == nil } // only a sheet floats: a tab's page on iPhone measured as one
             // In UIKit, on the page's own view: a SwiftUI mask or compositing group re-hosts a List, which then loses
             // its side margins (Settings' rows widened 8 points).
             .background { PageFade(fade: on ? Self.gap - Self.clear : 0, clear: on ? hintsTop + Self.clear : 0) }
