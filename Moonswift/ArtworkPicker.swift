@@ -88,7 +88,7 @@ struct ArtworkPicker: View {
             nameField.padding(.horizontal, 20)
             Picker("Kind", selection: $kind) { ForEach(Kind.allCases, id: \.self) { Text($0.rawValue) } }
                 .pickerStyle(.segmented)
-                .controlSize(.large) // as tall as the name field above it
+                .controlSize(.large)
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
             ScrollViewReader { scroller in
@@ -139,7 +139,7 @@ struct ArtworkPicker: View {
             Image(systemName: "pencil").foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
-        .frame(height: 40)
+        .frame(height: 48) // as tall as the large picker below it
         .background(Color(.tertiarySystemFill), in: .capsule) // flat, like a system search field
         .contentShape(.capsule)
         .focusRing(gamepad.isActive && focus == -1, cornerRadius: .infinity, scale: 1.015)
