@@ -52,6 +52,8 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     @ObservationIgnored private var gamesCache: [[String]: [CatalogGame]] = [:]
     /// Seconds the launch splash stays past the first picture, for games that need more (or less) than the default.
     private(set) var splashWaits: [String: Int] = [:]
+    /// How big each game's logo shows on Home, in percent of its usual size, by game ID; missing is 100.
+    private(set) var logoSizes: [String: Int] = [:]
     /// The on-screen controller layout last used with each game, by game ID.
     private(set) var padLayouts: [String: String] = [:]
     /// Your pictures by kind, then game ID: a hero, and a cover for each cover shape.
@@ -283,6 +285,9 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         if let data = try? Data(contentsOf: custom.appending(path: "splashWaits.json")) {
             splashWaits = (try? JSONDecoder().decode([String: Int].self, from: data)) ?? [:]
         }
+        if let data = try? Data(contentsOf: custom.appending(path: "logoSizes.json")) {
+            logoSizes = (try? JSONDecoder().decode([String: Int].self, from: data)) ?? [:]
+        }
         if let data = try? Data(contentsOf: custom.appending(path: "padLayouts.json")) {
             padLayouts = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
         }
@@ -347,6 +352,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         save(showAs, Self.customFolder, "showAs.json")
         save(splashWaits, Self.customFolder, "splashWaits.json")
         save(padLayouts, Self.customFolder, "padLayouts.json")
+        save(logoSizes, Self.customFolder, "logoSizes.json")
     }
 
     /// An empty or unchanged name removes the nickname.
@@ -370,6 +376,12 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
     /// nil: the default from Settings.
     func setSplashWait(_ seconds: Int?, for game: CatalogGame) {
         splashWaits[game.id] = seconds
+        saveSettings()
+    }
+
+    /// nil: the usual size.
+    func setLogoSize(_ percent: Int?, for game: CatalogGame) {
+        logoSizes[game.id] = percent
         saveSettings()
     }
 
@@ -454,6 +466,7 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
             hidden.remove(id)
             showAs[id] = nil
             splashWaits[id] = nil
+            logoSizes[id] = nil
             padLayouts[id] = nil
         }
         saveSettings()

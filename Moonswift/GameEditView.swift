@@ -2,7 +2,7 @@ import PhotosUI
 import SwiftUI
 
 /// A game's page for how Moonswift shows it: a nickname, your own hero picture and a cover for each cover shape (2:3,
-/// 3:4, square; a shape without one shows the PC's art; apps have no art options), favourite, hidden, game or app, and how long its launch splash waits. The PC's own name and art stay as they are,
+/// 3:4, square; a shape without one shows the PC's art; apps have no art options), favourite, hidden, game or app, how long its launch splash waits, and its logo's size on Home. The PC's own name and art stay as they are,
 /// and Reset brings them back. Controller: up/down move between rows; A types the name, picks a picture (or offers
 /// Change and Remove for one that's set), flips Favorite or presses Reset; B saves and closes.
 struct GameEditView: View {
@@ -16,13 +16,15 @@ struct GameEditView: View {
     /// The picker for each cover shape.
     @State private var coverItems: [CoverShape: PhotosPickerItem] = [:]
 
-    private enum Row: Hashable { case name, hero, cover(CoverShape), onlineArt, chooseArt, favorite, hidden, showAs, splashWait, reset }
+    private enum Row: Hashable { case name, hero, cover(CoverShape), onlineArt, chooseArt, favorite, hidden, showAs, splashWait, logoSize, reset }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
         let art: [Row] = current.isApp ? []
             : (match != nil ? [.onlineArt] : []) + (hasArtworkKey ? [.chooseArt] : []) + [.hero, .cover(coverShape)]
-        return [.name] + art + [.favorite, .hidden, .showAs, .splashWait, .reset]
+        return [.name] + art + [.favorite, .hidden, .showAs, .splashWait] + (hasLogo ? [.logoSize] : []) + [.reset]
     }
+    /// Logo Size shows only for a game with a logo.
+    private var hasLogo: Bool { catalog.shownLogo(for: game.id) != nil }
     /// A SteamGridDB key is set: art can be chosen there. Read once: it's in the Keychain.
     @State private var hasArtworkKey = SteamGridDB.savedKey != nil
     @State private var isChoosingArt = false
@@ -129,6 +131,22 @@ struct GameEditView: View {
                 } footer: {
                     Text("How long the splash stays after the game's picture appears. Default uses Settings.")
                 }
+                if hasLogo {
+                    Section {
+                        row(.logoSize) {
+                            ChoiceRow(title: "Logo Size", value: logoSizeTitle(catalog.logoSizes[game.id]),
+                                      isValueHidden: choice?.source == AnyHashable(Row.logoSize)) {
+                                Picker("Logo Size", selection: Binding(get: { catalog.logoSizes[game.id] },
+                                                                       set: { catalog.setLogoSize($0, for: game) })) {
+                                    ForEach(logoSizeOptions, id: \.self) { Text(logoSizeTitle($0)).tag($0) }
+                                }
+                                .pickerStyle(.inline)
+                            }
+                        }
+                    } footer: {
+                        Text("How big the game's logo shows on Home.")
+                    }
+                }
                 Section {
                     row(.reset) {
                         Button("Reset to Original", role: .destructive, action: reset)
@@ -205,6 +223,12 @@ struct GameEditView: View {
                                       selected: options.firstIndex(of: catalog.splashWaits[game.id]) ?? 0,
                                       anchor: rowFrames.frames[row] ?? .zero) { catalog.setSplashWait(options[$0], for: game) }
             withAnimation(.easeOut(duration: 0.12)) { choice = spec }
+        case .logoSize:
+            let options = logoSizeOptions
+            let spec = ChoiceMenuSpec(source: row, options: options.map(logoSizeTitle),
+                                      selected: options.firstIndex(of: catalog.logoSizes[game.id]) ?? 0,
+                                      anchor: rowFrames.frames[row] ?? .zero) { catalog.setLogoSize(options[$0], for: game) }
+            withAnimation(.easeOut(duration: 0.12)) { choice = spec }
         case .reset: reset()
         }
     }
@@ -234,6 +258,9 @@ struct GameEditView: View {
 
     /// Default (nil), then the seconds.
     private var waitOptions: [Int?] { [nil] + LaunchSplash.waitChoices.map(Optional.some) }
+    /// Default (nil, 100%), then smaller and larger steps.
+    private var logoSizeOptions: [Int?] { [nil, 75, 90, 110, 125] }
+    private func logoSizeTitle(_ percent: Int?) -> String { percent.map { "\($0)%" } ?? "Default" }
     private func waitTitle(_ seconds: Int?) -> String { seconds.map(SettingsView.seconds) ?? "Default" }
 
     private func reset() {

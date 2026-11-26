@@ -411,7 +411,8 @@ struct HomeView: View {
                     .padding(.trailing, heroFold.maxWidth == nil ? -railInsets.trailing : 0)
                     .transition(.opacity)
                 } else if let game = selectedGame {
-                    HeroCard(game: game, logo: catalog.shownLogo(for: game.id), subtitle: heroSubtitle(game), isShort: isShort, isCompact: isShortAndWide,
+                    HeroCard(game: game, logo: catalog.shownLogo(for: game.id),
+                             logoScale: CGFloat(catalog.logoSizes[game.id] ?? 100) / 100, subtitle: heroSubtitle(game), isShort: isShort, isCompact: isShortAndWide,
                              isRunning: game.isRunning(directory), labels: game.runningLabels(directory, catalog),
                              isElsewhere: game.elsewhere(directory, catalog) != nil, focusedButton: gamepad.isActive && focusRow == 0 ? heroButton : nil,
                              play: { start(game) }, quit: { quit(game) }, isPressingPlay: isPressingPlay,
@@ -773,6 +774,8 @@ private struct HeroCard: View {
     let game: CatalogGame
     /// The game's logo, found online: shown in place of the title.
     let logo: UIImage?
+    /// Edit Game's Logo Size: 1 is the usual size.
+    var logoScale: CGFloat = 1
     let subtitle: String
     /// On a short screen: a smaller title.
     var isShort = false
@@ -810,17 +813,18 @@ private struct HeroCard: View {
     /// The game's logo, or its name where it has none.
     @ViewBuilder private var title: some View {
         if let logo {
-            let maxHeight = adaptiveTitleSize * (isCompact ? 1.6 : 2.2)
+            // Logo Size scales the box too, so a larger logo grows up into the art rather than hitting the cap.
+            let maxHeight = adaptiveTitleSize * (isCompact ? 1.6 : 2.2) * logoScale
             // Every (trimmed) logo the area of a 2.6:1 one at 85% of the height, so wide and stacked ones weigh the same.
             let aspect = max(logo.size.width / max(logo.size.height, 1), 0.1)
-            let equalHeight = (2.6 * pow(maxHeight * 0.85, 2) / aspect).squareRoot()
+            let equalHeight = (2.6 * pow(maxHeight * 0.85, 2) / aspect).squareRoot() // maxHeight already scaled
             Image(uiImage: logo)
                 .resizable()
                 .scaledToFit()
                 .frame(maxWidth: equalHeight * aspect, maxHeight: equalHeight, alignment: .bottomLeading)
                 // About two lines of title tall, and no wider than the title may run.
                 .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .bottomLeading)
-                .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in width * 0.45 }
+                .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in width * min(0.45 * logoScale, 0.6) }
                 .padding(.bottom, isCompact ? 6 : 12) // a trimmed logo has no empty space of its own above the buttons
                 .shadow(color: .black.opacity(0.5), radius: 8) // stands off bright art
                 .accessibilityLabel(game.title)
