@@ -7,6 +7,8 @@ import UIKit
 /// say what it shows with `buttonGuide(_:)`.
 @Observable final class ButtonGuideCenter {
     typealias Hint = (buttons: [ControllerHints.Button], label: String)
+    /// The iPhone's guide (no pill, a text shadow, no room kept). EXPLORATION: `-debugPadPhoneGuide YES` gives it to iPad.
+    static let isPhoneStyle = UIDevice.current.userInterfaceIdiom == .phone || UserDefaults.standard.bool(forKey: "debugPadPhoneGuide")
     @ObservationIgnored private var entries: [(id: UUID, isOverTabs: Bool, hints: [Hint])] = []
     /// The topmost screen's hints: a sheet's over a tab's (whichever came on screen last; at launch a tab can after
     /// its sheet), then the newest.
@@ -163,7 +165,7 @@ private struct ButtonGuideOverlay: View {
 
     var body: some View {
         Group {
-            if UIDevice.current.userInterfaceIdiom == .phone { phoneGuide } else { padGuide }
+            if ButtonGuideCenter.isPhoneStyle { phoneGuide } else { padGuide }
         }
         .onChange(of: launcher.stream == nil || launcher.isMinimized) {
             Task { // now, and again once the stream screen has finished sliding in or out

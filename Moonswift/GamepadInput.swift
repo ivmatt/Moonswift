@@ -422,17 +422,17 @@ private struct ButtonGuidePlacement: ViewModifier {
     func body(content: Content) -> some View {
         let shows = mode.isShown(controllerConnected: gamepad.isControllerConnected) && !hints.isEmpty
         content
-            .modifier(GuideBacking(isOn: shows && backs && UIDevice.current.userInterfaceIdiom == .phone, center: center, tabBar: reportsLayout ? tabBar : nil))
+            .modifier(GuideBacking(isOn: shows && backs && ButtonGuideCenter.isPhoneStyle, center: center, tabBar: reportsLayout ? tabBar : nil))
             // Room at the bottom for the guide (drawn above everything, by ButtonGuideWindow), with no spacing of the
             // system's own: Home's covers end the same 28 points above it as Play is above them. The guide sits 4
             // points into the margin below, so it looks balanced there.
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 // An iPhone's guide floats over the page and takes no room.
-                if shows, UIDevice.current.userInterfaceIdiom != .phone, !(center?.isTabBarBelow ?? false) { Color.clear.frame(height: max(0, (center?.height ?? 34) - 4)) }
+                if shows, !ButtonGuideCenter.isPhoneStyle, !(center?.isTabBarBelow ?? false) { Color.clear.frame(height: max(0, (center?.height ?? 34) - 4)) }
             }
             // An iPhone tab's guide is drawn here, in the page, so the tab bar stays on top of it.
             .overlay {
-                if let center, reportsLayout, !center.isSheetOnTop, UIDevice.current.userInterfaceIdiom == .phone {
+                if let center, reportsLayout, !center.isSheetOnTop, ButtonGuideCenter.isPhoneStyle {
                     PhoneButtonGuide(hints: hints, center: center)
                 }
             }
@@ -493,7 +493,7 @@ struct ControllerHints: View {
         if mode.isShown(controllerConnected: gamepad.isControllerConnected), !hints.isEmpty {
             let pad = GCController.current?.extendedGamepad
             Group {
-                if UIDevice.current.userInterfaceIdiom == .phone {
+                if ButtonGuideCenter.isPhoneStyle {
                     // As many hints as fit, most important (first) kept.
                     ViewThatFits(in: .horizontal) {
                         ForEach(Array(stride(from: hints.count, to: 0, by: -1)), id: \.self) { count in
