@@ -598,6 +598,10 @@ struct HomeView: View {
     /// Apple's Games app.
     static func titleTop(_ inset: CGFloat) -> CGFloat { inset + 23 }
 
+    /// The widest a tab's list-like content gets (Hosts' cards, Library's search bar), from the page's 36-point edge:
+    /// on a big iPad, about as wide as Add a Host's column, not the whole screen.
+    static let readableWidth: CGFloat = 720
+
     private func heroSubtitle(_ game: CatalogGame) -> String {
         let pc = hosts.count > 1 ? game.sources.compactMap { s in hosts.first { $0.uniqueID == s.pcID }?.displayName }.first : nil
         // Running here shows on the cover as Now Playing; when it was last played: left out, it crowded the hero.
@@ -632,6 +636,9 @@ struct HomeView: View {
                         }
                     }
                     .padding(.horizontal, 36)
+                    // Clear of the round Home button in the corner, focus ring and all, where the side margin is
+                    // narrow (a notched iPhone's): there the first cover would sit under it.
+                    .padding(.leading, floatsTabBar ? max(0, TabBarFrames.current.button.maxX + 14 - railInsets.leading - 36) : 0)
                     .padding(.vertical, 12) // room for the focus ring
                 }
                 .scrollIndicators(.hidden)

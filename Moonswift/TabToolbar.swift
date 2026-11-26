@@ -33,8 +33,25 @@ extension TabToolbar {
         UIDevice.current.userInterfaceIdiom == .pad || abs(insets.trailing - insets.leading) < 20
     }
 
+    /// Where the system toolbar puts a corner button (Back, Cancel, the gear), from the screen's edge, so the app's own
+    /// match it: an iPhone's sit 38 points in, inside the landscape safe area; an iPad's 10; the folded Duo's at the
+    /// safe area's edge, clear of the camera. Measured on iOS 27 simulators.
+    static func cornerInset(insets: EdgeInsets) -> CGFloat {
+        if UIDevice.current.userInterfaceIdiom == .pad { return 10 }
+        return hasTopBar(insets: insets) ? 38 : max(insets.leading, 10)
+    }
+
     /// The Duo's side column is on the left (folded, curved side up).
     static func isRailOnLeft(insets: EdgeInsets) -> Bool {
         UIDevice.current.userInterfaceIdiom != .pad && insets.leading - insets.trailing >= 20
+    }
+}
+
+extension View {
+    /// The bar's title as its middle item, as Settings' Stream/Interface switch is: on the folded Duo a bar without one
+    /// puts its title by the camera and drops Back or Save into the side column below it.
+    func barTitle(_ title: String) -> some View {
+        navigationTitle(title)
+            .toolbar { ToolbarItem(placement: .principal) { Text(title).font(.headline).lineLimit(1) } }
     }
 }

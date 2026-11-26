@@ -86,11 +86,12 @@ struct FirstRunSetup: View {
                     buttons.padding(.top, 14) // after the options: read through them to move on
                 }
                 .padding(28)
-                .frame(maxWidth: 560)
+                .frame(maxWidth: AddHostView.columnWidth)
                 .frame(maxWidth: .infinity)
             }
         }
         .scrollBounceBehavior(.basedOnSize)
+        .defaultScrollAnchor(.center, for: .alignment) // centred while it fits, like every Add a Host step
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in scrolled = y }
     }
 
@@ -181,7 +182,7 @@ struct FirstRunSetup: View {
                 .autocorrectionDisabled()
                 .focused($isKeyFocused)
                 .padding(14)
-                .background(focused(2) ? Color.accentColor.opacity(0.25) : Color(.tertiarySystemFill), in: .rect(cornerRadius: 14))
+                .background(focused(2) ? Color.accentColor.opacity(0.25) : Color(.tertiarySystemFill), in: .capsule) // like a form's fields
                 .id(2)
             keyStatus.font(.footnote).fixedSize(horizontal: false, vertical: true)
         }
@@ -271,7 +272,7 @@ struct FirstRunSetup: View {
     }
 
     private var buttons: some View {
-        Button { next() } label: { Text("Continue").frame(width: 160) }
+        Button { next() } label: { Text("Continue").frame(width: AddHostView.buttonWidth) }
             .buttonStyle(.glassProminent)
             .tint(.blue)
             .controlSize(.large)

@@ -54,7 +54,7 @@ struct EditPCView: View {
                     }
                 }
             }
-            .navigationTitle(host.displayName)
+            .barTitle(host.displayName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
