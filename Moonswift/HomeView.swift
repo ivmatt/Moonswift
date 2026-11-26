@@ -80,6 +80,22 @@ struct HomeView: View {
     /// The host has answered, but with nothing for Home: only apps, or every game hidden. Not still loading.
     private var hasNoGames: Bool { games.isEmpty && !hasRemoteSession && !catalog.games(on: hosts.map(\.uniqueID)).isEmpty }
 
+    /// No games yet and no host can send them: every host checked, none online and paired, none being checked again.
+    /// Offline (or unpaired) instead of "Loading Games" forever.
+    private var isUnreachable: Bool {
+        games.isEmpty && catalog.games(on: hosts.map(\.uniqueID)).isEmpty && !hosts.isEmpty
+            && Self.isUnreachable(hosts.map { directory.statuses[$0.uniqueID] },
+                                  isChecking: hosts.contains { directory.isUncertain($0.uniqueID) })
+    }
+
+    /// Spins on while a check is out, or a host answered paired and its games are on the way.
+    nonisolated static func isUnreachable(_ statuses: [HostStatus?], isChecking: Bool) -> Bool {
+        !isChecking && !statuses.contains { $0 == nil || $0 == .online(paired: true) }
+    }
+
+    /// The first host a wake packet can reach, while Home can't show games.
+    private var unreachableWakeTarget: SavedHost? { hosts.first { directory.canWake($0) } }
+
     private var hasRemoteSession: Bool {
         hosts.contains { directory.isAvailable($0.uniqueID) && catalog.remoteSession(on: $0.uniqueID) != nil }
     }
@@ -234,6 +250,14 @@ struct HomeView: View {
                                 .ignoresSafeArea(.container, edges: .bottom) // stays put as the tab bar comes and goes
                         }
                     }
+                } else if isUnreachable {
+                    VStack(spacing: 0) {
+                        TabTitle(text: "", topInset: topInset, beside: titlePill) { if isRailOnLeft, let statusPill { statusPill } }
+                            .padding(.horizontal, 36)
+                            .padding(.top, Self.windowTopInset - pageTop)
+                        unreachable
+                            .ignoresSafeArea(.container, edges: .bottom) // stays put as the tab bar comes and goes
+                    }
                 } else if games.isEmpty {
                     ContentUnavailableView {
                         Label("Loading Games", systemImage: "gamecontroller")
@@ -302,6 +326,9 @@ struct HomeView: View {
     /// The button guide's buttons: the selected game's, then the page's.
     private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
         if hasNoGames { return [([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")] }
+        if isUnreachable {
+            return [([.a], unreachableWakeTarget == nil ? "Refresh" : "Wake"), ([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")]
+        }
         guard !games.isEmpty else { return [] }
         let labels = selectedGame?.runningLabels(directory, catalog) ?? (resume: "Resume", quit: "Quit")
         let a = focusRow == -1 ? "Open" : selectedGame.flatMap(wakeTarget) != nil ? "Wake"
@@ -309,6 +336,37 @@ struct HomeView: View {
             : selectedGame?.isRunning(directory) == true ? labels.resume : "Play"
         return [([.a], a), ([.y], "Edit")] + (selectedGame?.isRunning(directory) == true ? [([.x], labels.quit)] : [])
             + [([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")]
+    }
+
+    /// Like the hero's offline card: what's wrong, and Wake where a packet can reach the host, or Refresh.
+    private var unreachable: some View {
+        let isOffline = hosts.allSatisfy { directory.statuses[$0.uniqueID] == .offline }
+        let name = hosts.count == 1 ? hosts[0].displayName : "Your hosts"
+        let verb = hosts.count == 1 ? "is" : "are"
+        let target = unreachableWakeTarget
+        return ContentUnavailableView {
+            Label(isOffline ? "\(name) \(verb) offline" : "\(name) \(verb)n't paired", systemImage: "pc")
+        } description: {
+            Text(!isOffline ? "It no longer knows this device. Pair it again from Hosts."
+                 : target == nil ? "Turn it on, and check it's on the same network as this device."
+                 : "Wake it, or check it's on the same network as this device.")
+        } actions: {
+            if let target {
+                let isWaking = directory.waking.contains(target.uniqueID)
+                Button { wake(target) } label: {
+                    Text(isWaking ? "Waking…" : "Wake \(target.displayName)").font(.headline).frame(minWidth: 140)
+                }
+                .buttonStyle(.glass)
+                .controlSize(.large)
+                .disabled(isWaking)
+                .focusRing(gamepad.isActive, cornerRadius: .infinity)
+            } else {
+                Button(action: refresh) { Text("Refresh").font(.headline).frame(minWidth: 140) }
+                    .buttonStyle(.glass)
+                    .controlSize(.large)
+                    .focusRing(gamepad.isActive, cornerRadius: .infinity)
+            }
+        }
     }
 
     private var welcome: some View { WelcomeView(isSettingUp: .constant(false)) } // the app shows it first (RootView)
@@ -645,7 +703,10 @@ struct HomeView: View {
         // A running app can still be selected with no games on screen: A mustn't act on it unseen.
         guard launcher.busy == nil, !hasNoGames, let game = selectedGame else {
             if command == .previousTab { switchTab(-1) } else if command == .nextTab { switchTab(1) } else if command == .settings { openSettings() }
-            else if hasNoGames, launcher.busy == nil, command == .options { refresh() }
+            else if hasNoGames || isUnreachable, launcher.busy == nil, command == .options { refresh() }
+            else if isUnreachable, launcher.busy == nil, command == .select {
+                if let target = unreachableWakeTarget { wake(target) } else { refresh() }
+            }
             return
         }
         let count = row?.games.count ?? 0, isRunning = game.isRunning(directory)

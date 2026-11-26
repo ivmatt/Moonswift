@@ -1103,6 +1103,14 @@ struct HostStatusRuleTests {
         #expect(!PCDirectory.isForgivenMiss(status: paired, previous: paired, missesInARow: 0, isManual: false))
     }
 
+    @Test func homeStopsSpinningOnceNoHostCanSendGames() {
+        #expect(HomeView.isUnreachable([.offline], isChecking: false))
+        #expect(HomeView.isUnreachable([.offline, .online(paired: false)], isChecking: false))
+        #expect(!HomeView.isUnreachable([.offline], isChecking: true)) // a check or Refresh still out
+        #expect(!HomeView.isUnreachable([nil], isChecking: false)) // never checked yet
+        #expect(!HomeView.isUnreachable([.offline, .online(paired: true)], isChecking: false)) // its games are on the way
+    }
+
     @Test func ownSessionEndsAfterTwoEmptyAnswers() {
         #expect(PCDirectory.sessionReading(game: 0, emptyInARow: 0) == (1, false))
         #expect(PCDirectory.sessionReading(game: 0, emptyInARow: 1) == (2, true))
