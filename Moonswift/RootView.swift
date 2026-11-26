@@ -74,7 +74,7 @@ struct RootView: View {
         // short landscape screen its height back; scrolling up or tapping brings it back. Apple's way, over moving it.
         .tabBarMinimizeBehavior(.onScrollDown)
         .onAppear {
-            ButtonGuideWindow.install(center: guide, gamepad: gamepad, tabBar: tabBar, launcher: launcher)
+            ButtonGuideWindow.install(center: guide, gamepad: gamepad, launcher: launcher)
             if SavedHostStore.wasRecovered { // once: the files are aside now, so the next launch opens cleanly
                 SavedHostStore.wasRecovered = false
                 menu = .error("Moonswift couldn't read its saved hosts, so they'll need adding and pairing again.",

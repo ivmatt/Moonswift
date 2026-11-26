@@ -7,19 +7,21 @@ import UIKit
 /// say what it shows with `buttonGuide(_:)`.
 @Observable final class ButtonGuideCenter {
     typealias Hint = (buttons: [ControllerHints.Button], label: String)
-    /// The iPhone's guide (no pill, a text shadow, no room kept). EXPLORATION: `-debugPadPhoneGuide YES` gives it to iPad.
-    static let isPhoneStyle = UIDevice.current.userInterfaceIdiom == .phone || UserDefaults.standard.bool(forKey: "debugPadPhoneGuide")
     @ObservationIgnored private var entries: [(id: UUID, isOverTabs: Bool, hints: [Hint])] = []
     /// The topmost screen's hints: a sheet's over a tab's (whichever came on screen last; at launch a tab can after
     /// its sheet), then the newest.
     private(set) var current: [Hint] = []
     /// A sheet's guide is showing rather than a tab's.
     private(set) var isSheetOnTop = false
+    /// The tab's page is fading out under the guide, which would fade the guide too if drawn in it: it's drawn in the
+    /// guide's window meanwhile, in the same place.
+    var fadedTab: UUID?
+    var isTabFaded: Bool { fadedTab != nil }
     /// The tabs' tab bar runs along the bottom (iPhones other than the Duo): the guide goes to the top, or to the
     /// bottom while the tab bar is shrunk or hidden. Otherwise bottom left.
     var isTabBarBelow = false
     /// The guide's height, for pages to keep its room at the bottom.
-    var height: CGFloat = 34
+    var height: CGFloat = 20
     /// The tab page's side insets (the Duo's side column on one side): with the column on the left, the guide centres
     /// in the room beside it.
     var pageLeading: CGFloat = 0
@@ -47,11 +49,11 @@ import UIKit
 enum ButtonGuideWindow {
     private static var window: UIWindow?
 
-    static func install(center: ButtonGuideCenter, gamepad: GamepadInput, tabBar: TabBarMinimize, launcher: StreamLauncher) {
+    static func install(center: ButtonGuideCenter, gamepad: GamepadInput, launcher: StreamLauncher) {
         guard window == nil,
               let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
         let window = PassthroughWindow(windowScene: scene)
-        let host = GuideHostingController(rootView: ButtonGuideOverlay(center: center, tabBar: tabBar, launcher: launcher)
+        let host = GuideHostingController(rootView: ButtonGuideOverlay(center: center, launcher: launcher)
             .environment(gamepad))
         host.view.backgroundColor = .clear
         window.rootViewController = host
@@ -95,18 +97,19 @@ enum ButtonGuideWindow {
     }
 }
 
-/// An iPhone's guide: fixed at the bottom right with a shadow to stay readable over art. Takes no room from the page.
-struct PhoneButtonGuide: View {
+/// The guide: fixed in a bottom corner with a shadow to stay readable over art. Pages fade out above it (`GuideBacking`).
+struct FixedButtonGuide: View {
     let hints: [ButtonGuideCenter.Hint]
     let center: ButtonGuideCenter
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage(SettingsKey.buttonGuide) private var mode = ButtonGuideMode.automatic
 
+    /// The pages' content inset from the safe area.
+    /// shortcut: the same 36 as HeroCard's; point both at the edge-margins branch's shared constant once it's merged.
+    private static let pageInset: CGFloat = 36
     // Tuned by eye.
-    /// Where the safe area has no side inset (the Duo): this low, the hints need this much to clear the rounded corner.
-    private static let minEdge: CGFloat = 32
-    static let bottomFromEdge: CGFloat = 8
-    private static let bottomOverIndicator: CGFloat = 18 // the open Duo in landscape: its home indicator is under the hints
+    private static let bottomFromEdge: CGFloat = 8
+    private static let bottomOverIndicator: CGFloat = 18 // iPad and the open Duo in landscape: the home indicator is under the hints
     private static let bottomOverTabBar: CGFloat = 6
     /// Clears a portrait tab bar, at one height so the guide doesn't move when the bar shrinks or hides.
     private static let tabBarClearance: CGFloat = 52
@@ -121,10 +124,11 @@ struct PhoneButtonGuide: View {
             let page = proxy.frame(in: .global)
             let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
             let screen = window?.bounds.size ?? page.size
-            // Inside the safe area; a side column already includes its inset.
-            let leadingEdge = max((window?.safeAreaInsets.left ?? 0) - railLeading, Self.minEdge)
-            let trailingEdge = max((window?.safeAreaInsets.right ?? 0) - railTrailing, Self.minEdge)
-            // The Duo open: centered in portrait, left in landscape. Folded: opposite its side column. Other iPhones: right.
+            // In line with the pages' content: their 36-point inset from the safe area (a side column already includes its
+            // inset). Also clears the screen's rounded corners.
+            let leadingEdge = max((window?.safeAreaInsets.left ?? 0) - railLeading, 0) + Self.pageInset
+            let trailingEdge = max((window?.safeAreaInsets.right ?? 0) - railTrailing, 0) + Self.pageInset
+            // iPad and the Duo open: left in landscape, centered in portrait. Folded: opposite its side column. iPhones: right.
             let alignment: Alignment = screen.height > screen.width ? .bottom
                 : !screen.isShort ? .bottomLeading
                 : railTrailing > 0 ? .bottomLeading : .bottomTrailing
@@ -140,7 +144,7 @@ struct PhoneButtonGuide: View {
                         .shadow(color: .black.opacity(0.7), radius: 4)
                         .padding(.leading, leadingEdge)
                         .padding(.trailing, trailingEdge)
-                        .padding(.bottom, clearance > 0 ? Self.bottomOverTabBar : screen.isShort ? Self.bottomFromEdge : Self.bottomOverIndicator)
+                        .padding(.bottom, clearance > 0 ? Self.bottomOverTabBar : Self.bottom(screen))
                         .padding(.leading, railLeading)
                         .padding(.trailing, railTrailing)
                         .padding(.bottom, clearance > 0 ? windowBottom + clearance : 0)
@@ -154,19 +158,31 @@ struct PhoneButtonGuide: View {
         .allowsHitTesting(false)
     }
 
+    /// From the screen's bottom edge to the hints, without a tab bar to clear.
+    static func bottom(_ screen: CGSize) -> CGFloat { screen.isShort ? bottomFromEdge : bottomOverIndicator }
+    /// The hints' top, from the screen's bottom edge: where room kept for them starts.
+    static func top(_ center: ButtonGuideCenter?) -> CGFloat {
+        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+        return bottom(window?.bounds.size ?? .zero) + (center?.height ?? 20)
+    }
 }
 
 private struct ButtonGuideOverlay: View {
     let center: ButtonGuideCenter
-    let tabBar: TabBarMinimize
     let launcher: StreamLauncher
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage(SettingsKey.buttonGuide) private var mode = ButtonGuideMode.automatic
 
     var body: some View {
-        Group {
-            if ButtonGuideCenter.isPhoneStyle { phoneGuide } else { padGuide }
+        ZStack {
+            Color.clear
+            // A sheet's guide, or a faded tab's: a tab's is otherwise drawn in its page, under the tab bar
+            // (`ButtonGuidePlacement`).
+            if center.isSheetOnTop || center.isTabFaded, launcher.stream == nil, launcher.splash == nil {
+                FixedButtonGuide(hints: center.current, center: center)
+            }
         }
+        .ignoresSafeArea()
         .onChange(of: launcher.stream == nil || launcher.isMinimized) {
             Task { // now, and again once the stream screen has finished sliding in or out
                 ButtonGuideWindow.refreshSystemOverlays()
@@ -175,41 +191,5 @@ private struct ButtonGuideOverlay: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: center.current.map(\.label))
-    }
-
-    /// Only a sheet's guide: a tab's is drawn in its page, under the tab bar (`ButtonGuidePlacement`).
-    private var phoneGuide: some View {
-        ZStack {
-            Color.clear
-            if center.isSheetOnTop, launcher.stream == nil, launcher.splash == nil {
-                PhoneButtonGuide(hints: center.current, center: center)
-            }
-        }
-        .ignoresSafeArea()
-    }
-
-    @ViewBuilder private var padGuide: some View {
-        let movesToTop = center.isTabBarBelow
-        let isAtBottom = !movesToTop || tabBar.isMinimized || tabBar.isHidden
-        // The Duo folded, curved side up: its side column is on the left, where the guide would start.
-        let isRailOnLeft = !movesToTop && UIDevice.current.userInterfaceIdiom != .pad && center.pageLeading - center.pageTrailing >= 20
-        ZStack(alignment: movesToTop || isRailOnLeft ? (isAtBottom ? .bottom : .top) : .bottomLeading) {
-            Color.clear
-            if launcher.stream == nil, launcher.splash == nil { // not over a game or its splash
-                ControllerHints(hints: center.current)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { if $0 > 0 { center.height = $0 } }
-                    // Bottom left 36 points in, in line with the pages' content and just into the margin above the
-                    // home indicator; on iPhone on the title's line (TabTitle: 23 points down, 48 tall), or level
-                    // with the shrunk tab bar.
-                    .padding(.leading, movesToTop ? 0 : isRailOnLeft ? center.pageLeading : HomeView.windowLeadingInset + 36)
-                    .padding(.trailing, isRailOnLeft ? center.pageTrailing : 0)
-                    .padding(.top, movesToTop && !isAtBottom ? HomeView.titleTop(HomeView.windowTopInset) + 8 : 0)
-                    .padding(.bottom, !isAtBottom ? 0 : movesToTop ? HomeView.windowBottomInset + 6 : HomeView.windowBottomInset - 4)
-                    .id(isAtBottom) // fades out of one place and into the other
-                    .transition(.opacity)
-            }
-        }
-        .ignoresSafeArea()
-        .animation(.easeInOut(duration: 0.25), value: isAtBottom)
     }
 }
