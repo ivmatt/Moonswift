@@ -8,11 +8,15 @@ import UIKit
 @Observable final class ButtonLegendCenter {
     typealias Hint = (buttons: [ControllerHints.Button], label: String)
     @ObservationIgnored private var entries: [(id: UUID, isOverTabs: Bool, hints: [Hint])] = []
+    /// Sheets' frames on screen, by entry; kept apart as a frame can come before its entry.
+    @ObservationIgnored private var frames: [UUID: CGRect] = [:]
     /// The topmost screen's hints: a sheet's over a tab's (whichever came on screen last; at launch a tab can after
     /// its sheet), then the newest.
     private(set) var current: [Hint] = []
     /// A sheet's legend is showing rather than a tab's.
     private(set) var isSheetOnTop = false
+    /// The topmost sheet on screen, which the legend sits inside (a popup menu over it reports none).
+    private(set) var sheetFrame: CGRect?
     /// The tab's page is fading out under the legend, which would fade the legend too if drawn in it: it's drawn in the
     /// legend's window meanwhile, in the same place.
     var fadedTab: UUID?
@@ -32,8 +36,14 @@ import UIKit
         update()
     }
 
+    func setFrame(_ id: UUID, _ frame: CGRect) {
+        frames[id] = frame
+        update()
+    }
+
     func remove(_ id: UUID) {
         entries.removeAll { $0.id == id }
+        frames[id] = nil
         update()
     }
 
@@ -42,6 +52,8 @@ import UIKit
         if hints.map(\.label) != current.map(\.label) { current = hints }
         let sheetOnTop = entries.contains { $0.isOverTabs }
         if sheetOnTop != isSheetOnTop { isSheetOnTop = sheetOnTop }
+        let frame = entries.last { $0.isOverTabs && frames[$0.id] != nil }.flatMap { frames[$0.id] }
+        if frame != sheetFrame { sheetFrame = frame }
     }
 }
 
@@ -101,6 +113,8 @@ enum ButtonLegendWindow {
 struct FixedButtonLegend: View {
     let hints: [ButtonLegendCenter.Hint]
     let center: ButtonLegendCenter
+    /// The sheet it sits inside, on screen; nil for the screen itself.
+    var sheet: CGRect? = nil
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage(SettingsKey.buttonLegend) private var mode = ButtonLegendMode.automatic
 
@@ -110,24 +124,32 @@ struct FixedButtonLegend: View {
     // Tuned by eye.
     private static let bottomFromEdge: CGFloat = 8
     private static let bottomOverIndicator: CGFloat = 18 // iPad and the open Duo in landscape: the home indicator is under the hints
+    /// Inside a sheet that ends above the screen's bottom (iPad): up from its edge, clear of its rounded corners.
+    static let bottomInSheet: CGFloat = 18
     private static let bottomOverTabBar: CGFloat = 6
     /// Clears a portrait tab bar, at one height so the legend doesn't move when the bar shrinks or hides.
     private static let tabBarClearance: CGFloat = 52
 
     var body: some View {
         let windowBottom = HomeView.windowBottomInset
-        // The Duo folded: its side column, on either side, stays clear.
-        let railLeading = center.pageLeading - center.pageTrailing >= 20 ? center.pageLeading : 0
-        let railTrailing = center.pageTrailing - center.pageLeading >= 20 ? center.pageTrailing : 0
+        // The Duo folded: its side column, on either side, stays clear (a sheet already covers it).
+        let railLeading = sheet == nil && center.pageLeading - center.pageTrailing >= 20 ? center.pageLeading : 0
+        let railTrailing = sheet == nil && center.pageTrailing - center.pageLeading >= 20 ? center.pageTrailing : 0
         // Pinned to the screen, not the page: Home's page runs past the screen on a landscape iPhone.
         GeometryReader { proxy in
             let page = proxy.frame(in: .global)
             let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
             let screen = window?.bounds.size ?? page.size
-            // In line with the pages' content: their 36-point inset from the safe area (a side column already includes its
-            // inset). Also clears the screen's rounded corners.
-            let leadingEdge = max((window?.safeAreaInsets.left ?? 0) - railLeading, 0) + Self.pageInset
-            let trailingEdge = max((window?.safeAreaInsets.right ?? 0) - railTrailing, 0) + Self.pageInset
+            // The screen, or the sheet on top, with the screen's safe area.
+            let box = sheet ?? CGRect(origin: .zero, size: screen)
+            let left = max(box.minX, (window?.safeAreaInsets.left ?? 0) - railLeading)
+            let right = max(screen.width - box.maxX, (window?.safeAreaInsets.right ?? 0) - railTrailing)
+            // A page's frame stops at the safe area: floating only if it ends above the home indicator's room too.
+            let isFloating = box.maxY < screen.height - windowBottom - 1
+            // In line with the pages' content: their 36-point inset (a side column already includes its inset). Also
+            // clears the screen's and a sheet's rounded corners.
+            let leadingEdge = left + Self.pageInset
+            let trailingEdge = right + Self.pageInset
             // iPad and the Duo open: left in landscape, centered in portrait. Folded: opposite its side column. iPhones: right.
             let alignment: Alignment = screen.height > screen.width ? .bottom
                 : !screen.isShort ? .bottomLeading
@@ -144,7 +166,7 @@ struct FixedButtonLegend: View {
                         .shadow(color: .black.opacity(0.7), radius: 4)
                         .padding(.leading, leadingEdge)
                         .padding(.trailing, trailingEdge)
-                        .padding(.bottom, clearance > 0 ? Self.bottomOverTabBar : Self.bottom(screen))
+                        .padding(.bottom, clearance > 0 ? Self.bottomOverTabBar : isFloating ? screen.height - box.maxY + Self.bottomInSheet : Self.bottom(screen))
                         .padding(.leading, railLeading)
                         .padding(.trailing, railTrailing)
                         .padding(.bottom, clearance > 0 ? windowBottom + clearance : 0)
@@ -179,7 +201,7 @@ private struct ButtonLegendOverlay: View {
             // A sheet's legend, or a faded tab's: a tab's is otherwise drawn in its page, under the tab bar
             // (`ButtonLegendPlacement`).
             if center.isSheetOnTop || center.isTabFaded, launcher.stream == nil, launcher.splash == nil {
-                FixedButtonLegend(hints: center.current, center: center)
+                FixedButtonLegend(hints: center.current, center: center, sheet: center.isSheetOnTop ? center.sheetFrame : nil)
             }
         }
         .ignoresSafeArea()

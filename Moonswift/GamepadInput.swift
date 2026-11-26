@@ -446,6 +446,10 @@ private struct ButtonLegendPlacement: ViewModifier {
                 center?.pageLeading = insets.leading
                 center?.pageTrailing = insets.trailing
             }
+            // A sheet's frame, for the legend to sit inside it. Not a popup menu's (`backs` false).
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                if !reportsLayout, backs { center?.setFrame(id, frame) }
+            }
             .onAppear { center?.set(id, isOverTabs: !reportsLayout, hints) }
             .onDisappear { center?.remove(id) }
             .onChange(of: hints.map(\.label)) { center?.set(id, isOverTabs: !reportsLayout, hints) }
@@ -465,23 +469,23 @@ private struct LegendBacking: ViewModifier {
     private static let gap: CGFloat = 28
     /// The part of that gap nearest the hints, where nothing shows; the rest is the fade.
     private static let clear: CGFloat = 4
-    /// Below the page's content already: the home indicator's room, or the screen below a floating sheet (iPad).
-    @State private var bottomRoom: CGFloat = 0
+    /// The page ends above the screen's bottom: a floating sheet (iPad), which the legend sits inside.
+    @State private var isFloating = false
 
     func body(content: Content) -> some View {
         let tabBarShows = tabBar != nil && (center?.isTabBarBelow ?? false) && !(tabBar?.isHidden ?? true) && !(tabBar?.isMinimized ?? true)
         let on = isOn && !tabBarShows
-        let hintsTop = FixedButtonLegend.top(center)
+        // The hints' top, from the page's bottom edge.
+        let hintsTop = isFloating ? FixedButtonLegend.bottomInSheet + (center?.height ?? 20) : FixedButtonLegend.top(center)
         content
-            // Scrolled to the end, the last row stops above the fade. Added to the safe area, which already keeps the
-            // home indicator's room.
-            .safeAreaPadding(.bottom, on ? max(0, hintsTop + Self.gap - bottomRoom) : 0)
+            // Scrolled to the end, the last row stops above the fade. Added to the safe area, which keeps the home
+            // indicator's room (a floating sheet has none).
+            .safeAreaPadding(.bottom, on ? max(0, hintsTop + Self.gap - (isFloating ? 0 : HomeView.windowBottomInset)) : 0)
             // From the page's frame, not its safe area, which includes the padding above.
-            .onGeometryChange(for: CGFloat.self) { proxy in
+            .onGeometryChange(for: Bool.self) { proxy in
                 let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.bounds.height ?? 0
-                let below = screen - proxy.frame(in: .global).maxY
-                return below > 1 ? below : HomeView.windowBottomInset
-            } action: { bottomRoom = $0 }
+                return screen - proxy.frame(in: .global).maxY > HomeView.windowBottomInset + 1 // past the safe area's edge
+            } action: { isFloating = $0 }
             // In UIKit, on the page's own view: a SwiftUI mask or compositing group re-hosts a List, which then loses
             // its side margins (Settings' rows widened 8 points).
             .background { PageFade(fade: on ? Self.gap - Self.clear : 0, clear: on ? hintsTop + Self.clear : 0) }
@@ -496,8 +500,8 @@ private struct LegendBacking: ViewModifier {
     }
 }
 
-/// Fades out the bottom of the page this sits in (its view controller's view): `clear` points up from the screen's
-/// bottom show nothing, then the page fades in over `fade` points.
+/// Fades out the bottom of the page this sits in (its view controller's view): `clear` points up from its bottom show
+/// nothing, then the page fades in over `fade` points.
 private struct PageFade: UIViewRepresentable {
     let fade: CGFloat
     let clear: CGFloat
@@ -514,20 +518,26 @@ private struct PageFade: UIViewRepresentable {
         var fade: CGFloat = 0
         var clear: CGFloat = 0
         private let gradient = CAGradientLayer()
+        private weak var page: UIView?
+
+        // Gone with its page's legend (a sheet closing): the page shows whole again.
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window == nil, let page, page.layer.mask === gradient { page.layer.mask = nil }
+        }
 
         override func layoutSubviews() {
             super.layoutSubviews()
             var responder: UIResponder? = self
             while let next = responder, !(next is UIViewController) { responder = next.next }
-            guard let page = (responder as? UIViewController)?.view, let window = page.window else { return }
+            guard let page = (responder as? UIViewController)?.view else { return }
+            self.page = page
             guard fade > 0 else {
                 if page.layer.mask === gradient { page.layer.mask = nil }
                 return
             }
             let height = page.bounds.height
-            // The page can end above the screen's bottom (a sheet on iPad): only what's left of the clear band.
-            let below = window.bounds.height - page.convert(CGPoint(x: 0, y: height), to: window).y
-            let clearInPage = min(height, max(0, clear - below))
+            let clearInPage = min(height, clear)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             gradient.frame = page.bounds

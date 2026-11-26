@@ -143,7 +143,7 @@ private struct ChoiceMenu: View {
         }
         .onAppear { withAnimation(.spring(duration: 0.3, bounce: 0.2)) { isOpen = true } } // a quick, springy grow
         // Its own hints over the page's (Settings' L1/R1 do nothing here). Behind it so the legend's room doesn't move it.
-        .background { Color.clear.buttonLegend([([.a], "Select"), ([.b], "Close")], reportsLayout: false) }
+        .background { Color.clear.buttonLegend([([.a], "Select"), ([.b], "Close")], reportsLayout: false, backs: false) }
         .onGamepad(isActive: !isClosing) { command in
             switch command {
             case .up, .down: focus = FocusMove.next(focus, count: spec.options.count, columns: 1, command)
