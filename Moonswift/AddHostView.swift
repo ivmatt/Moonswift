@@ -40,6 +40,10 @@ struct AddHostView: View {
     @State private var sideInsets = EdgeInsets()
     @State private var hasAllowedPermissions = false
     private var iconSize: CGFloat { window.isShort ? 48 : 88 }
+    /// Every step's column, its 28-point margins included, so cards, fields and lists share one width and edge.
+    static let columnWidth: CGFloat = 560
+    /// Every step's Continue (and Connect, Done).
+    static let buttonWidth: CGFloat = 200
 
     /// Found PCs that aren't paired yet.
     private var found: [HostDiscovery.Found] {
@@ -93,10 +97,12 @@ struct AddHostView: View {
                 }
                 Spacer()
             }
+            // Where the system's toolbar puts Back and Cancel on every other screen, measured from the screen's edge.
+            .padding(.leading, TabToolbar<EmptyView>.cornerInset(insets: sideInsets) - sideInsets.leading - 28)
         }
         .controlSize(.large)
         .frame(minHeight: 48)
-        .padding(.horizontal, 28) // clear of the screen's rounded corners, in line with the pages
+        .padding(.horizontal, 28) // the title clear of the screen's rounded corners
         .padding(.top, 20)
         .padding(.bottom, 4)
     }
@@ -119,7 +125,7 @@ struct AddHostView: View {
         switch step {
         case .ready: ready
         // Narrower than the room, or a list's margins differ on the side of the Duo's column.
-        case .find: find.frame(maxWidth: 500).scrollBounceBehavior(.basedOnSize) // still while it fits
+        case .find: find.stepList().scrollBounceBehavior(.basedOnSize) // still while it fits
         case .address: enterAddress.scrollBounceBehavior(.basedOnSize)
         case .troubleshoot: troubleshooting
         case let .pair(address, name):
@@ -171,7 +177,7 @@ struct AddHostView: View {
             Point("gamecontroller", "Your games are added in the host's app list. Moonswift shows what's there, so games "
                   + "that aren't added won't appear here.", isImportant: true),
         ]) {
-            Button { advance(to: .find) } label: { Text("Continue").frame(width: 200) }
+            Button { advance(to: .find) } label: { Text("Continue").frame(width: Self.buttonWidth) }
                 .buttonStyle(.glassProminent)
                 .tint(.blue) // the page's white tint made it white on white
                 .controlSize(.large)
@@ -223,7 +229,7 @@ struct AddHostView: View {
                         }
                         .padding(.horizontal, 28)
                         .padding(.vertical, 12) // centred anyway: room for the roomy one on an iPad
-                        .frame(maxWidth: 560)
+                        .frame(maxWidth: Self.columnWidth)
                     }
                 }
             }
@@ -282,7 +288,7 @@ struct AddHostView: View {
 
     private var enterAddress: some View {
         HStack(spacing: 32) {
-            addressForm.frame(maxWidth: 500)
+            addressForm.stepList()
             // Short and wide, the help goes beside the form, so Connect still fits below it.
             if window.isShortAndWide && !isAddressFocused {
                 addressHelp.font(.footnote).foregroundStyle(.secondary).frame(maxWidth: 320)
@@ -333,7 +339,7 @@ struct AddHostView: View {
                         Text("Connect").opacity(isConnecting ? 0 : 1)
                         if isConnecting { ArcSpinner(size: 18) }
                     }
-                    .frame(width: 200)
+                    .frame(width: Self.buttonWidth)
                 }
                 .buttonStyle(.glassProminent)
                 .tint(.blue)
@@ -363,7 +369,7 @@ struct AddHostView: View {
 
     private func hint(_ number: String, _ text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(number).font(.caption2.weight(.bold)).frame(width: 16, height: 16).background(.quaternary, in: .circle)
+            Text(number).font(.subheadline.weight(.bold)).frame(width: 22, height: 22).background(.quaternary, in: .circle) // as Pair's
             Text(text)
         }
     }
@@ -426,9 +432,10 @@ struct AddHostView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     successHeading(name: name, count: count)
-                    permissionsAndContinue.frame(maxWidth: 480)
+                    permissionsAndContinue
                 }
                 .padding(28)
+                .frame(maxWidth: Self.columnWidth)
                 .frame(maxWidth: .infinity)
             }
             .scrollBounceBehavior(.basedOnSize)
@@ -455,7 +462,7 @@ struct AddHostView: View {
     private var permissionsAndContinue: some View {
         VStack(spacing: 16) {
             PermissionsConfirmation(isConfirmed: $hasAllowedPermissions, isFocused: gamepad.isActive && focus == 0)
-            Button { finishPairing() } label: { Text(isFirstHost ? "Continue" : "Done").frame(width: 200) }
+            Button { finishPairing() } label: { Text(isFirstHost ? "Continue" : "Done").frame(width: Self.buttonWidth) }
                 .buttonStyle(.glassProminent)
                 .tint(.blue) // the page's white tint made it white on white
                 .controlSize(.large)
@@ -645,5 +652,31 @@ struct AppIconMark: View {
             }
             .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
             .accessibilityHidden(true)
+    }
+}
+
+private extension View {
+    /// A step's list (Find Your Host, the address form) in the steps' column: its cards as wide as their cards and
+    /// fields, with the same edge, and centred up and down while it fits.
+    func stepList() -> some View { modifier(StepList()) }
+}
+
+/// A list doesn't follow `defaultScrollAnchor`, so the room left above and below is split as a top margin.
+private struct StepList: ViewModifier {
+    @State private var spare: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .contentMargins(.horizontal, 28, for: .scrollContent)
+            .contentMargins(.top, spare / 2, for: .scrollContent)
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                // The room the list leaves, its own margins aside, so the top margin doesn't feed back into it.
+                geometry.containerSize.height - geometry.contentInsets.top + spare / 2 - geometry.contentInsets.bottom
+                    - geometry.contentSize.height
+            } action: { _, room in
+                let next = max(0, room).rounded()
+                if abs(next - spare) > 1 { spare = next }
+            }
+            .frame(maxWidth: AddHostView.columnWidth)
     }
 }

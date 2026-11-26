@@ -35,14 +35,15 @@ struct PairingView: View {
             VStack(spacing: 16) {
                 Text("\(pairedHost.name) is paired").font(.title2.bold())
                 PermissionsConfirmation(isConfirmed: $hasAllowedPermissions)
-                Button { onPaired(pairedHost.id, pairedHost.name) } label: { Text("Done").frame(width: 200) }
+                Button { onPaired(pairedHost.id, pairedHost.name) } label: { Text("Done").frame(width: AddHostView.buttonWidth) }
                     .buttonStyle(.glassProminent)
                     .tint(.blue)
                     .controlSize(.large)
                     .disabled(!hasAllowedPermissions)
             }
-            .padding()
-            .frame(maxWidth: 480)
+            .padding(.horizontal, 28)
+            .padding(.vertical)
+            .frame(maxWidth: AddHostView.columnWidth)
             .frame(maxWidth: .infinity)
         } else {
         VStack(spacing: window.isShort ? 14 : 24) {
@@ -65,14 +66,17 @@ struct PairingView: View {
                     step(2, "Sign in, then look for Clients or PIN.")
                     step(3, "Type this PIN and a name for this device. Moonswift will take care of the rest.")
                 }
-                .frame(maxWidth: 480, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding()
+        .padding(.horizontal, 28)
+        .padding(.vertical)
+        .frame(maxWidth: AddHostView.columnWidth) // the steps' column, like every Add a Host step
         .frame(maxWidth: .infinity)
         }
         }
         .scrollBounceBehavior(.basedOnSize)
+        .defaultScrollAnchor(.center, for: .alignment) // centred while it fits, like every Add a Host step
         .onGeometryChange(for: CGSize.self) { $0.fullSize } action: { window = $0 }
         .navigationTitle("Pair with \(name)")
         .task(id: attempt) { await pair() } // cancelled (and the request with it) when the view closes
