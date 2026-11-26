@@ -265,7 +265,7 @@ struct GamesView: View {
     }
 
     private var header: some View {
-        LibraryHeader(scroll: scroll, topInset: topInset, contentTop: contentTop, query: $query,
+        LibraryHeader(scroll: scroll, topInset: topInset, contentTop: contentTop, margins: coverMargins, query: $query,
                       isSearching: isSearching, isSearchFocused: $isSearchFocused, dictation: dictation,
                       focused: gamepad.isActive && !isSearchFocused && (focus == Self.searchFocus || focus == Self.closeFocus)
                           ? (focus == Self.closeFocus ? .close : .bar) : nil,
@@ -606,6 +606,7 @@ private struct LibraryHeader<Pills: View>: View {
     let scroll: LibraryScroll
     let topInset: CGFloat
     let contentTop: CGFloat
+    let margins: EdgeInsets
     @Binding var query: String
     let isSearching: Bool
     var isSearchFocused: FocusState<Bool>.Binding
@@ -646,7 +647,8 @@ private struct LibraryHeader<Pills: View>: View {
             searchBar(height: Self.barHeight - squish)
                 .offset(y: barTop)
         }
-        .padding(.horizontal, 36)
+        .padding(.leading, margins.leading)
+        .padding(.trailing, margins.trailing)
         .padding(.top, contentTop)
         .ignoresSafeArea(edges: .top) // from the window's top, like the wall under it
     }
@@ -700,7 +702,8 @@ private struct LibraryHeader<Pills: View>: View {
                 .opacity(min(max((shown - 0.65) / 0.35, 0), 1)) // they go with the bar's contents
                 .allowsHitTesting(shown > 0.65)
         }
-        .frame(maxWidth: HomeView.readableWidth, alignment: .leading) // not edge to edge on a big iPad
+        .frame(maxWidth: UIDevice.current.userInterfaceIdiom == .pad ? HomeView.readableWidth : .infinity,
+               alignment: .leading) // cap the iPad row; phones use the full width of the covers
         .tint(.primary)
     }
 }
