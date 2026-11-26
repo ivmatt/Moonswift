@@ -105,7 +105,7 @@ struct FixedButtonGuide: View {
     @AppStorage(SettingsKey.buttonGuide) private var mode = ButtonGuideMode.automatic
 
     /// The pages' content inset from the safe area.
-    /// shortcut: the same 36 as HeroCard's; point both at the edge-margins branch's shared constant once it's merged.
+    /// shortcut: the same 36 as HeroCard's inset, kept in step by hand; share one constant if a third place needs it.
     private static let pageInset: CGFloat = 36
     // Tuned by eye.
     private static let bottomFromEdge: CGFloat = 8
