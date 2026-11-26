@@ -34,6 +34,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 - Automatic covers, backgrounds and logos from [SteamGridDB](https://www.steamgriddb.com) (needs your own free API key), or your own art; logos are sized evenly, with a Logo Size in Settings and per game in Edit Game
 - Favorites, hidden games and voice search
 - Siri Shortcuts and `moonswift://` links to launch a game (links ask before starting it)
+- Reset to defaults, after asking: each Settings page (Stream, Interface), Gestures, Button Mapping, and each game in Edit Game (its name, your pictures and its overrides; favorites, hidden and chosen art stay)
 
 **Hosts**
 - Find hosts on your network automatically, or add one by address (needs Local Network access; if it was denied, Add a Host says so and links to Settings)

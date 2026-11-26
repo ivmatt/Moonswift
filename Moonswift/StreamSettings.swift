@@ -59,7 +59,6 @@ nonisolated enum SettingsKey {
     static let codec = "codec"
     static let performanceOverlay = "performanceOverlay" // Bool: live stats in a corner of the stream
     static let adaptiveBitrate = "adaptiveBitrate" // Bool: the bitrate setting becomes a ceiling
-    static let adaptiveBitrateDefault = true // its first-run value, read from more than one place
     static let dualSenseHaptics = "dualSenseHaptics" // Bool, on by default: take the host's waveform haptics
     static let phoneRumble = "phoneRumble" // Bool, on by default: the phone rumbles when the first player's pad can't
     static let bitrate = "bitrateKbps" // 0 = automatic, else kbps
@@ -72,6 +71,69 @@ nonisolated enum SettingsKey {
     static let streamTutorialsSeen = "streamTutorialsSeen" // String: the stream guide cards dismissed, comma-separated
     static let fourFingerGestures = "fourFingerGestures" // Bool, off by default: four fingers get the six gestures too
     static let pictureInPicture = "pictureInPicture" // Bool, on by default: pinch or leaving the app floats the stream
+    static let hudCorner = "hudCorner" // PerformanceOverlay.Corner: where the overlay was dragged to
+    static let hudCompact = "hudCompact" // Bool: the overlay's one-line form
+}
+
+/// Each setting's default, written once: every @AppStorage, every direct read and the Settings pages' Reset use these.
+enum SettingsDefault {
+    static let resolution = ResolutionOption.fullScreen
+    static var fps: Int { ScreenInfo.defaultFPS }
+    static let codec = CodecOption.automatic
+    static var hdr: Bool { ScreenInfo.supportsHDR }
+    nonisolated static let bitrate = 0 // automatic
+    nonisolated static let adaptiveBitrate = true
+    nonisolated static let playAudioOnPC = false
+    static let touchMode = TouchMode.automatic
+    nonisolated static let performanceOverlay = false
+    static let hudCorner = PerformanceOverlay.Corner.topTrailing
+    nonisolated static let hudCompact = false
+    nonisolated static let splashScreen = true
+    nonisolated static let splashWait = 3 // seconds
+    nonisolated static let splashEndsOnSound = false
+    nonisolated static let pictureInPicture = true
+    static let controlCenterSide = ControlCenterSide.right
+    static let buttonLegend = ButtonLegendMode.automatic
+    nonisolated static let dualSenseHaptics = true
+    nonisolated static let phoneRumble = true
+    static let coverShape = CoverShape.tall
+    nonisolated static let onlineArtwork = true
+    nonisolated static let logoSize = 100 // percent
+    nonisolated static let fourFingerGestures = false
+
+    /// A Settings page's values as saved (raw values for choices), each at its default. Reset removes them, so every
+    /// @AppStorage falls back to the default it declares, from the constants above.
+    struct Page {
+        let values: [String: Any]
+        /// Also reset, but not shown on the page, so they don't count toward "already at default".
+        var unseen: [String] = []
+
+        func isAtDefault(in defaults: UserDefaults = .standard) -> Bool {
+            values.allSatisfy { key, value in defaults.object(forKey: key).map { ($0 as AnyObject).isEqual(value) } ?? true }
+        }
+
+        func reset(in defaults: UserDefaults = .standard) {
+            for key in Array(values.keys) + unseen { defaults.removeObject(forKey: key) }
+        }
+    }
+
+    static var streamPage: Page {
+        Page(values: [SettingsKey.resolution: resolution.rawValue, SettingsKey.fps: fps, SettingsKey.codec: codec.rawValue,
+                      SettingsKey.hdr: hdr, SettingsKey.bitrate: bitrate, SettingsKey.adaptiveBitrate: adaptiveBitrate,
+                      SettingsKey.playAudioOnPC: playAudioOnPC, SettingsKey.touchMode: touchMode.rawValue,
+                      SettingsKey.performanceOverlay: performanceOverlay],
+             unseen: [SettingsKey.customWidth, SettingsKey.customHeight, SettingsKey.hudCorner, SettingsKey.hudCompact])
+    }
+
+    /// Not the SteamGridDB key (a credential), Gestures or Button Mapping (their own pages reset them).
+    static var interfacePage: Page {
+        Page(values: [SettingsKey.splashScreen: splashScreen, SettingsKey.splashWait: splashWait,
+                      SettingsKey.splashEndsOnSound: splashEndsOnSound, SettingsKey.pictureInPicture: pictureInPicture,
+                      SettingsKey.controlCenterSide: controlCenterSide.rawValue, SettingsKey.buttonLegend: buttonLegend.rawValue,
+                      SettingsKey.dualSenseHaptics: dualSenseHaptics, SettingsKey.phoneRumble: phoneRumble,
+                      SettingsKey.coverShape: coverShape.rawValue, SettingsKey.onlineArtwork: onlineArtwork,
+                      SettingsKey.logoSize: logoSize])
+    }
 }
 
 /// The stream size, frame rate, codecs and bitrate to ask for. Pure functions, so they can be tested.

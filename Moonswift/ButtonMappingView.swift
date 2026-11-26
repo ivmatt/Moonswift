@@ -12,6 +12,8 @@ struct ButtonMappingView: View {
     @State private var focus = 0
     /// A row's choices, for the controller, beside it.
     @State private var choice: ChoiceMenuSpec?
+    /// Reset's confirmation.
+    @State private var menu: MenuSpec?
     @State private var rowFrames = RowFrames()
 
     private var layout: Layout { remap == .standard ? .standard : remap == .nintendo ? .nintendo : .custom }
@@ -48,7 +50,7 @@ struct ButtonMappingView: View {
             }
             Section {
                 row(rowCount - 1) {
-                    Button("Reset to Standard", role: .destructive) { remap = .standard }.disabled(remap == .standard)
+                    Button("Reset to Standard", role: .destructive, action: confirmReset).disabled(remap == .standard)
                 }
             }
         }
@@ -59,6 +61,7 @@ struct ButtonMappingView: View {
         .onChange(of: remap) { ButtonRemap.current = remap }
         .buttonLegend([([.a], "Select"), ([.b], "Back")], reportsLayout: false)
         .choiceMenu($choice)
+        .actionMenu($menu)
         .onGamepad { command in
             switch command {
             case .up, .down: focus = FocusMove.next(focus, count: rowCount, columns: 1, command)
@@ -101,7 +104,12 @@ struct ButtonMappingView: View {
                                       anchor: rowFrames.frames[focus] ?? .zero) { target(of: button).wrappedValue = GameButton.allCases[$0] }
             withAnimation(.easeOut(duration: 0.12)) { choice = spec }
         } else if remap != .standard {
-            remap = .standard
+            confirmReset()
         }
+    }
+
+    private func confirmReset() {
+        menu = MenuSpec(title: "Reset to Standard?", message: "Every button acts as itself again.",
+                        actions: [.init(title: "Reset", isDestructive: true) { remap = .standard }], cancelTitle: "Cancel")
     }
 }

@@ -10,7 +10,7 @@ struct ArtworkPicker: View {
     @Environment(GameCatalog.self) private var catalog
     @Environment(GamepadInput.self) private var gamepad
     @Environment(\.dismiss) private var dismiss
-    @AppStorage(SettingsKey.coverShape) private var coverShape = CoverShape.tall
+    @AppStorage(SettingsKey.coverShape) private var coverShape = SettingsDefault.coverShape
 
     private enum Kind: String, CaseIterable { case cover = "Cover", hero = "Hero", logo = "Logo" }
     private struct Choice: Hashable {

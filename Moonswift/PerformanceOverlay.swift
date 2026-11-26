@@ -75,8 +75,8 @@ struct PerformanceOverlay: View {
     /// Frame rates of the last minute, oldest first.
     let history: [Double]
 
-    @AppStorage("hudCorner") private var corner = Corner.topTrailing
-    @AppStorage("hudCompact") private var isCompact = false
+    @AppStorage(SettingsKey.hudCorner) private var corner = SettingsDefault.hudCorner
+    @AppStorage(SettingsKey.hudCompact) private var isCompact = SettingsDefault.hudCompact
     @State private var drag = CGSize.zero
 
     var body: some View {

@@ -68,7 +68,7 @@ nonisolated struct TouchGesture: Hashable {
         [StreamGesture.swipeLeft, .swipeRight, .swipeUp, .swipeDown, .hold, .pinch].map { TouchGesture(kind: $0, fingers: fingers) }
     }
 
-    static var fourFingersOn: Bool { UserDefaults.standard.bool(forKey: SettingsKey.fourFingerGestures) }
+    static var fourFingersOn: Bool { UserDefaults.standard.object(forKey: SettingsKey.fourFingerGestures) as? Bool ?? SettingsDefault.fourFingerGestures }
     /// Every gesture that can do something now.
     static var active: [TouchGesture] { all(fingers: 3) + (fourFingersOn ? all(fingers: 4) : []) }
 
@@ -114,9 +114,11 @@ struct GesturesView: View {
     @State private var shortcuts = KeyShortcutStore()
     /// Mirrors what's saved, so a change redraws.
     @State private var actions: [TouchGesture: GestureAction] = [:]
-    @AppStorage(SettingsKey.fourFingerGestures) private var fourFingers = false
+    @AppStorage(SettingsKey.fourFingerGestures) private var fourFingers = SettingsDefault.fourFingerGestures
     @State private var focus = 0
     @State private var choice: ChoiceMenuSpec?
+    /// Reset's confirmation.
+    @State private var menu: MenuSpec?
     @State private var rowFrames = RowFrames()
 
     private enum Row: Hashable { case gesture(TouchGesture), fourFingers, reset }
@@ -146,8 +148,8 @@ struct GesturesView: View {
                     Text("Six more gestures, using four fingers.")
                 }
                 Section {
-                    Button("Reset to Defaults", action: reset)
-                        .foregroundStyle(.primary)
+                    Button("Reset to Defaults", role: .destructive, action: confirmReset)
+                        .disabled(isAtDefault)
                         .focusedRowBackground(isFocused(.reset))
                         .id(Row.reset)
                 }
@@ -157,6 +159,7 @@ struct GesturesView: View {
         .navigationTitle("Gestures")
         .navigationBarTitleDisplayMode(.inline)
         .choiceMenu($choice)
+        .actionMenu($menu)
         .buttonLegend([([.a], "Select"), ([.b], "Back")], reportsLayout: false)
         .onAppear { load() }
         .onGamepad(handle)
@@ -190,9 +193,19 @@ struct GesturesView: View {
         actions[gesture] = action
     }
 
-    private func reset() {
-        (TouchGesture.all(fingers: 3) + TouchGesture.all(fingers: 4)).forEach { $0.reset() }
-        load()
+    private var isAtDefault: Bool {
+        fourFingers == SettingsDefault.fourFingerGestures && actions.allSatisfy { gesture, action in action == gesture.defaultAction }
+    }
+
+    private func confirmReset() {
+        menu = MenuSpec(title: "Reset Gestures?", message: "Every gesture goes back to its default, and Four-Finger Gestures turns off.",
+                        actions: [.init(title: "Reset", isDestructive: true) {
+                            (TouchGesture.all(fingers: 3) + TouchGesture.all(fingers: 4)).forEach { $0.reset() }
+                            UserDefaults.standard.removeObject(forKey: SettingsKey.fourFingerGestures)
+                            load()
+                            focus = rows.count - 1 // the four-finger rows went
+                        }],
+                        cancelTitle: "Cancel")
     }
 
     private func handle(_ command: GamepadCommand) {
@@ -201,7 +214,7 @@ struct GesturesView: View {
         case .select:
             guard rows.indices.contains(focus) else { return }
             switch rows[focus] {
-            case .reset: reset()
+            case .reset: if !isAtDefault { confirmReset() }
             case .fourFingers: fourFingers.toggle()
             case .gesture(let gesture):
                 let options = options, current = actions[gesture] ?? gesture.action

@@ -406,10 +406,23 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         artwork[kind, default: [:]][game.id] = scaled
     }
 
-    /// Back to the PC's name and art.
+    /// Back to the PC's name, your pictures gone, and Show As, Splash Wait, Logo Size and Use Online Artwork to their
+    /// defaults. Favorite, Hidden and the art picked in Choose Artwork stay: they're your library, not overrides.
     func resetCustomizations(for game: CatalogGame) {
-        setNickname("", for: game)
         for kind in Artwork.allCases { setArtwork(nil, kind, for: game) }
+        nicknames[game.id] = nil
+        showAs[game.id] = nil
+        splashWaits[game.id] = nil
+        logoSizes[game.id] = nil
+        onlineArtOff.remove(game.id)
+        saveSettings()
+    }
+
+    /// Something Reset would change.
+    func hasCustomizations(for game: CatalogGame) -> Bool {
+        let id = game.id
+        return nicknames[id] != nil || showAs[id] != nil || splashWaits[id] != nil || logoSizes[id] != nil
+            || onlineArtOff.contains(id) || Artwork.allCases.contains { artwork[$0]?[id] != nil }
     }
 
     private static var folder: URL {

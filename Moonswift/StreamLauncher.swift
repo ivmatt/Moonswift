@@ -37,7 +37,7 @@ import SwiftUI
     @ObservationIgnored var homeHeroFrame: CGRect?
     /// Play was pressed on Home's hero.
     @ObservationIgnored var launchesFromHero = false
-    private var showsSplash: Bool { UserDefaults.standard.object(forKey: SettingsKey.splashScreen) as? Bool ?? true }
+    private var showsSplash: Bool { UserDefaults.standard.object(forKey: SettingsKey.splashScreen) as? Bool ?? SettingsDefault.splashScreen }
 
     /// `isResume`: no Splash Wait, as the game is already past its launchers.
     func showSplash(_ title: String, isResume: Bool = false) {
@@ -45,7 +45,7 @@ import SwiftUI
         guard showsSplash else { return }
         splashStatus = nil
         let wait = isResume ? 0 : catalog.splashWaits[title.lowercased()]
-            ?? UserDefaults.standard.object(forKey: SettingsKey.splashWait) as? Int ?? LaunchSplash.defaultWait
+            ?? UserDefaults.standard.object(forKey: SettingsKey.splashWait) as? Int ?? SettingsDefault.splashWait
         var new = LaunchSplash(title: title, catalog: catalog, from: launchesFromHero && !UIAccessibility.isReduceMotionEnabled ? homeHeroFrame : nil, wait: wait)
         guard new.from != nil else { return withAnimation(.easeInOut(duration: 0.35)) { splash = new } }
         new.isGrown = false
@@ -286,13 +286,13 @@ import SwiftUI
 
     private static var settings: Settings {
         let defaults = UserDefaults.standard
-        let resolution = defaults.string(forKey: SettingsKey.resolution).flatMap(ResolutionOption.init) ?? .fullScreen
-        let saved = defaults.object(forKey: SettingsKey.fps) as? Int ?? ScreenInfo.defaultFPS
+        let resolution = defaults.string(forKey: SettingsKey.resolution).flatMap(ResolutionOption.init) ?? SettingsDefault.resolution
+        let saved = defaults.object(forKey: SettingsKey.fps) as? Int ?? SettingsDefault.fps
         let fps = StreamSettings.frameRates(screenMaximum: ScreenInfo.maximumFramesPerSecond).contains(saved) ? saved : 60
-        let codec = defaults.string(forKey: SettingsKey.codec).flatMap(CodecOption.init) ?? .automatic
+        let codec = defaults.string(forKey: SettingsKey.codec).flatMap(CodecOption.init) ?? SettingsDefault.codec
         let formats = StreamSettings.videoFormats(for: codec, hevcInHardware: ScreenInfo.hevcInHardware,
                                                   av1InHardware: ScreenInfo.av1InHardware,
-                                                  hdr: ScreenInfo.supportsHDR && defaults.object(forKey: SettingsKey.hdr) as? Bool ?? ScreenInfo.supportsHDR)
+                                                  hdr: ScreenInfo.supportsHDR && defaults.object(forKey: SettingsKey.hdr) as? Bool ?? SettingsDefault.hdr)
         let size = StreamSettings.size(for: resolution, nativePixels: ScreenInfo.nativePixels, safeAreaPixels: ScreenInfo.safeAreaPixels,
                                        custom: (defaults.integer(forKey: SettingsKey.customWidth), defaults.integer(forKey: SettingsKey.customHeight)),
                                        videoFormats: formats)

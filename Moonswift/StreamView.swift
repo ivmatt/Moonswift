@@ -42,7 +42,7 @@ struct StreamView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(GamepadInput.self) private var gamepad
-    @AppStorage(SettingsKey.touchMode) private var touchMode = TouchMode.automatic
+    @AppStorage(SettingsKey.touchMode) private var touchMode = SettingsDefault.touchMode
     @State private var session = StreamSession()
     @State private var controllers = ControllerStreamer()
     @State private var keyboardMouse = KeyboardMouseStreamer()
@@ -119,14 +119,14 @@ struct StreamView: View {
     }
     // Not @AppStorage: the once-a-second loop runs on the copy of this view from when the stream started, whose
     // @AppStorage values don't follow later changes (Stream Settings). Reading UserDefaults is always current.
-    private var adaptive: Bool { UserDefaults.standard.object(forKey: SettingsKey.adaptiveBitrate) as? Bool ?? SettingsKey.adaptiveBitrateDefault }
+    private var adaptive: Bool { UserDefaults.standard.object(forKey: SettingsKey.adaptiveBitrate) as? Bool ?? SettingsDefault.adaptiveBitrate }
     private var savedBitrate: Int { UserDefaults.standard.integer(forKey: SettingsKey.bitrate) }
     @State private var adaptiveController: BitrateController?
     @State private var adaptiveUnsupported = false
-    @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = false
+    @AppStorage(SettingsKey.performanceOverlay) private var showsPerformance = SettingsDefault.performanceOverlay
     /// Off: no floating window; leaving the app pauses the stream.
-    @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = true
-    @AppStorage(SettingsKey.controlCenterSide) private var controlCenterSide = ControlCenterSide.right
+    @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = SettingsDefault.pictureInPicture
+    @AppStorage(SettingsKey.controlCenterSide) private var controlCenterSide = SettingsDefault.controlCenterSide
     private var isPanelOnLeft: Bool { controlCenterSide == .left }
 
     /// The game gets no input while a menu, Settings or Control Center is over it, or while it's the small window.

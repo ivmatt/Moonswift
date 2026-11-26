@@ -146,7 +146,7 @@ struct FixedButtonLegend: View {
     /// The sheet it sits inside, on screen; nil for the screen itself.
     var sheet: CGRect? = nil
     @Environment(GamepadInput.self) private var gamepad
-    @AppStorage(SettingsKey.buttonLegend) private var mode = ButtonLegendMode.automatic
+    @AppStorage(SettingsKey.buttonLegend) private var mode = SettingsDefault.buttonLegend
 
     /// The pages' content inset from the safe area.
     /// shortcut: the same 36 as HeroCard's inset, kept in step by hand; share one constant if a third place needs it.
@@ -238,7 +238,7 @@ private struct ButtonLegendOverlay: View {
     let center: ButtonLegendCenter
     let launcher: StreamLauncher
     @Environment(GamepadInput.self) private var gamepad
-    @AppStorage(SettingsKey.buttonLegend) private var mode = ButtonLegendMode.automatic
+    @AppStorage(SettingsKey.buttonLegend) private var mode = SettingsDefault.buttonLegend
 
     var body: some View {
         ZStack {

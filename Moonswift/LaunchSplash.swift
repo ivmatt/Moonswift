@@ -3,7 +3,6 @@ import SwiftUI
 /// The game's art from pressing Play until the game is showing, over the host's desktop and launchers. From Home's
 /// hero it grows out of the hero to fill the screen; from anywhere else it fades in.
 struct LaunchSplash: Equatable {
-    static let defaultWait = 3
     static let waitChoices = [0, 1, 2, 3, 5, 8, 12]
 
     let title: String
@@ -24,7 +23,7 @@ struct LaunchSplash: Equatable {
         art = Self.art(for: title, catalog: catalog)
         self.from = hero == nil ? nil : from
         self.wait = .seconds(wait)
-        endsOnSound = UserDefaults.standard.bool(forKey: SettingsKey.splashEndsOnSound)
+        endsOnSound = UserDefaults.standard.object(forKey: SettingsKey.splashEndsOnSound) as? Bool ?? SettingsDefault.splashEndsOnSound
     }
 
     /// The game's hero picture, else a cover; nil for none.

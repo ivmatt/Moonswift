@@ -23,12 +23,12 @@ struct FirstRunSetup: View {
     @Environment(GameCatalog.self) private var catalog
     @Environment(GamepadInput.self) private var gamepad
     @Environment(PCDirectory.self) private var directory
-    @AppStorage(SettingsKey.onlineArtwork) private var findsArtwork = true
+    @AppStorage(SettingsKey.onlineArtwork) private var findsArtwork = SettingsDefault.onlineArtwork
     @AppStorage(SettingsKey.artworkKeyVersion) private var artworkKeyVersion = 0
-    @AppStorage(SettingsKey.touchMode) private var touchMode = TouchMode.automatic
-    @AppStorage(SettingsKey.splashScreen) private var showsSplash = true
-    @AppStorage(SettingsKey.splashWait) private var splashWait = LaunchSplash.defaultWait
-    @AppStorage(SettingsKey.splashEndsOnSound) private var splashEndsOnSound = false
+    @AppStorage(SettingsKey.touchMode) private var touchMode = SettingsDefault.touchMode
+    @AppStorage(SettingsKey.splashScreen) private var showsSplash = SettingsDefault.splashScreen
+    @AppStorage(SettingsKey.splashWait) private var splashWait = SettingsDefault.splashWait
+    @AppStorage(SettingsKey.splashEndsOnSound) private var splashEndsOnSound = SettingsDefault.splashEndsOnSound
     private var page: Page { Page(rawValue: pageIndex) ?? .artwork }
     @State private var isFinishing = false
     @State private var key = SteamGridDB.savedKey ?? ""
