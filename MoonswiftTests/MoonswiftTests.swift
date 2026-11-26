@@ -2,6 +2,7 @@ import CoreGraphics
 import CoreMedia
 import Foundation
 import MoonlightCore
+import Network
 import Security
 import SwiftData
 import Testing
@@ -47,6 +48,14 @@ struct ServerInfoTests {
         let text = error.errorDescription ?? ""
         #expect(text.contains(#"Turn on "Launch applications" for this device"#) && !text.contains("Vibepollo"))
         #expect(error.title == "Permission needed")
+    }
+
+    @Test func classifiesLocalNetworkDenial() {
+        #expect(isLocalNetworkDenied(NWError.dns(DNSServiceErrorType(kDNSServiceErr_PolicyDenied))))
+        #expect(!isLocalNetworkDenied(NWError.dns(DNSServiceErrorType(kDNSServiceErr_NoSuchRecord))))
+        #expect(!isLocalNetworkDenied(NWError.posix(.ECONNREFUSED)))
+        #expect(!isLocalNetworkDenied(URLError(.timedOut)))
+        #expect(ServerInfoError.localNetworkDenied.errorDescription?.contains("Privacy & Security › Local Network") == true)
     }
 
     @Test func garbageIsMalformed() {

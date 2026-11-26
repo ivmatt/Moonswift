@@ -84,6 +84,8 @@ nonisolated enum ServerInfoError: LocalizedError, Equatable, TitledError {
     case httpStatus(Int)
     case hostError(code: Int, message: String)
     case malformedResponse
+    /// "Don't Allow" on the Local Network prompt (or it's off in Settings): iOS blocks every LAN connection.
+    case localNetworkDenied
 
     var title: String {
         switch self {
@@ -93,6 +95,7 @@ nonisolated enum ServerInfoError: LocalizedError, Equatable, TitledError {
         case .unreachable: "Host not responding"
         case .invalidAddress: "Check the address"
         case .insecureBlocked: "Pair at home first"
+        case .localNetworkDenied: "Local Network access is off"
         default: "Something went wrong"
         }
     }
@@ -115,6 +118,8 @@ nonisolated enum ServerInfoError: LocalizedError, Equatable, TitledError {
             + " in your host's settings, under Clients."
         case .hostError(let code, let message): "Your host reported a problem (\(code)): \(message)"
         case .malformedResponse: "Your host sent a reply Moonswift didn't understand."
+        case .localNetworkDenied:
+            "Moonswift can't reach PCs on your network. Turn it on in Settings › Privacy & Security › Local Network › Moonswift."
         }
     }
 }
@@ -186,6 +191,7 @@ nonisolated func hostData(_ url: URL, timeout: TimeInterval, tls: PairedTLS? = n
     } catch let error as URLError where error.code == .appTransportSecurityRequiresSecureConnection {
         throw .insecureBlocked
     } catch {
+        if isLocalNetworkDenied(error) { throw .localNetworkDenied }
         if delegate?.rejectedCertificate.withLock({ $0 }) == true { throw .certificateChanged }
         throw .unreachable((error as? URLError)?.code ?? .unknown)
     }
@@ -194,6 +200,14 @@ nonisolated func hostData(_ url: URL, timeout: TimeInterval, tls: PairedTLS? = n
         throw .httpStatus(http.statusCode)
     }
     return data
+}
+
+/// Local Network access denied: NWBrowser waits with a policy-denied DNS error; URLSession fails with the request's
+/// path unsatisfied for that reason (TN3179).
+nonisolated func isLocalNetworkDenied(_ error: Error) -> Bool {
+    if case .dns(let code)? = error as? NWError { return code == DNSServiceErrorType(kDNSServiceErr_PolicyDenied) }
+    guard let path = (error as NSError).userInfo["_NSURLErrorNWPathKey"].map({ $0 as AnyObject }) as? nw_path_t else { return false }
+    return nw_path_get_unsatisfied_reason(path) == nw_path_unsatisfied_reason_local_network_denied
 }
 
 /// Default timeout is moonlight-ios's NORMAL_TIMEOUT_SEC; status polling uses its 2s SHORT_TIMEOUT_SEC.

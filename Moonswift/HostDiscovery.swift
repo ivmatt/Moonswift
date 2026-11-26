@@ -14,6 +14,8 @@ import Observation
     @ObservationIgnored private var listed: Set<String> = []
     @ObservationIgnored private var resolving: Set<String> = []
     @ObservationIgnored private var browser: NWBrowser?
+    /// Local Network access was denied: nothing will be found until it's turned back on in Settings.
+    var isDenied = false
 
     var found: [Found] {
         #if DEBUG
@@ -38,6 +40,15 @@ import Observation
         let browser = NWBrowser(for: .bonjour(type: "_nvstream._tcp", domain: nil), using: .tcp)
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             MainActor.assumeIsolated { self?.update(results) } // handlers run on .main, set below
+        }
+        browser.stateUpdateHandler = { [weak self] state in
+            MainActor.assumeIsolated {
+                switch state {
+                case .waiting(let error), .failed(let error): if isLocalNetworkDenied(error) { self?.isDenied = true }
+                case .ready: self?.isDenied = false // turned back on in Settings: the browser carries on by itself
+                default: break
+                }
+            }
         }
         browser.start(queue: .main)
         self.browser = browser

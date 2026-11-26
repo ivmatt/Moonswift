@@ -101,7 +101,8 @@ struct AddHostView: View {
         switch step {
         case .ready: [([.a], "Continue"), ([.b], "Cancel")]
         case .find: [([.a], "Select"), ([.b], "Back")]
-        case .address: [([.a], isAddressFocused ? "Connect" : addressProblem != nil ? "Troubleshooting" : "Type"), ([.b], "Back")]
+        case .address: [([.a], isAddressFocused ? "Connect" : addressProblem == nil ? "Type"
+                          : discovery.isDenied ? "Open Settings" : "Troubleshooting"), ([.b], "Back")]
         case .troubleshoot: [([.b], "Back")]
         case .pair: [([.b], "Back")]
         case .done: [([.a], focus == 0 ? "Select" : isFirstHost ? "Continue" : "Done")]
@@ -187,9 +188,18 @@ struct AddHostView: View {
                     }
                     .focusedRowBackground(gamepad.isActive && index == focus)
                 }
-                HStack(spacing: 10) {
-                    ArcSpinner(size: 16).foregroundStyle(.secondary)
-                    Text(found.isEmpty ? "Looking for hosts on your network…" : "Still looking…").foregroundStyle(.secondary)
+                if discovery.isDenied {
+                    Label(ServerInfoError.localNetworkDenied.errorDescription ?? "", systemImage: "network.slash")
+                        .foregroundStyle(.secondary)
+                    Button("Open Settings", action: openSettings)
+                        .foregroundStyle(.tint)
+                        .tint(.blue)
+                        .focusedRowBackground(gamepad.isActive && focus == found.count)
+                } else {
+                    HStack(spacing: 10) {
+                        ArcSpinner(size: 16).foregroundStyle(.secondary)
+                        Text(found.isEmpty ? "Looking for hosts on your network…" : "Still looking…").foregroundStyle(.secondary)
+                    }
                 }
             } header: {
                 if !found.isEmpty { Text("We found these hosts on your network") }
@@ -200,7 +210,7 @@ struct AddHostView: View {
                     .tint(.blue)
                     .padding(.vertical, 4)
                     .padding(.horizontal, 6)
-                    .focusedRowBackground(gamepad.isActive && focus == found.count)
+                    .focusedRowBackground(gamepad.isActive && focus == findRowCount - 1)
                     .padding(.top, 6)
             }
         }
@@ -223,7 +233,7 @@ struct AddHostView: View {
                         HStack {
                             Text(addressProblem).foregroundStyle(.red)
                             Spacer()
-                            Button("Troubleshoot") { advance(to: .troubleshoot) }
+                            Button(discovery.isDenied ? "Open Settings" : "Troubleshoot", action: fixAddressProblem)
                                 .font(.footnote.weight(.semibold))
                                 .tint(.blue)
                                 .foregroundStyle(.tint)
@@ -413,6 +423,17 @@ struct AddHostView: View {
         }
     }
 
+    /// Found hosts, Open Settings while Local Network access is denied, then Not showing up?
+    private var findRowCount: Int { found.count + (discovery.isDenied ? 2 : 1) }
+
+    private func openSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+    }
+
+    private func fixAddressProblem() {
+        if discovery.isDenied { openSettings() } else { advance(to: .troubleshoot) }
+    }
+
     private func connect() {
         let address = address.trimmingCharacters(in: .whitespaces)
         guard !isConnecting, !address.isEmpty else { return }
@@ -423,6 +444,9 @@ struct AddHostView: View {
             do {
                 let info = try await fetchServerInfo(address: address)
                 advance(to: .pair(address: address, name: info.hostname))
+            } catch ServerInfoError.localNetworkDenied {
+                discovery.isDenied = true
+                addressProblem = ServerInfoError.localNetworkDenied.errorDescription
             } catch {
                 addressProblem = "Couldn't connect to \(address)."
             }
@@ -436,15 +460,16 @@ struct AddHostView: View {
         case .ready: if command == .select { advance(to: .find) }
         case .find:
             switch command {
-            case .up, .down: focus = FocusMove.next(focus, count: found.count + 1, columns: 1, command) // + Enter Address
+            case .up, .down: focus = FocusMove.next(focus, count: findRowCount, columns: 1, command)
             case .select:
                 if found.indices.contains(focus) { advance(to: .pair(address: found[focus].address, name: found[focus].info.hostname)) }
+                else if discovery.isDenied && focus == found.count { openSettings() }
                 else { advance(to: .address) }
             default: break
             }
         case .address:
             if command == .select {
-                if isAddressFocused { connect() } else if addressProblem != nil { advance(to: .troubleshoot) } else { isAddressFocused = true }
+                if isAddressFocused { connect() } else if addressProblem != nil { fixAddressProblem() } else { isAddressFocused = true }
             }
         case .troubleshoot: break
         case .pair: break // the pairing screen handles A (Try Again)
