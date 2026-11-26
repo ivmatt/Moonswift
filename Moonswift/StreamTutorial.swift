@@ -41,7 +41,7 @@ struct StreamTutorial: View {
         VStack(alignment: .leading, spacing: 14) {
             content
             Button(buttonTitle, action: dismiss)
-                .buttonStyle(.borderedProminent)
+                .primaryButton()
                 .frame(maxWidth: .infinity)
                 .padding(.top, 6)
         }
