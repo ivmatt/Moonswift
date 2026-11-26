@@ -103,7 +103,7 @@ struct PhoneButtonGuide: View {
     // Tuned by eye.
     /// Where the safe area has no side inset (the Duo): this low, the hints need this much to clear the rounded corner.
     private static let minEdge: CGFloat = 32
-    private static let bottomFromEdge: CGFloat = 8
+    static let bottomFromEdge: CGFloat = 8
     private static let bottomOverIndicator: CGFloat = 18 // the open Duo in landscape: its home indicator is under the hints
     private static let bottomOverTabBar: CGFloat = 6
     /// Clears a portrait tab bar, at one height so the guide doesn't move when the bar shrinks or hides.
@@ -132,6 +132,7 @@ struct PhoneButtonGuide: View {
                 Color.clear
                 if !hints.isEmpty, mode.isShown(controllerConnected: gamepad.isControllerConnected) {
                     ControllerHints(hints: hints)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { if $0 > 0, center.height != $0 { center.height = $0 } }
                         // Twice: one soft shadow left light labels hard to read over bright art.
                         .shadow(color: .black.opacity(0.9), radius: 1, y: 1)
                         .shadow(color: .black.opacity(0.7), radius: 4)

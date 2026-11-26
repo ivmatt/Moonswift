@@ -272,7 +272,7 @@ struct HomeView: View {
             }
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { pillFrame.frames["page"] = $0 }
             .choiceMenu($statusMenu)
-            .buttonGuide(guideHints) // inside the insets measured below, which say where the tab bar is
+            .buttonGuide(guideHints, backs: false) // inside the insets measured below, which say where the tab bar is
             .navigationTitle("") // drawn by TabTitle instead, lined up with the content 36 points in
             .toolbar {
                 TabToolbar(hasTopBar: hasTopBar, openSettings: openSettings) { EmptyView() }
