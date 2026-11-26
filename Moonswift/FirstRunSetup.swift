@@ -151,7 +151,7 @@ struct FirstRunSetup: View {
                     .id(2)
                     Toggle(isOn: $splashEndsOnSound) { // green: the page's white tint made it white
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("End on Game Sound (Beta)")
+                            Text("End on Game Sound")
                             Text("Lifts it as soon as the game makes sound, Splash Wait at most.")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }

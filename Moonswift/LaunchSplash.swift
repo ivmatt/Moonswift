@@ -13,7 +13,7 @@ struct LaunchSplash: Equatable {
     let from: CGRect?
     /// How long it stays once the first picture is in, over what the host shows first.
     let wait: Duration
-    /// Beta: it goes as soon as the game makes sound (half a second of it), `wait` at most.
+    /// It goes as soon as the game makes sound (half a second of it), `wait` at most.
     let endsOnSound: Bool
     /// Filling the screen (false: still the size and place of Home's hero, about to grow).
     var isGrown = true
