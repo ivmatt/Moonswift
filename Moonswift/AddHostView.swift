@@ -103,7 +103,8 @@ struct AddHostView: View {
         .controlSize(.large)
         .frame(minHeight: 48)
         .padding(.horizontal, 28) // the title clear of the screen's rounded corners
-        .padding(.top, 20)
+        // Level with the system's top-bar buttons: an iPad's bar sits right under its status bar.
+        .padding(.top, UIDevice.current.userInterfaceIdiom == .pad ? 6 : 20)
         .padding(.bottom, 4)
     }
 

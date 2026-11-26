@@ -46,3 +46,12 @@ extension TabToolbar {
         UIDevice.current.userInterfaceIdiom != .pad && insets.leading - insets.trailing >= 20
     }
 }
+
+extension View {
+    /// The bar's title as its middle item, as Settings' Stream/Interface switch is: on the folded Duo a bar without one
+    /// puts its title by the camera and drops Back or Save into the side column below it.
+    func barTitle(_ title: String) -> some View {
+        navigationTitle(title)
+            .toolbar { ToolbarItem(placement: .principal) { Text(title).font(.headline).lineLimit(1) } }
+    }
+}

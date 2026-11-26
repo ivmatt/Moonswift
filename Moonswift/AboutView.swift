@@ -52,7 +52,7 @@ struct AboutView: View {
                 }
             }
         }
-        .navigationTitle("About")
+        .barTitle("About")
         .navigationDestination(item: $opened) { LicenseText(component: $0) }
         .onGamepad { command in
             switch command {
@@ -88,7 +88,7 @@ private struct LicenseText: View {
         ScrollView {
             Text(text).font(.caption.monospaced()).textSelection(.enabled).padding()
         }
-        .navigationTitle(component.name)
+        .barTitle(component.name)
         .onGamepad { if $0 == .back { dismiss() } }
     }
 }
