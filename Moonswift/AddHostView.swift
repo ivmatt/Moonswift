@@ -27,6 +27,7 @@ struct AddHostView: View {
     @State private var isConnecting = false
     @State private var addressProblem: String?
     @FocusState private var isAddressFocused: Bool
+    @State private var addressFieldFrame = CGRect.zero
     /// The games didn't come within a while of pairing: the success page shows without them.
     @State private var hasWaitedForGames = false
     /// Getting Started's page, and the host it follows (Back from its first page returns to that success page).
@@ -162,7 +163,14 @@ struct AddHostView: View {
     // MARK: Steps
 
     private var ready: some View {
-        fittedPage("link") { HostChecklist(isCompact: $0) } action: {
+        fittedPage("link", heading: "Before you start, make sure that:", points: [
+            Point("power", "Your PC is on."),
+            Point("play.display", "A Sunshine-based host is installed and running on it (Vibepollo recommended)."),
+            Point("wifi", "It's on the same network as this device. Remote access can be set up after pairing."),
+            // Easy to miss, and Moonswift looks broken without it.
+            Point("gamecontroller", "Your games are added in the host's app list. Moonswift shows what's there, so games "
+                  + "that aren't added won't appear here.", isImportant: true),
+        ]) {
             Button { advance(to: .find) } label: { Text("Continue").frame(width: 200) }
                 .buttonStyle(.glassProminent)
                 .tint(.blue) // the page's white tint made it white on white
@@ -171,29 +179,50 @@ struct AddHostView: View {
         }
     }
 
-    /// The pages before pairing, with no scrolling: a large symbol over a heading and its points (and a button). Roomy
-    /// if it fits, tighter if not; on a short, wide screen the symbol (and button) beside the points.
-    private func fittedPage(_ symbol: String, @ViewBuilder points: @escaping (_ isCompact: Bool) -> some View,
+    /// One of a page's points: a symbol beside its text. `isImportant` makes it stand out.
+    private struct Point {
+        let symbol: String, text: String
+        var isImportant = false
+        init(_ symbol: String, _ text: String, isImportant: Bool = false) {
+            self.symbol = symbol; self.text = text; self.isImportant = isImportant
+        }
+    }
+
+    /// The pages before pairing, with no scrolling: a large symbol over a heading and its points (and a button), roomy
+    /// if it fits and tighter if not. On a phone's short screen, no symbol (and the points in two columns if it's wide).
+    private func fittedPage(_ symbol: String, heading: String, points: [Point],
                             @ViewBuilder action: () -> some View = { EmptyView() }) -> some View {
         let action = action()
         return Group {
-            if window.isShortAndWide {
-                HStack(spacing: 32) {
-                    VStack(spacing: 20) { pageSymbol(symbol, size: 48); action }.frame(maxWidth: .infinity)
-                    points(true).frame(maxWidth: 480)
+            if window.isShort {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(heading).font(.title3.bold())
+                    // Two columns where it's wide; the Duo's squarer screen keeps one, for room to read.
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 24, alignment: .leading),
+                                             count: window.isShortAndWide ? 2 : 1),
+                              alignment: .leading, spacing: window.isShortAndWide ? 14 : 12) {
+                        ForEach(points, id: \.text) { pointRow($0, font: .callout) }
+                    }
+                    action.frame(maxWidth: .infinity).padding(.top, 4)
                 }
                 .padding(.horizontal, 28)
                 .padding(.vertical, 12)
+                .frame(maxWidth: 760)
             } else {
                 ViewThatFits(in: .vertical) {
                     ForEach([false, true], id: \.self) { isCompact in
                         VStack(alignment: .leading, spacing: isCompact ? 12 : 20) {
-                            pageSymbol(symbol, size: isCompact ? 48 : 88).padding(.bottom, isCompact ? 0 : 8)
-                            points(isCompact)
+                            Image(systemName: symbol)
+                                .font(.system(size: isCompact ? 48 : 88, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.bottom, isCompact ? 0 : 8)
+                            Text(heading).font(isCompact ? .title3.bold() : .title2.bold())
+                            ForEach(points, id: \.text) { pointRow($0, font: isCompact ? .callout : .body) }
                             action.frame(maxWidth: .infinity).padding(.top, isCompact ? 4 : 8)
                         }
                         .padding(.horizontal, 28)
-                        .padding(.vertical, 12) // centred anyway: room for the roomy one on an iPad's sheet
+                        .padding(.vertical, 12) // centred anyway: room for the roomy one on an iPad
                         .frame(maxWidth: 560)
                     }
                 }
@@ -202,11 +231,15 @@ struct AddHostView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity) // centred, like the welcome
     }
 
-    private func pageSymbol(_ name: String, size: CGFloat) -> some View {
-        Image(systemName: name)
-            .font(.system(size: size, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity)
+    private func pointRow(_ point: Point, font: Font) -> some View {
+        // Centred on its point, however many lines it wraps to; all in one column, whatever each symbol's width.
+        HStack(alignment: .center, spacing: 14) {
+            Image(systemName: point.symbol).frame(width: 30).foregroundStyle(point.isImportant ? Color.orange : .secondary)
+            Text(point.text)
+                .font(font)
+                .fontWeight(point.isImportant ? .semibold : nil)
+                .fixedSize(horizontal: false, vertical: true) // wraps, never "…"
+        }
     }
 
     private var find: some View {
@@ -256,6 +289,10 @@ struct AddHostView: View {
             }
         }
         .padding(.trailing, window.isShortAndWide && !isAddressFocused ? 28 : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(.rect)
+        // A tap anywhere but the field puts the keyboard away (and brings back Connect on a short screen).
+        .onTapGesture(coordinateSpace: .global) { if !addressFieldFrame.contains($0) { isAddressFocused = false } }
     }
 
     private var addressForm: some View {
@@ -266,6 +303,7 @@ struct AddHostView: View {
                     .textInputAutocapitalization(.never)
                     .keyboardType(.numbersAndPunctuation)
                     .focused($isAddressFocused)
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { addressFieldFrame = $0 }
                     .submitLabel(.go)
                     .onSubmit(connect)
             } header: {
@@ -320,7 +358,7 @@ struct AddHostView: View {
     }
 
     /// A short screen's keyboard leaves room only for the field: its Go key connects, and the help and Connect are back
-    /// once it goes.
+    /// once it goes (a tap outside the field).
     private var isTypingOnShortScreen: Bool { isAddressFocused && window.isShort }
 
     private func hint(_ number: String, _ text: String) -> some View {
@@ -332,26 +370,13 @@ struct AddHostView: View {
 
     /// Laid out like Before you start: a large symbol, a heading, then the checks.
     private var troubleshooting: some View {
-        fittedPage("wrench.and.screwdriver") { isCompact in
-            VStack(alignment: .leading, spacing: isCompact ? 12 : 20) {
-                Text("Things to check:").font(isCompact ? .title3.bold() : .title2.bold())
-                Group {
-                    tip("checkmark.circle", "The address is four numbers separated by dots, like 192.168.1.50.")
-                    tip("power", "The PC is awake and its host is running.")
-                    tip("wifi", "Both are on the same network, not a guest network.")
-                    tip("shield", "The PC's firewall lets the host through: TCP 47984–47990 and UDP 47998–48010.")
-                    tip("arrow.clockwise", "Restarting the host on the PC, then trying again, can help.")
-                }
-                .font(isCompact ? .callout : .body)
-            }
-        }
-    }
-
-    private func tip(_ symbol: String, _ text: String) -> some View {
-        HStack(alignment: .center, spacing: 14) { // like Before you start: centred on its text, in one column
-            Image(systemName: symbol).frame(width: 30).foregroundStyle(.secondary)
-            Text(text).fixedSize(horizontal: false, vertical: true) // wraps, never "…"
-        }
+        fittedPage("wrench.and.screwdriver", heading: "Things to check:", points: [
+            Point("checkmark.circle", "The address is four numbers separated by dots, like 192.168.1.50."),
+            Point("power", "The PC is awake and its host is running."),
+            Point("wifi", "Both are on the same network, not a guest network."),
+            Point("shield", "The PC's firewall lets the host through: TCP 47984–47990 and UDP 47998–48010."),
+            Point("arrow.clockwise", "Restarting the host on the PC, then trying again, can help."),
+        ])
     }
 
     @ViewBuilder private func done(hostID: String, name: String) -> some View {
@@ -534,35 +559,6 @@ struct AddHostView: View {
     }
 }
 
-/// What to have ready before adding a host: Add Host's first step.
-struct HostChecklist: View {
-    /// Tighter and smaller, for a screen it wouldn't otherwise fit.
-    var isCompact = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: isCompact ? 12 : 20) {
-            Text("Before you start, make sure that:").font(isCompact ? .title3.bold() : .title2.bold())
-            check("power", "Your PC is on.")
-            check("play.display", "A Sunshine-based host is installed and running on it (Vibepollo recommended).")
-            check("wifi", "It's on the same network as this device. Remote access can be set up after pairing.")
-            check("gamecontroller", "Your games are added in the host's app list. Moonswift shows what's there, so games "
-                  + "that aren't added won't appear here.", isImportant: true)
-        }
-    }
-
-    /// `isImportant`: easy to miss, and Moonswift looks broken without it (games not added on the host).
-    private func check(_ symbol: String, _ text: String, isImportant: Bool = false) -> some View {
-        // Centred on its point, however many lines it wraps to; all in one column, whatever each symbol's width.
-        HStack(alignment: .center, spacing: 14) {
-            Image(systemName: symbol).frame(width: 30).foregroundStyle(isImportant ? Color.orange : .secondary)
-            Text(text)
-                .font(isCompact ? .callout : .body)
-                .fontWeight(isImportant ? .semibold : nil)
-                .fixedSize(horizontal: false, vertical: true) // wraps, never "…"
-        }
-    }
-}
-
 /// Until a host is added, the whole app: what Moonswift is, and the way to add one.
 struct WelcomeView: View {
     /// Set while the first host is being added, so the welcome (and its sheet) stays once it's paired, until Get Started.
@@ -623,14 +619,9 @@ struct WelcomeView: View {
 }
 
 extension View {
-    /// Add Host: the whole screen on an iPhone, where a sheet only wastes room; a sheet on the iPad's big screen.
-    @ViewBuilder func addHostCover(isPresented: Binding<Bool>, isFirstHost: Bool = false,
-                                   onDismiss: (() -> Void)? = nil) -> some View {
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            fullScreenCover(isPresented: isPresented, onDismiss: onDismiss) { AddHostView(isFirstHost: isFirstHost) }
-        } else {
-            sheet(isPresented: isPresented, onDismiss: onDismiss) { AddHostView(isFirstHost: isFirstHost) }
-        }
+    /// Add Host: the whole screen, on an iPad too, so setup feels like its own place rather than a sheet over the app.
+    func addHostCover(isPresented: Binding<Bool>, isFirstHost: Bool = false, onDismiss: (() -> Void)? = nil) -> some View {
+        fullScreenCover(isPresented: isPresented, onDismiss: onDismiss) { AddHostView(isFirstHost: isFirstHost) }
     }
 }
 
