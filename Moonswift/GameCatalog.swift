@@ -112,13 +112,10 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         let file = foundFile(gameID, kind)
         if let image = foundCache.object(forKey: file.path as NSString) { return image }
         guard var image = UIImage(contentsOfFile: file.path) else { return nil }
-        if kind == .logo, Self.logoSizing { image = Self.trimmed(image) }
+        if kind == .logo { image = Self.trimmed(image) } // at load, so logos saved before trimming are covered too
         foundCache.setObject(image, forKey: file.path as NSString)
         return image
     }
-
-    /// Prototype: logos trimmed to what's visible and sized to equal area. On with the launch argument `-LogoSizing YES`.
-    static var logoSizing: Bool { UserDefaults.standard.bool(forKey: "LogoSizing") }
 
     /// Cropped to its visible pixels: Steam's logos sit in a fixed 640×360 canvas with any amount of empty space.
     nonisolated static func trimmed(_ image: UIImage) -> UIImage {

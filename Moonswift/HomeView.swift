@@ -811,10 +811,9 @@ private struct HeroCard: View {
     @ViewBuilder private var title: some View {
         if let logo {
             let maxHeight = adaptiveTitleSize * (isCompact ? 1.6 : 2.2)
-            // Prototype: every logo the area of a 2.6:1 one at 85% of the height, so wide and stacked ones weigh the same.
+            // Every (trimmed) logo the area of a 2.6:1 one at 85% of the height, so wide and stacked ones weigh the same.
             let aspect = max(logo.size.width / max(logo.size.height, 1), 0.1)
-            let area = 2.6 * pow(maxHeight * 0.85, 2)
-            let equalHeight = GameCatalog.logoSizing ? (area / aspect).squareRoot() : .infinity
+            let equalHeight = (2.6 * pow(maxHeight * 0.85, 2) / aspect).squareRoot()
             Image(uiImage: logo)
                 .resizable()
                 .scaledToFit()
