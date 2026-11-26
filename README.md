@@ -75,6 +75,18 @@ xcodebuild -scheme Moonswift -destination 'platform=iOS Simulator,name=iPhone Du
 
 To run on your own device, open `Moonswift.xcodeproj` in Xcode, then set your own Team and Bundle Identifier under **Signing & Capabilities**.
 
+## Releases
+
+Each App Store build has a tag, `v<version>-build<build>` (for example `v1.0-build1`), in this repository and the same tag in the [moonlight-common-c fork](https://github.com/ivmatt/moonlight-common-c) on the commit this release pins, so the exact GPL source of every release stays findable. When releasing, tag both:
+
+```bash
+git tag v1.0-build1 && git push origin v1.0-build1
+```
+
+```bash
+cd Packages/MoonlightCore/moonlight-common-c && git tag v1.0-build1 && git push origin v1.0-build1
+```
+
 ## Documentation
 
 | File | What it's for |
