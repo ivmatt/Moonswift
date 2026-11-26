@@ -1412,3 +1412,26 @@ struct CoverTitleTests {
     @Test func onScreenControllerSkipsGestures() { #expect(Card.due(touchMode: .controller, controllerConnected: false) == [.onScreenController]) }
     @Test func controllerModeWithPadConnected() { #expect(Card.due(touchMode: .controller, controllerConnected: true) == [.controller]) }
 }
+
+struct SavedHostStoreTests {
+    @Test @MainActor func unreadableStoreIsMovedAsideNotDeleted() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appending(path: "default.store")
+        let garbage = Data("not a database".utf8)
+        try garbage.write(to: url)
+
+        let (container, recovered) = SavedHostStore.open(at: url)
+        #expect(recovered)
+        let aside = try FileManager.default.contentsOfDirectory(atPath: folder.path()).filter { $0.hasPrefix("unreadable-") }
+        #expect(aside.count == 1)
+        #expect(try Data(contentsOf: folder.appending(path: "\(aside[0])/default.store")) == garbage)
+
+        let context = ModelContext(container)
+        context.insert(SavedHost(uniqueID: "pc", name: "PC", address: "10.0.0.1", serverCert: Data()))
+        try context.save() // the new store works
+
+        #expect(!SavedHostStore.open(at: url).recovered) // and opens cleanly next launch
+    }
+}

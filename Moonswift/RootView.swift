@@ -73,7 +73,14 @@ struct RootView: View {
         // On iPhone, the tab bar shrinks to a button while you scroll down (Library, Hosts) and gives the
         // short landscape screen its height back; scrolling up or tapping brings it back. Apple's way, over moving it.
         .tabBarMinimizeBehavior(.onScrollDown)
-        .onAppear { ButtonGuideWindow.install(center: guide, gamepad: gamepad, tabBar: tabBar, launcher: launcher) }
+        .onAppear {
+            ButtonGuideWindow.install(center: guide, gamepad: gamepad, tabBar: tabBar, launcher: launcher)
+            if SavedHostStore.wasRecovered { // once: the files are aside now, so the next launch opens cleanly
+                SavedHostStore.wasRecovered = false
+                menu = .error("Moonswift couldn't read its saved hosts, so they'll need adding and pairing again.",
+                              title: "Saved hosts couldn't be loaded")
+            }
+        }
         .onChange(of: tab) { tabBar.isMinimized = false } // a tab change brings the tab bar back
         // With a controller, the home indicator fades out until the screen is touched: the guide sits on a clean edge.
         .persistentSystemOverlays(gamepad.isActive ? .hidden : .automatic)

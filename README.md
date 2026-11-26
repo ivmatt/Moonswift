@@ -41,6 +41,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 - A remote address for playing away from home, with a Local or Remote label on each host
 - Wake a sleeping PC on the same network (needs Wake-on-LAN turned on for the PC, ideally over Ethernet)
 - Layouts that keep content off the fold on iPhone Duo
+- If the saved hosts can't be read, the app still opens and says so once; the unreadable files are kept in an `unreadable-<time>` folder, not deleted
 
 ### Features that need Vibepollo
 
