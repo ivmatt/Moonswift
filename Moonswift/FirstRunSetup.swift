@@ -54,12 +54,12 @@ struct FirstRunSetup: View {
             }
         }
         .transition(.opacity)
-        .buttonGuide(guideHints, reportsLayout: false)
+        .buttonLegend(legendHints, reportsLayout: false)
         .onGamepad(handle)
         .task(id: key) { await checkKey() }
     }
 
-    private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
+    private var legendHints: [(buttons: [ControllerHints.Button], label: String)] {
         isFinishing ? [] : [([.a], "Select"), ([.b], "Back")]
     }
 

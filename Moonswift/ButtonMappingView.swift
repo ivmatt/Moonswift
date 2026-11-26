@@ -57,7 +57,7 @@ struct ButtonMappingView: View {
         }
         .navigationTitle("Button Mapping")
         .onChange(of: remap) { ButtonRemap.current = remap }
-        .buttonGuide([([.a], "Select"), ([.b], "Back")], reportsLayout: false)
+        .buttonLegend([([.a], "Select"), ([.b], "Back")], reportsLayout: false)
         .choiceMenu($choice)
         .onGamepad { command in
             switch command {

@@ -70,7 +70,7 @@ struct ArtworkPicker: View {
                     Button(isChoosingGame ? "Back" : "Done") { if isChoosingGame { isChoosingGame = false } else { dismiss() } }
                 }
             }
-            .buttonGuide(isChoosingGame ? [([.a], "Select"), ([.b], "Back")]
+            .buttonLegend(isChoosingGame ? [([.a], "Select"), ([.b], "Back")]
                          : [([.a], "Choose"), ([.l1, .r1], "Cover / Hero / Logo"), ([.y], "Change Game"), ([.b], "Done")],
                          reportsLayout: false)
             .onGamepad(handle)

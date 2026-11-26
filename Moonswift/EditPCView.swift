@@ -78,7 +78,7 @@ struct EditPCView: View {
                 default: break
                 }
             }
-            .buttonGuide([([.a], "Select"), ([.x], "Save"), ([.b], "Cancel")], reportsLayout: false)
+            .buttonLegend([([.a], "Select"), ([.x], "Save"), ([.b], "Cancel")], reportsLayout: false)
             .actionMenu($menu)
         }
     }

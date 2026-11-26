@@ -158,7 +158,7 @@ struct GameEditView: View {
             }
             .choiceMenu($choice)
             .sheet(isPresented: $isChoosingArt) { ArtworkPicker(game: game) }
-            .buttonGuide([([.a], "Select"), ([.b], "Done")], reportsLayout: false)
+            .buttonLegend([([.a], "Select"), ([.b], "Done")], reportsLayout: false)
             .onGamepad(handle)
         }
     }

@@ -52,7 +52,7 @@ struct RootView: View {
     @State private var menu: MenuSpec?
     @State private var wasInBackground = false
     @State private var tabBar = TabBarMinimize()
-    @State private var guide = ButtonGuideCenter()
+    @State private var legend = ButtonLegendCenter()
     @Environment(GamepadInput.self) private var gamepad
     /// Settings, over whichever tab (the toolbar's gear, or the controller's Menu button).
     @State private var showsSettings = false
@@ -74,7 +74,7 @@ struct RootView: View {
         // short landscape screen its height back; scrolling up or tapping brings it back. Apple's way, over moving it.
         .tabBarMinimizeBehavior(.onScrollDown)
         .onAppear {
-            ButtonGuideWindow.install(center: guide, gamepad: gamepad, launcher: launcher)
+            ButtonLegendWindow.install(center: legend, gamepad: gamepad, launcher: launcher)
             if SavedHostStore.wasRecovered { // once: the files are aside now, so the next launch opens cleanly
                 SavedHostStore.wasRecovered = false
                 menu = .error("Moonswift couldn't read its saved hosts, so they'll need adding and pairing again.",
@@ -82,10 +82,10 @@ struct RootView: View {
             }
         }
         .onChange(of: tab) { tabBar.isMinimized = false } // a tab change brings the tab bar back
-        // With a controller, the home indicator fades out until the screen is touched: the guide sits on a clean edge.
+        // With a controller, the home indicator fades out until the screen is touched: the legend sits on a clean edge.
         .persistentSystemOverlays(gamepad.isActive ? .hidden : .automatic)
-        // iOS asks the guide's window, which is on top; it passes the question on, but must be told to ask again.
-        .onChange(of: gamepad.isActive, initial: true) { ButtonGuideWindow.refreshSystemOverlays() }
+        // iOS asks the legend's window, which is on top; it passes the question on, but must be told to ask again.
+        .onChange(of: gamepad.isActive, initial: true) { ButtonLegendWindow.refreshSystemOverlays() }
         // Back from a stream (disconnected, or shrunk to Picture in Picture): Home, where its game is (HomeView).
         .onChange(of: launcher.stream == nil || launcher.isMinimized) { _, isBack in if isBack { tab = .home } }
         // Behind everything, out to the screen's edges (on the Duo, the rail's column too): the grey of the grouped
@@ -143,7 +143,7 @@ struct RootView: View {
         .onChange(of: LaunchRouter.shared.pending) { routePending() }
         // Outermost, so the sheets and the stream presented above get them too.
         .environment(tabBar)
-        .environment(guide)
+        .environment(legend)
     }
 
     private var tabs: some View {

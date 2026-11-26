@@ -54,7 +54,7 @@ struct HomeView: View {
     @State private var pillFrame = RowFrames()
     @State private var isPressingPlay = false
     @State private var topInset: CGFloat = 0
-    @AppStorage(SettingsKey.buttonGuide) private var guideMode = ButtonGuideMode.automatic
+    @AppStorage(SettingsKey.buttonLegend) private var legendMode = ButtonLegendMode.automatic
     /// The title shows in full on arriving at Home, then fades back so it doesn't compete with the hero, still readable.
     /// The tab rail's width on either side: the hero art reaches under it, so it spans the whole screen.
     @State private var railInsets = EdgeInsets()
@@ -62,7 +62,7 @@ struct HomeView: View {
     /// The height left under a fold across the screen, down to where the covers end, and the cover row's height.
     @State private var belowFold: CGFloat = 0
     @State private var coverRowHeight: CGFloat = 0
-    /// Home's height above the guide's room, which sizes the covers and the hero's title.
+    /// Home's height above the legend's room, which sizes the covers and the hero's title.
     @State private var homeHeight: CGFloat = 0
     @State private var homeWidth: CGFloat = 0
     /// Where the hero's title starts, and the status pill, on screen; and how far the pill is moved over to line up
@@ -272,7 +272,7 @@ struct HomeView: View {
             }
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { pillFrame.frames["page"] = $0 }
             .choiceMenu($statusMenu)
-            .buttonGuide(guideHints, backs: false) // inside the insets measured below, which say where the tab bar is
+            .buttonLegend(legendHints, backs: false) // inside the insets measured below, which say where the tab bar is
             .navigationTitle("") // drawn by TabTitle instead, lined up with the content 36 points in
             .toolbar {
                 TabToolbar(hasTopBar: hasTopBar, openSettings: openSettings) { EmptyView() }
@@ -323,8 +323,8 @@ struct HomeView: View {
         }
     }
 
-    /// The button guide's buttons: the selected game's, then the page's.
-    private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
+    /// The button legend's buttons: the selected game's, then the page's.
+    private var legendHints: [(buttons: [ControllerHints.Button], label: String)] {
         if hasNoGames { return [([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")] }
         if isUnreachable {
             return [([.a], unreachableWakeTarget == nil ? "Refresh" : "Wake"), ([.view], "Refresh"), ([.l1, .r1], "Tabs"), ([.menu], "Settings")]
@@ -443,14 +443,14 @@ struct HomeView: View {
             proxy.fold.map { $0.width >= $0.height ? proxy.size.height - $0.maxY : 0 } ?? 0
         } action: { belowFold = $0 }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { homeHeight = $0.height; homeWidth = $0.width }
-        // With a controller, room for the button guide (its pill, then a gap); without, the covers end where the guide
+        // With a controller, room for the button legend (its row, then a gap); without, the covers end where the legend
         // would, at the safe area's edge (the row's 12 points of focus-ring room hang below it, into the home
         // indicator's margin, though not under a tab bar along the bottom).
-        // On the Air the row sits right above the guide (just its focus-ring room between), leaving the hero more height.
-        .padding(.bottom, floatsTabBar ? -12 : showsGuide ? Self.guideGap : (isTabBarBelow ? 8 : -12))
+        // On the Air the row sits right above the legend (just its focus-ring room between), leaving the hero more height.
+        .padding(.bottom, floatsTabBar ? -12 : showsLegend ? Self.legendGap : (isTabBarBelow ? 8 : -12))
         // Floating tab bar: down to the home indicator's margin whether the bar shows or not, so nothing moves.
         .padding(.bottom, floatsTabBar ? Self.windowBottomInset - railInsets.bottom : 0)
-        .padding(.bottom, phoneGuideLift)
+        .padding(.bottom, phoneLegendLift)
     }
 
     /// The tucked-away tab bar, like the system's own when it shrinks while scrolling: a glass button with the tab's
@@ -534,20 +534,20 @@ struct HomeView: View {
     /// The tab bar runs along the bottom (the Duo's inner display in portrait), so nothing may hang below the safe area.
     /// shortcut: iOS doesn't say where its tab bar is; a bottom inset this tall is one. Revisit if the system says.
     private var isTabBarBelow: Bool { railInsets.bottom > 40 }
-    /// A guide that needs room here; an iPhone's floats over the page.
-    private var showsGuide: Bool { UIDevice.current.userInterfaceIdiom != .phone && guideMode.isShown(controllerConnected: gamepad.isControllerConnected) && !games.isEmpty }
+    /// A legend that needs room here; an iPhone's floats over the page.
+    private var showsLegend: Bool { UIDevice.current.userInterfaceIdiom != .phone && legendMode.isShown(controllerConnected: gamepad.isControllerConnected) && !games.isEmpty }
 
-    /// Above the guide: with the cover row's 12 points of focus-ring room, the same 28 points as between Play and the
+    /// Above the legend: with the cover row's 12 points of focus-ring room, the same 28 points as between Play and the
     /// covers (the hero's 16 below Play, plus those 12).
-    static let guideGap: CGFloat = 16
-    /// An iPhone's guide: the covers, buttons and title move up by this to clear it, and the covers keep their size.
-    private var phoneGuideLift: CGFloat {
-        UIDevice.current.userInterfaceIdiom == .phone && guideMode.isShown(controllerConnected: gamepad.isControllerConnected) && !games.isEmpty ? 16 : 0
+    static let legendGap: CGFloat = 16
+    /// An iPhone's legend: the covers, buttons and title move up by this to clear it, and the covers keep their size.
+    private var phoneLegendLift: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .phone && legendMode.isShown(controllerConnected: gamepad.isControllerConnected) && !games.isEmpty ? 16 : 0
     }
-    /// Covers are bigger without a controller (easier to tap), smaller with one to make room for its guide; and on a
+    /// Covers are bigger without a controller (easier to tap), smaller with one to make room for its legend; and on a
     /// short screen (the Duo's outer display) no taller than 38% of Home, so the hero keeps its room.
     private var coverWidth: CGFloat {
-        let preferred: CGFloat = showsGuide ? 116 : 128
+        let preferred: CGFloat = showsLegend ? 116 : 128
         // Square covers are shorter for their width: on a short screen they take less of its height, so more of the
         // hero shows.
         // An iPhone in landscape (short and wide) gives the hero more: the covers take 28% of the height, not 38%;
@@ -561,8 +561,8 @@ struct HomeView: View {
     private var layoutHeight: CGFloat {
         guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else { return homeHeight }
         if floatsTabBar { return window.bounds.height }
-        // Without the guide's lift, so the covers don't shrink; never past the safe area, or an overflow keeps the big sizes.
-        return min(homeHeight + phoneGuideLift, window.bounds.height - window.safeAreaInsets.top - window.safeAreaInsets.bottom)
+        // Without the legend's lift, so the covers don't shrink; never past the safe area, or an overflow keeps the big sizes.
+        return min(homeHeight + phoneLegendLift, window.bounds.height - window.safeAreaInsets.top - window.safeAreaInsets.bottom)
     }
     /// An iPhone in landscape: smaller covers with tighter corners, and the hero's fade nearer them.
     private var isShortAndWide: Bool { CGSize(width: homeWidth, height: layoutHeight).isShortAndWide }

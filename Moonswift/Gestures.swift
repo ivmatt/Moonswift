@@ -157,7 +157,7 @@ struct GesturesView: View {
         .navigationTitle("Gestures")
         .navigationBarTitleDisplayMode(.inline)
         .choiceMenu($choice)
-        .buttonGuide([([.a], "Select"), ([.b], "Back")], reportsLayout: false)
+        .buttonLegend([([.a], "Select"), ([.b], "Back")], reportsLayout: false)
         .onAppear { load() }
         .onGamepad(handle)
     }

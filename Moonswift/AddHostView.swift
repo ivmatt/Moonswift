@@ -74,7 +74,7 @@ struct AddHostView: View {
             .onDisappear { discovery.stop() }
             // Back from Settings: a browser denied once stays waiting even after access is turned on, so start afresh.
             .onChange(of: scenePhase) { if scenePhase == .active && discovery.isDenied { discovery.stop(); discovery.start() } }
-            .buttonGuide(hints, reportsLayout: false)
+            .buttonLegend(hints, reportsLayout: false)
             .onGamepad(handle)
         }
     }
@@ -108,7 +108,7 @@ struct AddHostView: View {
         .padding(.bottom, 4)
     }
 
-    /// The button guide's hints for the step showing.
+    /// The button legend's hints for the step showing.
     private var hints: [(buttons: [ControllerHints.Button], label: String)] {
         switch step {
         case .ready: [([.a], "Continue"), ([.b], "Cancel")]
@@ -579,7 +579,7 @@ struct WelcomeView: View {
         welcome
             .onGeometryChange(for: CGSize.self) { $0.fullSize } action: { window = $0 }
             .background(Color(.systemBackground).ignoresSafeArea())
-            .buttonGuide([([.a], "Add a Host")], reportsLayout: false)
+            .buttonLegend([([.a], "Add a Host")], reportsLayout: false)
             .onGamepad { if $0 == .select { add() } }
             // As it goes, the app fades in from black (or, cancelled before pairing, the welcome stays).
             .addHostCover(isPresented: $isAdding, isFirstHost: true, onDismiss: finish)

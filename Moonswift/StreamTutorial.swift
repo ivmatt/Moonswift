@@ -34,7 +34,7 @@ struct StreamTutorial: View {
         }
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
-        .buttonGuide([([.a], buttonTitle)], reportsLayout: false)
+        .buttonLegend([([.a], buttonTitle)], reportsLayout: false)
     }
 
     private var panel: some View {

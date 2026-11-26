@@ -51,7 +51,7 @@ struct ShortcutsEditView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .navigationDestination(isPresented: $isAdding) { NewShortcutView(store: store) }
-            .buttonGuide([([.a], "Pin / Unpin"), ([.y], "Move Up"), ([.x], "Delete"), ([.b], "Done")], reportsLayout: false)
+            .buttonLegend([([.a], "Pin / Unpin"), ([.y], "Move Up"), ([.x], "Delete"), ([.b], "Done")], reportsLayout: false)
             .onGamepad(handle)
         }
     }
@@ -147,7 +147,7 @@ private struct NewShortcutView: View {
         .tint(.primary) // the add button and picker in white, not the accent blue
         .navigationTitle("New Shortcut")
         .navigationBarTitleDisplayMode(.inline)
-        .buttonGuide([([.a], "Select"), ([.b], "Back")], reportsLayout: false)
+        .buttonLegend([([.a], "Select"), ([.b], "Back")], reportsLayout: false)
         .onGamepad(handle)
     }
 

@@ -19,7 +19,7 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
 @Observable final class GamepadInput {
     /// True once a controller or keyboard has been used; the focus highlight only shows then.
     private(set) var isActive = false
-    /// A game controller is connected now: screens show the button guide and make room for it.
+    /// A game controller is connected now: screens show the button legend and make room for it.
     private(set) var isControllerConnected = false
 
     @ObservationIgnored private var handlers: [(id: UUID, handle: (GamepadCommand) -> Void)] = []
@@ -49,7 +49,7 @@ nonisolated enum GamepadCommand: Equatable, Sendable {
         attachAll()
     }
 
-    /// The last controller gone: back to touch, so the guide and focus highlights go too.
+    /// The last controller gone: back to touch, so the legend and focus highlights go too.
     private func updateConnected() {
         #if DEBUG
         if let fake = Self.fakeController {
@@ -321,8 +321,8 @@ private struct GamepadHandler: ViewModifier {
     }
 }
 
-/// Settings → Controller → Button Guide.
-nonisolated enum ButtonGuideMode: String, CaseIterable {
+/// Settings → Controller → Button Legend.
+nonisolated enum ButtonLegendMode: String, CaseIterable {
     case automatic = "Automatic", show = "Show", hide = "Hide"
 
     /// Automatic: while a controller is connected.
@@ -336,28 +336,28 @@ nonisolated enum ButtonGuideMode: String, CaseIterable {
 }
 
 extension View {
-    /// The page's button guide, placed the same on every tab. With the tab bar beside or above (the Duo, iPad): bottom
+    /// The page's button legend, placed the same on every tab. With the tab bar beside or above (the Duo, iPad): bottom
     /// left, in line with the content 36 points in. With it along the bottom (iPhone): at the top, on the title's line;
     /// while the tab bar is shrunk to its corner, in the room it left at the bottom.
-    /// `reportsLayout`: a tab's page, which says where the tab bar is; false for a sheet's, whose guide shows over its
+    /// `reportsLayout`: a tab's page, which says where the tab bar is; false for a sheet's, whose legend shows over its
     /// tab's.
-    func buttonGuide(_ hints: [(buttons: [ControllerHints.Button], label: String)], reportsLayout: Bool = true, backs: Bool = true) -> some View {
-        modifier(ButtonGuidePlacement(hints: hints, reportsLayout: reportsLayout, backs: backs))
+    func buttonLegend(_ hints: [(buttons: [ControllerHints.Button], label: String)], reportsLayout: Bool = true, backs: Bool = true) -> some View {
+        modifier(ButtonLegendPlacement(hints: hints, reportsLayout: reportsLayout, backs: backs))
     }
 
     /// For a scrolling page: follows the tab bar's shrinking (scrolling down) and coming back (scrolling up), which iOS
-    /// doesn't report, so the button guide can move with it.
+    /// doesn't report, so the button legend can move with it.
     func tracksTabBarMinimize() -> some View { modifier(TabBarMinimizeTracking()) }
 
     /// Whether the tab bar runs along the bottom, from this page's bottom inset, not counting the keyboard's: its height
-    /// read as a tab bar, so the Duo and iPad were taken for iPhones (the guide went to the top, the tab bar was hidden,
+    /// read as a tab bar, so the Duo and iPad were taken for iPhones (the legend went to the top, the tab bar was hidden,
     /// and both stayed so).
     /// shortcut: iOS doesn't say where its tab bar is; a bottom inset of 40 to 150 points is one, taller is a keyboard.
     /// A hardware keyboard's slim bar on an iPhone could pass for one. Revisit if the system says.
     func onTabBarBelowChange(_ action: @escaping (Bool) -> Void) -> some View { modifier(TabBarBelowWatch(action: action)) }
 
     /// Hides the tab bar along the bottom (iPhone) while `hide` holds, such as Library's search or a controller below
-    /// a page's first row; the button guide takes its place. The Duo's rail and iPad's bar stay.
+    /// a page's first row; the button legend takes its place. The Duo's rail and iPad's bar stay.
     func hidesTabBarOnPhone(_ hide: Bool) -> some View { modifier(PhoneTabBarHiding(hide: hide)) }
 }
 
@@ -396,7 +396,7 @@ private struct PhoneTabBarHiding: ViewModifier {
     var isMinimized = false
     /// A page has hidden it (`hidesTabBarOnPhone`).
     var isHidden = false
-    /// Home has tucked it away (an iPhone in landscape): the guide stays where it was, as the bar will be back.
+    /// Home has tucked it away (an iPhone in landscape): the legend stays where it was, as the bar will be back.
     var isAway = false
 }
 
@@ -407,37 +407,37 @@ private struct TabBarMinimizeTracking: ViewModifier {
         content.onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { old, new in
             guard let tabBar else { return }
             // shortcut: the system's own rule is private; this follows its direction (down shrinks, up brings it back).
-            // If the guide and tab bar disagree, revisit.
+            // If the legend and tab bar disagree, revisit.
             let minimized = new - old > 2 ? true : old - new > 2 ? false : tabBar.isMinimized
             if minimized != tabBar.isMinimized { tabBar.isMinimized = minimized }
         }
     }
 }
 
-private struct ButtonGuidePlacement: ViewModifier {
+private struct ButtonLegendPlacement: ViewModifier {
     let hints: [(buttons: [ControllerHints.Button], label: String)]
     let reportsLayout: Bool
-    /// Whether the page fades out above the guide. Home doesn't: its art is full bleed, and it makes its own room.
+    /// Whether the page fades out above the legend. Home doesn't: its art is full bleed, and it makes its own room.
     let backs: Bool
     @State private var id = UUID()
-    @Environment(ButtonGuideCenter.self) private var center: ButtonGuideCenter?
+    @Environment(ButtonLegendCenter.self) private var center: ButtonLegendCenter?
     @Environment(TabBarMinimize.self) private var tabBar: TabBarMinimize?
     @Environment(GamepadInput.self) private var gamepad
-    @AppStorage(SettingsKey.buttonGuide) private var mode = ButtonGuideMode.automatic
+    @AppStorage(SettingsKey.buttonLegend) private var mode = ButtonLegendMode.automatic
 
     func body(content: Content) -> some View {
         let shows = mode.isShown(controllerConnected: gamepad.isControllerConnected) && !hints.isEmpty
         content
-            .modifier(GuideBacking(id: id, isOn: shows && backs, center: center, tabBar: reportsLayout ? tabBar : nil))
-            // iPad's Home: room at the bottom for the guide, with no spacing of the system's own: the covers end the
+            .modifier(LegendBacking(id: id, isOn: shows && backs, center: center, tabBar: reportsLayout ? tabBar : nil))
+            // iPad's Home: room at the bottom for the legend, with no spacing of the system's own: the covers end the
             // same 28 points above it as Play is above them. (An iPhone's Home lifts its content instead.)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if shows, !backs, UIDevice.current.userInterfaceIdiom == .pad { Color.clear.frame(height: max(0, FixedButtonGuide.top(center) - HomeView.windowBottomInset)) }
+                if shows, !backs, UIDevice.current.userInterfaceIdiom == .pad { Color.clear.frame(height: max(0, FixedButtonLegend.top(center) - HomeView.windowBottomInset)) }
             }
-            // A tab's guide is drawn here, in the page, so the tab bar stays on top of it.
+            // A tab's legend is drawn here, in the page, so the tab bar stays on top of it.
             .overlay {
                 if let center, reportsLayout, !center.isSheetOnTop, !center.isTabFaded {
-                    FixedButtonGuide(hints: hints, center: center)
+                    FixedButtonLegend(hints: hints, center: center)
                 }
             }
             .onTabBarBelowChange { if reportsLayout, !(tabBar?.isHidden ?? false), !(tabBar?.isAway ?? false) { center?.isTabBarBelow = $0 } }
@@ -452,13 +452,13 @@ private struct ButtonGuidePlacement: ViewModifier {
     }
 }
 
-/// Keeps a page's content out from under the guide without moving the guide: content fades out in the gap above the
+/// Keeps a page's content out from under the legend without moving the legend: content fades out in the gap above the
 /// hints, and scrolling content gets room to end above that fade. Not while a tab bar shows along the bottom: it covers
-/// the guide.
-private struct GuideBacking: ViewModifier {
+/// the legend.
+private struct LegendBacking: ViewModifier {
     let id: UUID
     let isOn: Bool
-    let center: ButtonGuideCenter?
+    let center: ButtonLegendCenter?
     let tabBar: TabBarMinimize? // a tab page's; nil for a sheet's, which the tab bar is never over
 
     /// Between the hints and content above them: the same 28 points as Home's between Play and its covers.
@@ -471,7 +471,7 @@ private struct GuideBacking: ViewModifier {
     func body(content: Content) -> some View {
         let tabBarShows = tabBar != nil && (center?.isTabBarBelow ?? false) && !(tabBar?.isHidden ?? true) && !(tabBar?.isMinimized ?? true)
         let on = isOn && !tabBarShows
-        let hintsTop = FixedButtonGuide.top(center)
+        let hintsTop = FixedButtonLegend.top(center)
         content
             // Scrolled to the end, the last row stops above the fade. Added to the safe area, which already keeps the
             // home indicator's room.
@@ -539,7 +539,7 @@ private struct PageFade: UIViewRepresentable {
     }
 }
 
-/// A strip of "button: action" hints along the bottom, shown as the Button Guide setting says (by default while a
+/// A strip of "button: action" hints along the bottom, shown as the Button Legend setting says (by default while a
 /// controller is connected), with each button drawn the way the connected controller labels it (✕ ○ on DualSense,
 /// A B on Xbox; Xbox's without one): Kenney's Input Prompts for PlayStation, Xbox and Nintendo, the system's otherwise.
 struct ControllerHints: View {
@@ -547,7 +547,7 @@ struct ControllerHints: View {
     let hints: [(buttons: [Button], label: String)]
     @ScaledMetric(relativeTo: .caption) private var iconSize: CGFloat = 18 // the art has a margin inside its square
     @Environment(GamepadInput.self) private var gamepad
-    @AppStorage(SettingsKey.buttonGuide) private var mode = ButtonGuideMode.automatic
+    @AppStorage(SettingsKey.buttonLegend) private var mode = ButtonLegendMode.automatic
 
     var body: some View {
         if mode.isShown(controllerConnected: gamepad.isControllerConnected), !hints.isEmpty {
@@ -572,7 +572,7 @@ struct ControllerHints: View {
                     ForEach(hint.buttons, id: \.self) { icon($0, pad) }
                     Text(hint.label)
                 }
-                .fixedSize() // a hint whole or not at all: Home's guide cut "Tabs" to "…"
+                .fixedSize() // a hint whole or not at all: Home's legend cut "Tabs" to "…"
             }
         }
     }
@@ -640,7 +640,7 @@ struct ControllerHints: View {
         case .view: pad?.buttonOptions
         }
         if let name = element?.sfSymbolsName { return name }
-        return switch button { // no controller (the guide set to Show): Xbox's labels
+        return switch button { // no controller (the legend set to Show): Xbox's labels
         case .a: "a.circle"
         case .b: "b.circle"
         case .x: "x.circle"

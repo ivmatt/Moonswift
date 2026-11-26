@@ -2,27 +2,27 @@ import GameController
 import SwiftUI
 import UIKit
 
-/// The one button guide on screen: the topmost screen's hints (a sheet's over its tab's), drawn in a window of its
+/// The one button legend on screen: the topmost screen's hints (a sheet's over its tab's), drawn in a window of its
 /// own above everything, sheets included, so there's only ever one and it never moves with a page or a sheet. Screens
-/// say what it shows with `buttonGuide(_:)`.
-@Observable final class ButtonGuideCenter {
+/// say what it shows with `buttonLegend(_:)`.
+@Observable final class ButtonLegendCenter {
     typealias Hint = (buttons: [ControllerHints.Button], label: String)
     @ObservationIgnored private var entries: [(id: UUID, isOverTabs: Bool, hints: [Hint])] = []
     /// The topmost screen's hints: a sheet's over a tab's (whichever came on screen last; at launch a tab can after
     /// its sheet), then the newest.
     private(set) var current: [Hint] = []
-    /// A sheet's guide is showing rather than a tab's.
+    /// A sheet's legend is showing rather than a tab's.
     private(set) var isSheetOnTop = false
-    /// The tab's page is fading out under the guide, which would fade the guide too if drawn in it: it's drawn in the
-    /// guide's window meanwhile, in the same place.
+    /// The tab's page is fading out under the legend, which would fade the legend too if drawn in it: it's drawn in the
+    /// legend's window meanwhile, in the same place.
     var fadedTab: UUID?
     var isTabFaded: Bool { fadedTab != nil }
-    /// The tabs' tab bar runs along the bottom (iPhones other than the Duo): the guide goes to the top, or to the
+    /// The tabs' tab bar runs along the bottom (iPhones other than the Duo): the legend goes to the top, or to the
     /// bottom while the tab bar is shrunk or hidden. Otherwise bottom left.
     var isTabBarBelow = false
-    /// The guide's height, for pages to keep its room at the bottom.
+    /// The legend's height, for pages to keep its room at the bottom.
     var height: CGFloat = 20
-    /// The tab page's side insets (the Duo's side column on one side): with the column on the left, the guide centres
+    /// The tab page's side insets (the Duo's side column on one side): with the column on the left, the legend centres
     /// in the room beside it.
     var pageLeading: CGFloat = 0
     var pageTrailing: CGFloat = 0
@@ -45,15 +45,15 @@ import UIKit
     }
 }
 
-/// Draws the guide in its own window above the app's; touches pass through it.
-enum ButtonGuideWindow {
+/// Draws the legend in its own window above the app's; touches pass through it.
+enum ButtonLegendWindow {
     private static var window: UIWindow?
 
-    static func install(center: ButtonGuideCenter, gamepad: GamepadInput, launcher: StreamLauncher) {
+    static func install(center: ButtonLegendCenter, gamepad: GamepadInput, launcher: StreamLauncher) {
         guard window == nil,
               let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
         let window = PassthroughWindow(windowScene: scene)
-        let host = GuideHostingController(rootView: ButtonGuideOverlay(center: center, launcher: launcher)
+        let host = LegendHostingController(rootView: ButtonLegendOverlay(center: center, launcher: launcher)
             .environment(gamepad))
         host.view.backgroundColor = .clear
         window.rootViewController = host
@@ -80,7 +80,7 @@ enum ButtonGuideWindow {
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
     }
 
-    private final class GuideHostingController<Content: View>: UIHostingController<Content> {
+    private final class LegendHostingController<Content: View>: UIHostingController<Content> {
         /// The app's own topmost screen: the main window's root, or what it presents (the stream).
         private var appScreen: UIViewController? {
             var screen = view.window?.windowScene?.windows.first { !($0 is PassthroughWindow) }?.rootViewController
@@ -93,16 +93,16 @@ enum ButtonGuideWindow {
         override var childForScreenEdgesDeferringSystemGestures: UIViewController? { appScreen }
         // Here rather than on the app's screen, which is SwiftUI's own controller. Only with a mouse: the lock turns
         // off UIKit's pointer events, which touch input still uses for a trackpad's taps.
-        override var prefersPointerLocked: Bool { ButtonGuideWindow.locksPointer && !GCMouse.mice().isEmpty }
+        override var prefersPointerLocked: Bool { ButtonLegendWindow.locksPointer && !GCMouse.mice().isEmpty }
     }
 }
 
-/// The guide: fixed in a bottom corner with a shadow to stay readable over art. Pages fade out above it (`GuideBacking`).
-struct FixedButtonGuide: View {
-    let hints: [ButtonGuideCenter.Hint]
-    let center: ButtonGuideCenter
+/// The legend: fixed in a bottom corner with a shadow to stay readable over art. Pages fade out above it (`LegendBacking`).
+struct FixedButtonLegend: View {
+    let hints: [ButtonLegendCenter.Hint]
+    let center: ButtonLegendCenter
     @Environment(GamepadInput.self) private var gamepad
-    @AppStorage(SettingsKey.buttonGuide) private var mode = ButtonGuideMode.automatic
+    @AppStorage(SettingsKey.buttonLegend) private var mode = ButtonLegendMode.automatic
 
     /// The pages' content inset from the safe area.
     /// shortcut: the same 36 as HeroCard's inset, kept in step by hand; share one constant if a third place needs it.
@@ -111,7 +111,7 @@ struct FixedButtonGuide: View {
     private static let bottomFromEdge: CGFloat = 8
     private static let bottomOverIndicator: CGFloat = 18 // iPad and the open Duo in landscape: the home indicator is under the hints
     private static let bottomOverTabBar: CGFloat = 6
-    /// Clears a portrait tab bar, at one height so the guide doesn't move when the bar shrinks or hides.
+    /// Clears a portrait tab bar, at one height so the legend doesn't move when the bar shrinks or hides.
     private static let tabBarClearance: CGFloat = 52
 
     var body: some View {
@@ -132,7 +132,7 @@ struct FixedButtonGuide: View {
             let alignment: Alignment = screen.height > screen.width ? .bottom
                 : !screen.isShort ? .bottomLeading
                 : railTrailing > 0 ? .bottomLeading : .bottomTrailing
-            // In landscape the guide stays put with the tab bar over it; a portrait bar never tucks away, so it's cleared.
+            // In landscape the legend stays put with the tab bar over it; a portrait bar never tucks away, so it's cleared.
             let clearance = center.isTabBarBelow && screen.height > screen.width ? Self.tabBarClearance : 0
             ZStack(alignment: alignment) {
                 Color.clear
@@ -161,33 +161,33 @@ struct FixedButtonGuide: View {
     /// From the screen's bottom edge to the hints, without a tab bar to clear.
     static func bottom(_ screen: CGSize) -> CGFloat { screen.isShort ? bottomFromEdge : bottomOverIndicator }
     /// The hints' top, from the screen's bottom edge: where room kept for them starts.
-    static func top(_ center: ButtonGuideCenter?) -> CGFloat {
+    static func top(_ center: ButtonLegendCenter?) -> CGFloat {
         let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
         return bottom(window?.bounds.size ?? .zero) + (center?.height ?? 20)
     }
 }
 
-private struct ButtonGuideOverlay: View {
-    let center: ButtonGuideCenter
+private struct ButtonLegendOverlay: View {
+    let center: ButtonLegendCenter
     let launcher: StreamLauncher
     @Environment(GamepadInput.self) private var gamepad
-    @AppStorage(SettingsKey.buttonGuide) private var mode = ButtonGuideMode.automatic
+    @AppStorage(SettingsKey.buttonLegend) private var mode = ButtonLegendMode.automatic
 
     var body: some View {
         ZStack {
             Color.clear
-            // A sheet's guide, or a faded tab's: a tab's is otherwise drawn in its page, under the tab bar
-            // (`ButtonGuidePlacement`).
+            // A sheet's legend, or a faded tab's: a tab's is otherwise drawn in its page, under the tab bar
+            // (`ButtonLegendPlacement`).
             if center.isSheetOnTop || center.isTabFaded, launcher.stream == nil, launcher.splash == nil {
-                FixedButtonGuide(hints: center.current, center: center)
+                FixedButtonLegend(hints: center.current, center: center)
             }
         }
         .ignoresSafeArea()
         .onChange(of: launcher.stream == nil || launcher.isMinimized) {
             Task { // now, and again once the stream screen has finished sliding in or out
-                ButtonGuideWindow.refreshSystemOverlays()
+                ButtonLegendWindow.refreshSystemOverlays()
                 try? await Task.sleep(for: .milliseconds(600))
-                ButtonGuideWindow.refreshSystemOverlays()
+                ButtonLegendWindow.refreshSystemOverlays()
             }
         }
         .animation(.easeInOut(duration: 0.2), value: center.current.map(\.label))

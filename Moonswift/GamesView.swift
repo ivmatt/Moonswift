@@ -119,7 +119,7 @@ struct GamesView: View {
                 .tracksTabBarMinimize()
                 .overlay(alignment: .top) { header }
                 .choiceMenu($choice)
-                .buttonGuide(guideHints)
+                .buttonLegend(legendHints)
                 .onChange(of: focus) { old, new in
                     // The first row, or the search bar: the top, so the bar shows whole. Further down, only as far as it
                     // takes (a whole row's jump to the middle squished the bar away); centred going up, clear of the top.
@@ -232,8 +232,8 @@ struct GamesView: View {
     private var hidesTabBar: Bool { isSearching || (gamepad.isActive && focus >= columns) }
 
     /// The controls a cover doesn't show: View for the filter menu, the bumpers for the other tabs. Not while typing,
-    /// nor (iPhone) while the search bar is up where the guide goes.
-    private var guideHints: [(buttons: [ControllerHints.Button], label: String)] {
+    /// nor (iPhone) while the search bar is up where the legend goes.
+    private var legendHints: [(buttons: [ControllerHints.Button], label: String)] {
         if isSearchFocused || (isSearching && isTabBarBelow) { return [] }
         var hints: [(buttons: [ControllerHints.Button], label: String)] =
             [([.a], rowIndex == nil ? (focusedGame?.isRunning(directory) == true ? focusedGame!.runningLabels(directory, catalog).resume : "Play") : "Select")]

@@ -40,7 +40,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.playAudioOnPC) private var playAudioOnPC = false
     @AppStorage(SettingsKey.touchMode) private var touchMode = TouchMode.automatic
     @AppStorage(SettingsKey.hdr) private var hdr = ScreenInfo.supportsHDR
-    @AppStorage(SettingsKey.buttonGuide) private var buttonGuide = ButtonGuideMode.automatic
+    @AppStorage(SettingsKey.buttonLegend) private var buttonLegend = ButtonLegendMode.automatic
     @AppStorage(SettingsKey.pictureInPicture) private var allowsPictureInPicture = true
     @AppStorage(SettingsKey.splashScreen) private var showsSplash = true
     @AppStorage(SettingsKey.splashWait) private var splashWait = LaunchSplash.defaultWait
@@ -58,7 +58,7 @@ struct SettingsView: View {
     @State private var choice: ChoiceMenuSpec?
     @State private var rowFrames = RowFrames()
 
-    private enum Row: Hashable { case reconnect, resolution, customWidth, customHeight, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, dualSenseHaptics, phoneRumble, buttonGuide, coverShape, onlineArtwork, artworkKey, about }
+    private enum Row: Hashable { case reconnect, resolution, customWidth, customHeight, fps, codec, hdr, bitrateMode, bitrate, adaptive, overlay, pcAudio, touch, splash, splashWait, splashSound, pictureInPicture, gestures, controlCenterSide, buttonMapping, dualSenseHaptics, phoneRumble, buttonLegend, coverShape, onlineArtwork, artworkKey, about }
     /// Stream: what a stream is sent with. Interface: how the app looks and works. From a stream, only Stream.
     private enum Page: String, CaseIterable { case stream = "Stream", interface = "Interface" }
     @State private var page = Self.rememberedPage
@@ -80,7 +80,7 @@ struct SettingsView: View {
     }
     /// Must match the on-screen order, or up/down feel inverted.
     private var rows: [Row] {
-        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures, .buttonGuide, .buttonMapping, .dualSenseHaptics] + (PhoneRumble.isAvailable ? [.phoneRumble] : []) + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
+        guard page == .stream else { return [.splash] + (showsSplash ? [.splashWait, .splashSound] : []) + [.pictureInPicture, .controlCenterSide, .gestures, .buttonLegend, .buttonMapping, .dualSenseHaptics] + (PhoneRumble.isAvailable ? [.phoneRumble] : []) + (live == nil ? [.coverShape, .onlineArtwork] + (findsArtwork ? [.artworkKey] : []) : []) + [.about] }
         return (needsReconnect ? [.reconnect] : []) + [.resolution] + (resolution == .custom ? [.customWidth, .customHeight] : [])
             + [.fps, .codec] + (showsHDR ? [.hdr] : [])
             + [.bitrateMode] + (bitrateMode == .custom ? [.bitrate] : []) + [.adaptive, .pcAudio, .touch, .overlay]
@@ -240,8 +240,8 @@ struct SettingsView: View {
                          + "return. Control Center sets the side it opens from. Both apply from the next stream.")
                 }
                 Section {
-                    row(.buttonGuide) {
-                        choiceRow(.buttonGuide, "Button Guide", $buttonGuide, ButtonGuideMode.allCases, name: \.rawValue)
+                    row(.buttonLegend) {
+                        choiceRow(.buttonLegend, "Button Legend", $buttonLegend, ButtonLegendMode.allCases, name: \.rawValue)
                     }
                     row(.buttonMapping) {
                         Button("Button Mapping") { isShowingButtonMapping = true }.foregroundStyle(.primary)
@@ -253,7 +253,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Controller")
                 } footer: {
-                    Text("Automatic shows the Button Guide while a controller is connected. "
+                    Text("Automatic shows the Button Legend while a controller is connected. "
                          + "DualSense Haptics plays fine vibration on hosts that send it, like Vibepollo; off, those games "
                          + "don't vibrate. Applies from the next stream."
                          + (PhoneRumble.isAvailable ? " Phone Rumble uses this phone when player one's controller has "
@@ -307,7 +307,7 @@ struct SettingsView: View {
             .onChange(of: page) { focus = 0; rememberPage() }
             .onAppear { if live != nil { page = .stream } }
             .onDisappear(perform: rememberPage) // ten minutes from closing, not from picking
-            .buttonGuide(live == nil ? [([.a], "Select"), ([.l1, .r1], "Stream / Interface"), ([.b], "Close")] : [([.a], "Select"), ([.b], "Close")],
+            .buttonLegend(live == nil ? [([.a], "Select"), ([.l1, .r1], "Stream / Interface"), ([.b], "Close")] : [([.a], "Select"), ([.b], "Close")],
                          reportsLayout: false)
             .choiceMenu($choice)
             .navigationDestination(isPresented: $isShowingAbout) { AboutView() }
@@ -435,7 +435,7 @@ struct SettingsView: View {
         case .fps: choices("Frame Rate", frameRates, current: fps, name: { "\($0) fps" }) { fps = $0 }
         case .codec: choices("Codec", codecs, current: codec, name: \.title) { codec = $0 }
         case .bitrateMode: choices("Bitrate", BitrateMode.allCases, current: bitrateMode, name: \.rawValue) { setMode($0) }
-        case .buttonGuide: choices("Button Guide", ButtonGuideMode.allCases, current: buttonGuide, name: \.rawValue) { buttonGuide = $0 }
+        case .buttonLegend: choices("Button Legend", ButtonLegendMode.allCases, current: buttonLegend, name: \.rawValue) { buttonLegend = $0 }
         case .coverShape: choices("Cover Shape", CoverShape.allCases, current: coverShape, name: \.rawValue) { coverShape = $0 }
         case .hdr: hdr.toggle()
         case .adaptive: adaptive.toggle()
