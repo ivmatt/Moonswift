@@ -8,9 +8,9 @@ struct GamesView: View {
     var switchTab: (Int) -> Void
     var openSettings: () -> Void = {}
 
-    /// Covers per row: as many of at least `minCoverWidth` as fit, rounded down to an even number so a half-folded
+    /// Covers per row: as many of at least `minCoverWidth` as fit, rounded down to an even number (on a tall enough screen) so a half-folded
     /// Duo's fold falls between two columns rather than across one (Apple's guidance for iPhone Duo). Six on the Duo's
-    /// open screen (half-folded too: the covers shrink to make room for the fold's shift), four on its outer one.
+    /// open screen (half-folded too: the covers shrink to make room for the fold's shift), six on its outer one.
     /// The wall's size, as measured; the columns follow from it, the fold offset and the cover shape whenever any
     /// of them changes.
     @State private var wallSize = CGSize.zero
@@ -23,15 +23,22 @@ struct GamesView: View {
     /// fold falls in the gap between its middle columns, which the rail beside the content would otherwise put it off.
     @State private var foldShift: CGFloat = 0
     private static let minCoverWidth: CGFloat = 110
+    /// The narrowest a short screen's covers get: a little under Home's on an iPhone in landscape (75 points).
+    private static let minReadableWidth: CGFloat = 66
 
-    /// On a short screen (an iPhone in landscape) covers are also kept to about a third of its `height`, so a whole
-    /// row shows above the tab bar: narrower covers, more columns.
+    /// On a short screen (an iPhone in landscape, the folded Duo) covers are no taller than about a quarter of its
+    /// `height`, so two whole rows show below the header and the Library shows more games than Home's single row.
     nonisolated static func columns(forWidth width: CGFloat, height: CGFloat = .infinity, ratio: CGFloat = 2 / 3) -> Int {
         // A first layout pass measures the wall with no height: that once meant covers of no width, hundreds of
         // columns, and a grid too wide to lay out (Library froze). Only a real height narrows the covers.
-        let minWidth = height > 100 ? min(minCoverWidth, height * 0.35 * ratio) : minCoverWidth
-        let fit = Int((width - 72 + 18) / (minWidth + 18)) // less the 36-point margins, plus one gap
-        return max(2, fit - fit % 2)
+        let maxWidth = height > 100 ? height * 0.27 * ratio : .infinity
+        let room = width - 72 + 18 // less the 36-point margins, plus one gap
+        let fit = room / (min(minCoverWidth, maxWidth) + 18)
+        // Rounded up, as rounding down (to an even count, too) let the covers grow past the height: four 120-point
+        // covers and one row on the folded Duo. But never narrower than a title can be read on (an iPhone's wall is
+        // shorter than its screen); no fold to keep between columns on a screen this short.
+        if maxWidth < minCoverWidth { return max(2, min(Int(fit.rounded(.up)), Int(room / (minReadableWidth + 18)))) }
+        return max(2, Int(fit) - Int(fit) % 2)
     }
 
     /// Hidden shows only what you hid (games and shortcuts), so you can unhide it.
