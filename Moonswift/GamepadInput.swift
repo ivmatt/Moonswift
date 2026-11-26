@@ -341,8 +341,8 @@ extension View {
     /// while the tab bar is shrunk to its corner, in the room it left at the bottom.
     /// `reportsLayout`: a tab's page, which says where the tab bar is; false for a sheet's, whose guide shows over its
     /// tab's.
-    func buttonGuide(_ hints: [(buttons: [ControllerHints.Button], label: String)], reportsLayout: Bool = true) -> some View {
-        modifier(ButtonGuidePlacement(hints: hints, reportsLayout: reportsLayout))
+    func buttonGuide(_ hints: [(buttons: [ControllerHints.Button], label: String)], reportsLayout: Bool = true, backs: Bool = true) -> some View {
+        modifier(ButtonGuidePlacement(hints: hints, reportsLayout: reportsLayout, backs: backs))
     }
 
     /// For a scrolling page: follows the tab bar's shrinking (scrolling down) and coming back (scrolling up), which iOS
@@ -417,6 +417,8 @@ private struct TabBarMinimizeTracking: ViewModifier {
 private struct ButtonGuidePlacement: ViewModifier {
     let hints: [(buttons: [ControllerHints.Button], label: String)]
     let reportsLayout: Bool
+    /// Whether the page fades out above the guide. Home doesn't: its art is full bleed, and it makes its own room.
+    let backs: Bool
     @State private var id = UUID()
     @Environment(ButtonGuideCenter.self) private var center: ButtonGuideCenter?
     @Environment(TabBarMinimize.self) private var tabBar: TabBarMinimize?
@@ -426,17 +428,16 @@ private struct ButtonGuidePlacement: ViewModifier {
     func body(content: Content) -> some View {
         let shows = mode.isShown(controllerConnected: gamepad.isControllerConnected) && !hints.isEmpty
         content
-            // Room at the bottom for the guide (drawn above everything, by ButtonGuideWindow), with no spacing of the
-            // system's own: Home's covers end the same 28 points above it as Play is above them. The guide sits 4
-            // points into the margin below, so it looks balanced there.
+            .modifier(GuideBacking(id: id, isOn: shows && backs, center: center, tabBar: reportsLayout ? tabBar : nil))
+            // iPad's Home: room at the bottom for the guide, with no spacing of the system's own: the covers end the
+            // same 28 points above it as Play is above them. (An iPhone's Home lifts its content instead.)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                // An iPhone's guide floats over the page and takes no room.
-                if shows, UIDevice.current.userInterfaceIdiom != .phone, !(center?.isTabBarBelow ?? false) { Color.clear.frame(height: max(0, (center?.height ?? 34) - 4)) }
+                if shows, !backs, UIDevice.current.userInterfaceIdiom == .pad { Color.clear.frame(height: max(0, FixedButtonGuide.top(center) - HomeView.windowBottomInset)) }
             }
-            // An iPhone tab's guide is drawn here, in the page, so the tab bar stays on top of it.
+            // A tab's guide is drawn here, in the page, so the tab bar stays on top of it.
             .overlay {
-                if let center, reportsLayout, !center.isSheetOnTop, UIDevice.current.userInterfaceIdiom == .phone {
-                    PhoneButtonGuide(hints: hints, center: center)
+                if let center, reportsLayout, !center.isSheetOnTop, !center.isTabFaded {
+                    FixedButtonGuide(hints: hints, center: center)
                 }
             }
             .onTabBarBelowChange { if reportsLayout, !(tabBar?.isHidden ?? false), !(tabBar?.isAway ?? false) { center?.isTabBarBelow = $0 } }
@@ -448,6 +449,93 @@ private struct ButtonGuidePlacement: ViewModifier {
             .onAppear { center?.set(id, isOverTabs: !reportsLayout, hints) }
             .onDisappear { center?.remove(id) }
             .onChange(of: hints.map(\.label)) { center?.set(id, isOverTabs: !reportsLayout, hints) }
+    }
+}
+
+/// Keeps a page's content out from under the guide without moving the guide: content fades out in the gap above the
+/// hints, and scrolling content gets room to end above that fade. Not while a tab bar shows along the bottom: it covers
+/// the guide.
+private struct GuideBacking: ViewModifier {
+    let id: UUID
+    let isOn: Bool
+    let center: ButtonGuideCenter?
+    let tabBar: TabBarMinimize? // a tab page's; nil for a sheet's, which the tab bar is never over
+
+    /// Between the hints and content above them: the same 28 points as Home's between Play and its covers.
+    private static let gap: CGFloat = 28
+    /// The part of that gap nearest the hints, where nothing shows; the rest is the fade.
+    private static let clear: CGFloat = 4
+    /// Below the page's content already: the home indicator's room, or the screen below a floating sheet (iPad).
+    @State private var bottomRoom: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        let tabBarShows = tabBar != nil && (center?.isTabBarBelow ?? false) && !(tabBar?.isHidden ?? true) && !(tabBar?.isMinimized ?? true)
+        let on = isOn && !tabBarShows
+        let hintsTop = FixedButtonGuide.top(center)
+        content
+            // Scrolled to the end, the last row stops above the fade. Added to the safe area, which already keeps the
+            // home indicator's room.
+            .safeAreaPadding(.bottom, on ? max(0, hintsTop + Self.gap - bottomRoom) : 0)
+            // From the page's frame, not its safe area, which includes the padding above.
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.bounds.height ?? 0
+                let below = screen - proxy.frame(in: .global).maxY
+                return below > 1 ? below : HomeView.windowBottomInset
+            } action: { bottomRoom = $0 }
+            // In UIKit, on the page's own view: a SwiftUI mask or compositing group re-hosts a List, which then loses
+            // its side margins (Settings' rows widened 8 points).
+            .background { PageFade(fade: on ? Self.gap - Self.clear : 0, clear: on ? hintsTop + Self.clear : 0) }
+            // A tab's page owns the flag while it fades; leaving or stopping clears only its own.
+            .onChange(of: on, initial: true) { setFaded(on) }
+            .onDisappear { setFaded(false) }
+    }
+
+    private func setFaded(_ faded: Bool) {
+        guard tabBar != nil, let center else { return }
+        if faded { center.fadedTab = id } else if center.fadedTab == id { center.fadedTab = nil }
+    }
+}
+
+/// Fades out the bottom of the page this sits in (its view controller's view): `clear` points up from the screen's
+/// bottom show nothing, then the page fades in over `fade` points.
+private struct PageFade: UIViewRepresentable {
+    let fade: CGFloat
+    let clear: CGFloat
+
+    func makeUIView(context: Context) -> FadeView { FadeView() }
+
+    func updateUIView(_ view: FadeView, context: Context) {
+        view.fade = fade
+        view.clear = clear
+        view.setNeedsLayout()
+    }
+
+    final class FadeView: UIView {
+        var fade: CGFloat = 0
+        var clear: CGFloat = 0
+        private let gradient = CAGradientLayer()
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            var responder: UIResponder? = self
+            while let next = responder, !(next is UIViewController) { responder = next.next }
+            guard let page = (responder as? UIViewController)?.view, let window = page.window else { return }
+            guard fade > 0 else {
+                if page.layer.mask === gradient { page.layer.mask = nil }
+                return
+            }
+            let height = page.bounds.height
+            // The page can end above the screen's bottom (a sheet on iPad): only what's left of the clear band.
+            let below = window.bounds.height - page.convert(CGPoint(x: 0, y: height), to: window).y
+            let clearInPage = min(height, max(0, clear - below))
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            gradient.frame = page.bounds
+            gradient.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor, UIColor.clear.cgColor]
+            gradient.locations = [0, (height - clearInPage - fade) / height, (height - clearInPage) / height, 1].map { NSNumber(value: Double($0)) }
+            page.layer.mask = gradient
+            CATransaction.commit()
+        }
     }
 }
 
@@ -464,26 +552,14 @@ struct ControllerHints: View {
     var body: some View {
         if mode.isShown(controllerConnected: gamepad.isControllerConnected), !hints.isEmpty {
             let pad = GCController.current?.extendedGamepad
-            Group {
-                if UIDevice.current.userInterfaceIdiom == .phone {
-                    // As many hints as fit, most important (first) kept.
-                    ViewThatFits(in: .horizontal) {
-                        ForEach(Array(stride(from: hints.count, to: 0, by: -1)), id: \.self) { count in
-                            row(Array(hints.prefix(count)), pad)
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.85))
-                } else {
-                    row(hints, pad)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        // A pill that blurs what's behind it, not glass: readable over art, quiet on the black pages.
-                        .background(.ultraThinMaterial, in: .capsule)
+            // As many hints as fit, most important (first) kept.
+            ViewThatFits(in: .horizontal) {
+                ForEach(Array(stride(from: hints.count, to: 0, by: -1)), id: \.self) { count in
+                    row(Array(hints.prefix(count)), pad)
                 }
             }
-            .font(.footnote)
+            .font(.caption)
+            .foregroundStyle(.white.opacity(0.85))
             .transition(.opacity)
             .accessibilityHidden(true) // controller-only help; VoiceOver users have the on-screen controls
         }
