@@ -82,13 +82,15 @@ struct ArtworkPicker: View {
     // MARK: Pictures
 
     private var pictures: some View {
-        VStack(spacing: 12) {
+        // One 12-point gap between field, picker and grid: the grid's own top padding is that gap, with just room for
+        // the focused top row's ring and lift.
+        VStack(spacing: 0) {
             nameField.padding(.horizontal, 20)
             Picker("Kind", selection: $kind) { ForEach(Kind.allCases, id: \.self) { Text($0.rawValue) } }
                 .pickerStyle(.segmented)
-                .frame(maxWidth: 320)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .controlSize(.large) // as tall as the name field above it
                 .padding(.horizontal, 20)
+                .padding(.top, 12)
             ScrollViewReader { scroller in
                 ScrollView {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: columns), spacing: 14) {
@@ -99,7 +101,8 @@ struct ArtworkPicker: View {
                                 .onAppear { if index == choices.count - 1 { loadMore() } }
                         }
                     }
-                    .padding(20)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
                     if isLoading { ProgressView().padding() }
                 }
                 .overlay {
