@@ -111,9 +111,35 @@ nonisolated enum ShowAs: String, Codable, CaseIterable {
         guard !onlineArtOff.contains(gameID), foundKinds[gameID]?.contains(kind) == true else { return nil }
         let file = foundFile(gameID, kind)
         if let image = foundCache.object(forKey: file.path as NSString) { return image }
-        guard let image = UIImage(contentsOfFile: file.path) else { return nil }
+        guard var image = UIImage(contentsOfFile: file.path) else { return nil }
+        if kind == .logo, Self.logoSizing { image = Self.trimmed(image) }
         foundCache.setObject(image, forKey: file.path as NSString)
         return image
+    }
+
+    /// Prototype: logos trimmed to what's visible and sized to equal area. On with the launch argument `-LogoSizing YES`.
+    static var logoSizing: Bool { UserDefaults.standard.bool(forKey: "LogoSizing") }
+
+    /// Cropped to its visible pixels: Steam's logos sit in a fixed 640×360 canvas with any amount of empty space.
+    nonisolated static func trimmed(_ image: UIImage) -> UIImage {
+        guard let cg = image.cgImage else { return image }
+        let width = cg.width, height = cg.height
+        var alpha = [UInt8](repeating: 0, count: width * height)
+        let found: CGRect? = alpha.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+                                          bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return nil }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+            var minX = width, minY = height, maxX = -1, maxY = -1
+            for y in 0..<height {
+                for x in 0..<width where buffer[y * width + x] > 24 { // ignores faint glow and shadow edges
+                    minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+                }
+            }
+            return maxX < 0 ? nil : CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
+        }
+        guard let found, let cropped = cg.cropping(to: found) else { return image }
+        return UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
     }
 
     func setOnlineArt(_ isOn: Bool, for game: CatalogGame) {

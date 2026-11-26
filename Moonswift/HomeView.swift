@@ -810,11 +810,17 @@ private struct HeroCard: View {
     /// The game's logo, or its name where it has none.
     @ViewBuilder private var title: some View {
         if let logo {
+            let maxHeight = adaptiveTitleSize * (isCompact ? 1.6 : 2.2)
+            // Prototype: every logo the area of a 2.6:1 one at 85% of the height, so wide and stacked ones weigh the same.
+            let aspect = max(logo.size.width / max(logo.size.height, 1), 0.1)
+            let area = 2.6 * pow(maxHeight * 0.85, 2)
+            let equalHeight = GameCatalog.logoSizing ? (area / aspect).squareRoot() : .infinity
             Image(uiImage: logo)
                 .resizable()
                 .scaledToFit()
+                .frame(maxWidth: equalHeight * aspect, maxHeight: equalHeight, alignment: .bottomLeading)
                 // About two lines of title tall, and no wider than the title may run.
-                .frame(maxWidth: .infinity, maxHeight: adaptiveTitleSize * (isCompact ? 1.6 : 2.2), alignment: .bottomLeading)
+                .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .bottomLeading)
                 .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in width * 0.45 }
                 .shadow(color: .black.opacity(0.5), radius: 8) // stands off bright art
                 .accessibilityLabel(game.title)
