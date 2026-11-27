@@ -69,6 +69,7 @@ struct AddHostView: View {
             // The bar only makes room: it takes no touches past the side's safe area, where Back sits on the 18 Pro.
             .safeAreaBar(edge: .top) { header.hidden() }
             .overlay(alignment: .top) { header }
+            .overlay(alignment: .leading) { backSwipeEdge }
             .tint(.primary)
             // A swipe down closes it until the PIN shows; from then on it's seen through (pairing, then Getting Started).
             .interactiveDismissDisabled(!isClosable)
@@ -106,6 +107,21 @@ struct AddHostView: View {
         // Level with the system's top-bar buttons: an iPad's bar sits right under its status bar.
         .padding(.top, UIDevice.current.userInterfaceIdiom == .pad ? 6 : 20)
         .padding(.bottom, 4)
+    }
+
+    /// A swipe in from the leading edge goes back, as on a pushed screen, wherever the header shows Back.
+    @ViewBuilder private var backSwipeEdge: some View {
+        switch step {
+        case .ready, .done: EmptyView()
+        default:
+            Color.clear
+                .frame(width: 24)
+                .contentShape(.rect)
+                .gesture(DragGesture(minimumDistance: 10).onEnded { drag in
+                    if drag.translation.width > 60 && abs(drag.translation.height) < drag.translation.width { back() }
+                })
+                .ignoresSafeArea()
+        }
     }
 
     /// The button legend's hints for the step showing.
