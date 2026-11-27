@@ -20,7 +20,7 @@ Your games run on your PC. Moonswift shows the picture, plays the sound, and sen
 - Up to 4K and 120 fps, or a custom width and height, depending on your device and host
 - Adaptive Bitrate, which backs off when the network struggles
 - Picture in Picture, resume and quit, and automatic reconnecting
-- A splash screen that hides the host's desktop while a game launches
+- A splash screen that hides the host's desktop while a game launches, with Cancel (or Ⓑ) to stop the launch
 - A Performance Overlay and an in-stream Control Center with quick actions
 - Short one-time guides the first time you stream with gestures, a controller or the on-screen controller
 

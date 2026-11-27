@@ -14,6 +14,8 @@ import SwiftUI
     var isMinimized = false
     /// Bumped to ask the stream screen to disconnect (the game keeps running); `afterDisconnect` runs once it has.
     private(set) var disconnectRequest = 0
+    /// The requested disconnect also quits the game (Cancel on a new launch's splash).
+    @ObservationIgnored private(set) var disconnectQuits = false
     @ObservationIgnored private(set) var afterDisconnect: () -> Void = {}
     @ObservationIgnored private var streaming: (app: HostApp, pc: PCRef)?
     /// The game this device streamed and hasn't quit. Disconnecting leaves it running on the PC (the session stays on),
@@ -44,6 +46,7 @@ import SwiftUI
         defer { launchesFromHero = false }
         guard showsSplash else { return }
         splashStatus = nil
+        cancelStatus = nil
         let wait = isResume ? 0 : catalog.splashWaits[title.lowercased()]
             ?? UserDefaults.standard.object(forKey: SettingsKey.splashWait) as? Int ?? SettingsDefault.splashWait
         var new = LaunchSplash(title: title, catalog: catalog, from: launchesFromHero && !UIAccessibility.isReduceMotionEnabled ? homeHeroFrame : nil, wait: wait)
@@ -56,10 +59,36 @@ import SwiftUI
         }
     }
 
+    /// The launch or resume behind the splash, until the host answers.
+    @ObservationIgnored private var launchTask: Task<Void, Never>?
+    /// The splash's launch started the game (not a resume or a join): cancelling it quits the game again.
+    @ObservationIgnored private var quitsOnCancel = false
+    /// Cancel was pressed while the host was still starting the game.
+    @ObservationIgnored private var isCancelling = false
+    /// After the splash's Cancel, what it shows until it's done ("Quitting…"), like a quit from the stream.
+    var cancelStatus: String?
+
+    /// The splash's Cancel: back to where Play was pressed, with nothing left half started. A new launch is quit on the
+    /// PC once the host has answered (stopping mid-request would leave it unknown whether the game started); a resume
+    /// just stops, as its game was already running.
+    func cancelLaunch() {
+        guard cancelStatus == nil else { return }
+        cancelStatus = quitsOnCancel ? "Quitting…" : "Disconnecting…"
+        // The splash stays until it's done: `streamEnded` or the launch's end takes it away.
+        if stream != nil { return disconnect(quitting: quitsOnCancel) } // connecting: the stream screen closes it
+        guard let launchTask, !isCancelling else { return endSplash() }
+        isCancelling = true
+        guard quitsOnCancel else { return launchTask.cancel() }
+        Task { // a stuck host: stop waiting for its answer, and quit anyway
+            try? await Task.sleep(for: .seconds(10))
+            launchTask.cancel()
+        }
+    }
+
     /// The game is showing (or failed, and its page takes over): the splash fades away.
     func endSplash() {
         guard splash != nil else { return }
-        withAnimation(.easeInOut(duration: 0.6)) { splash = nil }
+        withAnimation(.easeInOut(duration: 0.6)) { splash = nil; cancelStatus = nil }
     }
 
     /// `running` is the PC's running game ID (0: none) and `runningTitle` its name, for the quit question.
@@ -76,7 +105,7 @@ import SwiftUI
         }
         if running == 0 {
             showSplash(app.title)
-            perform("Launching \(app.title)…", on: pc, streaming: app) { [settings = Self.settings] in
+            perform("Launching \(app.title)…", on: pc, streaming: app, quitsOnCancel: true) { [settings = Self.settings] in
                 try await pc.client.launch(app, width: settings.width, height: settings.height, fps: settings.fps,
                                            videoFormats: settings.formats)
             }
@@ -97,7 +126,7 @@ import SwiftUI
             .init(title: "Quit and Launch", isDestructive: true) {
                 let launch = {
                     self.showSplash(app.title)
-                    self.perform("Launching \(app.title)…", on: pc, streaming: app) { [settings = Self.settings] in
+                    self.perform("Launching \(app.title)…", on: pc, streaming: app, quitsOnCancel: true) { [settings = Self.settings] in
                         try await pc.client.quit()
                         return try await pc.client.launch(app, width: settings.width, height: settings.height, fps: settings.fps,
                                                           videoFormats: settings.formats)
@@ -109,8 +138,9 @@ import SwiftUI
     }
 
     /// Asks the stream screen to disconnect cleanly (the game keeps running), then runs `next`.
-    func disconnect(then next: @escaping () -> Void = {}) {
+    func disconnect(quitting: Bool = false, then next: @escaping () -> Void = {}) {
         guard stream != nil else { return next() }
+        disconnectQuits = quitting
         afterDisconnect = next
         disconnectRequest += 1
     }
@@ -184,12 +214,15 @@ import SwiftUI
 
     /// A failed `isResume` means the session is gone (the game closed, or the PC restarted): it's forgotten, so the
     /// game shows Play again.
-    private func perform(_ label: String, on pc: PCRef, streaming app: HostApp? = nil, isResume: Bool = false,
+    /// `quitsOnCancel`: a new launch, which the splash's Cancel quits again.
+    private func perform(_ label: String, on pc: PCRef, streaming app: HostApp? = nil, isResume: Bool = false, quitsOnCancel: Bool = false,
                          onSuccess: @escaping () -> Void = {}, _ action: @escaping () async throws -> LaunchSession?) {
         busy = label
-        Task {
+        self.quitsOnCancel = quitsOnCancel
+        launchTask = Task {
             do {
                 let launch = try await action()
+                guard !isCancelling else { throw CancellationError() } // answered after Cancel: no stream
                 onSuccess()
                 if let launch, let app {
                     streaming = (app, pc)
@@ -201,6 +234,16 @@ import SwiftUI
                     }
                     catalog.notePlayed(app, on: pc.id)
                 }
+            } catch where isCancelling {
+                defer { endSplash() }
+                if quitsOnCancel {
+                    // Its own task: this one may be cancelled. At most 10 seconds, for a stuck host.
+                    let quit = Task { _ = try? await pc.client.quit() }
+                    let timer = Task { try? await Task.sleep(for: .seconds(10)); quit.cancel() }
+                    await quit.value
+                    timer.cancel()
+                    forgetSession(on: pc.id)
+                }
             } catch where isResume {
                 endSplash()
                 forgetSession(on: pc.id)
@@ -209,6 +252,8 @@ import SwiftUI
                 endSplash()
                 menu = .error(error)
             }
+            isCancelling = false
+            launchTask = nil
             busy = nil
             revision += 1
         }
@@ -234,6 +279,7 @@ import SwiftUI
         guard var (app, pc) = streaming, let address = await Self.answeringAddress(pc),
               streaming?.app.id == app.id, streaming?.pc.id == pc.id // not closed or replaced during that wait
         else { throw ServerInfoError.unreachable(.timedOut) }
+        quitsOnCancel = fresh // Quit & Retry's splash cancels like a new launch's
         pc.client = HostClient(hostID: pc.id, address: address, httpsPort: pc.client.httpsPort, serverCert: pc.client.serverCert)
         streaming = (app, pc)
         let settings = Self.settings
@@ -334,10 +380,11 @@ private struct StreamLauncherPresentation: ViewModifier {
                 if let splash = launcher.splash {
                     // While the host starts it, then the stream's own words; once the picture is up and it's only
                     // holding, how to skip.
-                    let working = launcher.busy.map { $0.hasPrefix("Resuming") ? "Picking up where you left off…" : "Starting your game…" }
+                    let working = launcher.cancelStatus ?? launcher.busy.map { $0.hasPrefix("Resuming") ? "Picking up where you left off…" : "Starting your game…" }
                         ?? launcher.splashStatus
                     let canSkip = working == nil && launcher.stream != nil
-                    LaunchSplashView(splash: splash, status: working ?? "Getting things ready…", canSkip: canSkip) {
+                    let cancel: (() -> Void)? = canSkip || launcher.cancelStatus != nil ? nil : { launcher.cancelLaunch() }
+                    LaunchSplashView(splash: splash, status: working ?? "Getting things ready…", canSkip: canSkip, cancel: cancel) {
                         if canSkip { launcher.endSplash() }
                     }
                     .transition(.opacity)

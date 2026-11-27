@@ -273,7 +273,7 @@ struct StreamView: View {
                     }
                     DimmedBlur() // the same as the launch splash's
                     // Like the launch splash: the game large in the middle, what's happening below.
-                    CenteredStatus(title: target.title, detail: status.replacing(" to \(target.title)", with: "")
+                    CenteredStatus(title: target.title, logo: LaunchSplash.logo(for: target.title, catalog: catalog), detail: status.replacing(" to \(target.title)", with: "")
                         .replacing(" \(target.title)", with: ""))
                 }
                 .ignoresSafeArea()
@@ -303,13 +303,17 @@ struct StreamView: View {
             if !launcher.isMinimized {
                 Color.clear.onGamepad { command in
                     // Over the splash, once the picture is in, any button skips the hold (and doesn't reach the game).
-                    if launcher.splash != nil { if firstPictureAt != nil { launcher.endSplash() }; return }
+                    // Before it, B cancels the launch.
+                    if launcher.splash != nil {
+                        if firstPictureAt != nil { launcher.endSplash() } else if command == .back { launcher.cancelLaunch() }
+                        return
+                    }
                     if tutorial != nil { if command == .select || command == .back { closeTutorial() }; return }
                     if command == .streamMenu { showMenu(.actions) } // other buttons go to the game once input is sent
                 }
             }
         }
-        .onChange(of: launcher.disconnectRequest) { leave() }
+        .onChange(of: launcher.disconnectRequest) { leave(quitting: launcher.disconnectQuits) }
         .onChange(of: launcher.isMinimized) { _, isMinimized in
             if !isMinimized { pictureInPicture.stopQuietly() } // Resume from the app: back full screen
         }

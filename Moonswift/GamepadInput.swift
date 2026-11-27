@@ -533,7 +533,6 @@ private struct PageFade: UIViewRepresentable {
 struct ControllerHints: View {
     enum Button { case a, b, x, y, l1, r1, menu, view }
     let hints: [(buttons: [Button], label: String)]
-    @ScaledMetric(relativeTo: .caption) private var iconSize: CGFloat = 18 // the art has a margin inside its square
     @Environment(GamepadInput.self) private var gamepad
     @AppStorage(SettingsKey.buttonLegend) private var mode = SettingsDefault.buttonLegend
 
@@ -565,12 +564,25 @@ struct ControllerHints: View {
         }
     }
 
-    @ViewBuilder private func icon(_ button: Button, _ pad: GCExtendedGamepad?) -> some View {
-        let symbol = Self.symbol(button, pad)
-        if let name = Self.packIcon(button, symbol: symbol), UIImage(named: name) != nil {
-            Image(name).resizable().frame(width: iconSize, height: iconSize)
-        } else {
-            Image(systemName: symbol)
+    private func icon(_ button: Button, _ pad: GCExtendedGamepad?) -> some View { Icon(button: button) }
+
+    /// One button drawn the way the connected controller labels it, as in the legend; also inside a button's own label.
+    struct Icon: View {
+        let button: Button
+        @ScaledMetric private var size: CGFloat // the art has a margin inside its square
+
+        init(button: Button, size: CGFloat = 18, relativeTo style: Font.TextStyle = .caption) {
+            self.button = button
+            _size = ScaledMetric(wrappedValue: size, relativeTo: style)
+        }
+
+        var body: some View {
+            let symbol = ControllerHints.symbol(button, GCController.current?.extendedGamepad)
+            if let name = ControllerHints.packIcon(button, symbol: symbol), UIImage(named: name) != nil {
+                Image(name).resizable().frame(width: size, height: size)
+            } else {
+                Image(systemName: symbol)
+            }
         }
     }
 
