@@ -66,7 +66,9 @@ struct AddHostView: View {
             .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { sideInsets = $0 }
             // Its own bar: the Duo's system one scrolled away for good and couldn't centre its title on the screen.
             .toolbar(.hidden, for: .navigationBar)
-            .safeAreaBar(edge: .top) { header }
+            // The bar only makes room: it takes no touches past the side's safe area, where Back sits on the 18 Pro.
+            .safeAreaBar(edge: .top) { header.hidden() }
+            .overlay(alignment: .top) { header }
             .tint(.primary)
             // A swipe down closes it until the PIN shows; from then on it's seen through (pairing, then Getting Started).
             .interactiveDismissDisabled(!isClosable)
@@ -81,10 +83,7 @@ struct AddHostView: View {
 
     private var header: some View {
         ZStack {
-            Text(title)
-                .font(.headline)
-                .padding(.leading, max(0, sideInsets.trailing - sideInsets.leading))
-                .padding(.trailing, max(0, sideInsets.leading - sideInsets.trailing))
+            Text(title).font(.headline)
             HStack {
                 switch step {
                 case .ready: Button("Cancel") { dismiss() }.buttonStyle(.glass)
@@ -98,11 +97,12 @@ struct AddHostView: View {
                 Spacer()
             }
             // Where the system's toolbar puts Back and Cancel on every other screen, measured from the screen's edge.
-            .padding(.leading, TabToolbar<EmptyView>.cornerInset(insets: sideInsets) - sideInsets.leading - 28)
+            .padding(.leading, TabToolbar<EmptyView>.cornerInset(insets: sideInsets) - 28)
         }
         .controlSize(.large)
         .frame(minHeight: 48)
         .padding(.horizontal, 28) // the title clear of the screen's rounded corners
+        .ignoresSafeArea(.container, edges: .horizontal) // edge to edge, so the title centres on the screen
         // Level with the system's top-bar buttons: an iPad's bar sits right under its status bar.
         .padding(.top, UIDevice.current.userInterfaceIdiom == .pad ? 6 : 20)
         .padding(.bottom, 4)
