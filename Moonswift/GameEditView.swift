@@ -33,9 +33,10 @@ struct GameEditView: View {
     private var match: GameCatalog.FoundMatch? { catalog.foundMatches[game.id] }
     @State private var focus = 0
     @FocusState private var isNameFocused: Bool
-    /// The photo picker (touch or controller): which picture it's open for, and what was picked. Set while it's open, so
-    /// the legend, whose window is above the picker, hides till it closes, however it closes.
+    /// The photo picker (touch or controller): which picture it's for, whether it's open, and what was picked. The kind
+    /// outlives the picker: it closes before the pick arrives. While it's open the legend, whose window is above it, hides.
     @State private var pickerKind: GameCatalog.Artwork?
+    @State private var isPicking = false
     @State private var pickedItem: PhotosPickerItem?
     @State private var choice: ChoiceMenuSpec?
     /// Reset's confirmation.
@@ -160,7 +161,7 @@ struct GameEditView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done", action: done) }
             }
             .onAppear { name = game.title }
-            .photosPicker(isPresented: Binding(get: { pickerKind != nil }, set: { if !$0 { pickerKind = nil } }),
+            .photosPicker(isPresented: $isPicking,
                           selection: $pickedItem, matching: .images)
             .onChange(of: pickedItem) {
                 if let pickerKind { load(pickedItem, pickerKind) }
@@ -169,7 +170,7 @@ struct GameEditView: View {
             .choiceMenu($choice)
             .actionMenu($menu)
             .sheet(isPresented: $isChoosingArt) { ArtworkPicker(game: game) }
-            .buttonLegend(pickerKind == nil ? [([.a], "Select"), ([.b], "Done")] : [], reportsLayout: false)
+            .buttonLegend(!isPicking ? [([.a], "Select"), ([.b], "Done")] : [], reportsLayout: false)
             .onGamepad(handle)
         }
     }
@@ -184,7 +185,7 @@ struct GameEditView: View {
 
     private func handle(_ command: GamepadCommand) {
         // The photo picker is Apple's own screen: B closes just it (it closed the whole page), the rest waits.
-        if pickerKind != nil { if command == .back { pickerKind = nil }; return }
+        if isPicking { if command == .back { isPicking = false }; return }
         // Moving off the name puts the keyboard away, so the highlight shows where it went.
         if [.up, .down].contains(command), isNameFocused { isNameFocused = false }
         switch command {
@@ -223,10 +224,10 @@ struct GameEditView: View {
 
     /// A picture's row: the photo picker, or for one that's set, Change or Remove.
     private func pick(_ kind: GameCatalog.Artwork, hasImage: Bool, row: Row) {
-        guard hasImage else { return pickerKind = kind }
+        guard hasImage else { return openPicker(kind) }
         let spec = ChoiceMenuSpec(source: row, options: ["Change…", "Remove"], selected: -1,
                                   anchor: rowFrames.frames[row] ?? .zero) { index in
-            if index == 0 { pickerKind = kind } else { catalog.setArtwork(nil, kind, for: game) }
+            if index == 0 { openPicker(kind) } else { catalog.setArtwork(nil, kind, for: game) }
         }
         withAnimation(.easeOut(duration: 0.12)) { choice = spec }
     }
@@ -283,13 +284,18 @@ struct GameEditView: View {
                 if isInUse { Text("In use").font(.caption).foregroundStyle(.secondary) }
             }
             Spacer()
-            Button(image == nil ? "Choose…" : "Change…") { pickerKind = kind }
+            Button(image == nil ? "Choose…" : "Change…") { openPicker(kind) }
                 .buttonStyle(.borderless)
             if image != nil {
                 Button("Remove", role: .destructive) { catalog.setArtwork(nil, kind, for: game) }
                     .buttonStyle(.borderless)
             }
         }
+    }
+
+    private func openPicker(_ kind: GameCatalog.Artwork) {
+        pickerKind = kind
+        isPicking = true
     }
 
     private func load(_ item: PhotosPickerItem?, _ kind: GameCatalog.Artwork) {
