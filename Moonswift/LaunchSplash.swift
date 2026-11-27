@@ -41,6 +41,8 @@ struct LaunchSplashView: View {
     let status: String?
     /// The picture is in and it's only holding: a hint that a tap or button skips the rest.
     let canSkip: Bool
+    /// Until the picture is in: Cancel (and B) stops the launch.
+    let cancel: (() -> Void)?
     let skip: () -> Void
 
     var body: some View {
@@ -69,13 +71,22 @@ struct LaunchSplashView: View {
                         .frame(width: rect.width, height: rect.height)
                         .position(x: rect.midX, y: rect.midY)
                 }
-                CenteredStatus(title: splash.title, detail: status, hint: canSkip ? "Tap or press any button to skip" : nil)
-                    .opacity(splash.isGrown ? 1 : 0)
+                VStack(spacing: 20) {
+                    CenteredStatus(title: splash.title, detail: status, hint: canSkip ? "Tap or press any button to skip" : nil)
+                    // Kept in the layout once gone, so the words don't move when the picture comes in.
+                    Button("Cancel") { cancel?() }
+                        .buttonStyle(.glass).font(.headline)
+                        .opacity(cancel == nil ? 0 : 1)
+                        .disabled(cancel == nil)
+                }
+                .opacity(splash.isGrown ? 1 : 0)
             }
         }
         .ignoresSafeArea()
         .contentShape(.rect)
         .onTapGesture(perform: skip) // and it blocks touches to what's underneath
+        .onGamepad(isActive: cancel != nil) { if $0 == .back { cancel?() } } // the stream screen's, once it's up
+        .buttonLegend(cancel == nil ? [] : [([.b], "Cancel")], reportsLayout: false, backs: false)
     }
 }
 
