@@ -3,7 +3,7 @@ import SwiftUI
 /// The Edit sheet's Choose Artwork: a game's covers (in the chosen cover shape), heroes or logos on SteamGridDB, best rated
 /// first and more as you scroll, with Steam's own store picture first for a Steam game. Picking one makes it the game's
 /// found art of that kind. Change Game searches SteamGridDB for the right game when the name matched the wrong one.
-/// Controller: arrows move, A picks, LB/RB switch between Cover, Hero and Logo, Y changes the game, B closes.
+/// Controller: arrows move (up from the top row to the name field), A picks (or edits the name), LB/RB switch between Cover, Hero and Logo, Y changes the game, B closes.
 struct ArtworkPicker: View {
     let game: CatalogGame
 
@@ -33,6 +33,8 @@ struct ArtworkPicker: View {
     /// Picked here: ticked. While it downloads: a spinner on it.
     @State private var chosen: URL?
     @State private var saving: URL?
+    @State private var insets = EdgeInsets()
+    @State private var gridSize = CGSize.zero
 
     @State private var isChoosingGame = false
     @State private var query = ""
@@ -51,7 +53,19 @@ struct ArtworkPicker: View {
         }
     }
     private var match: GameCatalog.FoundMatch? { catalog.foundMatches[game.id] }
-    private var columns: Int { kind == .cover ? 4 : kind == .logo ? 3 : 2 }
+    /// The folded Duo puts the bar's title at the safe area's edge, by the camera: the header and grid start there too,
+    /// under it. Elsewhere the title is centred, so the usual 20.
+    private var leadingMargin: CGFloat { TabToolbar<EmptyView>.isRailOnLeft(insets: insets) ? 0 : 20 }
+    private var columns: Int {
+        guard kind == .cover else { return kind == .logo ? 3 : 2 }
+        // Four, or more when a cover that wide would be taller than the room (an iPhone in landscape), so a whole row
+        // shows above the legend's text. The grid's height stops at the legend, but its pictures show on under the
+        // legend's fade for about 40 points.
+        // shortcut: 40 is measured, not read from the legend; reading the safe area here looped the layout.
+        let room = gridSize.height + 40
+        guard room > 0 else { return 4 } // not measured yet
+        return max(4, Int((gridSize.width / (room * coverShape.ratio)).rounded(.up)))
+    }
 
     var body: some View {
         NavigationStack {
@@ -73,7 +87,7 @@ struct ArtworkPicker: View {
                 }
             }
             .buttonLegend(isChoosingGame ? [([.a], "Select"), ([.b], "Back")]
-                         : [([.a], "Choose"), ([.l1, .r1], "Cover / Hero / Logo"), ([.y], "Change Game"), ([.b], "Done")],
+                         : [([.a], focus == -1 ? "Edit Name" : "Choose"), ([.l1, .r1], "Cover / Hero / Logo"), ([.y], "Change Game"), ([.b], "Done")],
                          reportsLayout: false)
             .onGamepad(handle)
         }
@@ -82,16 +96,14 @@ struct ArtworkPicker: View {
     // MARK: Pictures
 
     private var pictures: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Picker("Kind", selection: $kind) { ForEach(Kind.allCases, id: \.self) { Text($0.rawValue) } }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 320)
-                Spacer()
-                Button(match?.name.map { "\($0) · Change Game" } ?? "Find Game") { openGameSearch() }
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 20)
+        // One 12-point gap between field, picker and grid: the grid's own top padding is that gap, with just room for
+        // the focused top row's ring and lift.
+        VStack(spacing: 0) {
+            nameField.padding(.leading, leadingMargin).padding(.trailing, 20)
+            Picker("Kind", selection: $kind) { ForEach(Kind.allCases, id: \.self) { Text($0.rawValue) } }
+                .pickerStyle(.segmented)
+                .padding(.leading, leadingMargin).padding(.trailing, 20)
+                .padding(.top, 12)
             ScrollViewReader { scroller in
                 ScrollView {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: columns), spacing: 14) {
@@ -102,9 +114,11 @@ struct ArtworkPicker: View {
                                 .onAppear { if index == choices.count - 1 { loadMore() } }
                         }
                     }
-                    .padding(20)
+                    .padding(.leading, leadingMargin).padding(.trailing, 20)
+                    .padding(.vertical, 12)
                     if isLoading { ProgressView().padding() }
                 }
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { gridSize = $0 }
                 .overlay {
                     if isPreparing && choices.isEmpty {
                         ProgressView("Finding artwork…")
@@ -123,8 +137,32 @@ struct ArtworkPicker: View {
                 }
             }
         }
-        .onChange(of: kind) { focus = 0; choices = [] } // at once: not the old kind's pictures under the new highlight
+        .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets = $0 }
+        .onChange(of: kind) { focus = min(focus, 0); choices = [] } // at once: not the old kind's pictures under the new highlight
         .task(id: "\(kind)|\(coverShape)|\(match?.gameID ?? -1)") { await reload() }
+    }
+
+    /// The name the art is searched by, drawn as a search field (like Library's) so it reads as editable: tapping it, or
+    /// A on it, opens Change Game with the keyboard up.
+    private var nameField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            Text(match?.name ?? "Find this game on SteamGridDB")
+                .foregroundStyle(match?.name == nil ? .secondary : .primary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "pencil").foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 40)
+        .background(Color(.tertiarySystemFill), in: .capsule) // flat, like a system search field
+        .contentShape(.capsule)
+        .focusRing(gamepad.isActive && focus == -1, cornerRadius: .infinity, scale: 1.015)
+        .onTapGesture { openGameSearch(editing: true) }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Game name, \(match?.name ?? "none")")
+        .accessibilityHint("Changes which game the art comes from")
+        .accessibilityAddTraits(.isButton)
     }
 
     private func tile(_ choice: Choice, isFocused: Bool) -> some View {
@@ -166,7 +204,7 @@ struct ArtworkPicker: View {
     /// From the start: Steam's own picture first (for a Steam game), then SteamGridDB's first page.
     private func reload() async {
         generation += 1
-        choices = []; page = 0; isAtEnd = false; focus = 0; problem = nil; chosen = nil; isLoading = false
+        choices = []; page = 0; isAtEnd = false; focus = min(focus, 0); problem = nil; chosen = nil; isLoading = false
         isPreparing = true
         defer { if generation == self.generation { isPreparing = false } }
         guard let id = match?.gameID, let key = SteamGridDB.savedKey else { return }
@@ -247,11 +285,13 @@ struct ArtworkPicker: View {
         .busyBox(isRematching ? "Getting its art…" : isSearching ? "Searching SteamGridDB…" : nil)
     }
 
-    private func openGameSearch() {
-        query = SteamGridDB.cleaned(game.originalTitle)
-        gameFocus = 0
+    /// `editing`: with the name field focused and the keyboard up, as from the name field.
+    private func openGameSearch(editing: Bool = false) {
+        query = match?.name ?? SteamGridDB.cleaned(game.originalTitle) // the name the field showed
+        gameFocus = editing ? -1 : 0
         isChoosingGame = true
         search()
+        if editing { Task { isQueryFocused = true } } // once the field is on screen
     }
 
     private func search() {
@@ -291,10 +331,15 @@ struct ArtworkPicker: View {
             return
         }
         switch command {
+        // -1 is the name field, above the grid's top row.
+        case .up where focus < columns: focus = -1
+        case .down where focus == -1: focus = 0
         case .up, .down, .left, .right:
+            guard focus >= 0 else { break }
             focus = FocusMove.next(focus, count: choices.count, columns: columns, command)
             if focus >= choices.count - columns { loadMore() }
-        case .select: if choices.indices.contains(focus) { choose(choices[focus]) }
+        case .select:
+            if focus == -1 { openGameSearch(editing: true) } else if choices.indices.contains(focus) { choose(choices[focus]) }
         case .previousTab: kind = Kind.allCases[max(0, (Kind.allCases.firstIndex(of: kind) ?? 0) - 1)]
         case .nextTab: kind = Kind.allCases[min(Kind.allCases.count - 1, (Kind.allCases.firstIndex(of: kind) ?? 0) + 1)]
         case .menu: openGameSearch()
