@@ -56,6 +56,7 @@ struct EditPCView: View {
             }
             .barTitle(host.displayName)
             .navigationBarTitleDisplayMode(.inline)
+            .pinnedBar()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 // Words like every other sheet's Done; a spinner while the addresses are checked.

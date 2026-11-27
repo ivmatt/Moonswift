@@ -157,6 +157,7 @@ struct GameEditView: View {
             }
             .navigationTitle(game.title)
             .navigationBarTitleDisplayMode(.inline)
+            .pinnedBar()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done", action: done) }
             }
