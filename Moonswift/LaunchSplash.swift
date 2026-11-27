@@ -74,9 +74,14 @@ struct LaunchSplashView: View {
                 VStack(spacing: 20) {
                     CenteredStatus(title: splash.title, detail: status, hint: canSkip ? "Tap or press any button to skip" : nil)
                     // Kept in the layout once gone, so the words don't move when the picture comes in.
-                    Button("Cancel") { cancel?() }
-                        .buttonStyle(.glass).font(.headline)
-                        .opacity(cancel == nil ? 0 : 1)
+                    // Quiet, like the skip hint: the splash is about the game, not this.
+                    Button { cancel?() } label: {
+                        Text("Cancel").font(.subheadline.weight(.semibold)).padding(.horizontal, 20).padding(.vertical, 12)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .opacity(cancel == nil ? 0 : 1)
                         .disabled(cancel == nil)
                 }
                 .opacity(splash.isGrown ? 1 : 0)
