@@ -519,19 +519,30 @@ struct GamesView: View {
 
     /// Over a readied cover: a Play (or Resume) button that starts it.
     /// Play; or, while it's running, Resume and Quit (as Home's hero offers).
+    /// Icons only when the labelled buttons would be wider than the cover (dense grids, big text).
     private func playButton(_ game: CatalogGame) -> some View {
+        ViewThatFits(in: .horizontal) {
+            playButtons(game, iconOnly: false)
+            playButtons(game, iconOnly: true)
+        }
+        .disabled(game.isWaitingForStatus(directory, launcher))
+    }
+
+    private func playButtons(_ game: CatalogGame, iconOnly: Bool) -> some View {
         VStack(spacing: 8) {
             Button { start(game) } label: {
-                Label(game.isRunning(directory) ? game.runningLabels(directory, catalog).resume : "Play", systemImage: "play.fill").overlayButtonText()
+                Label(game.isRunning(directory) ? game.runningLabels(directory, catalog).resume : "Play", systemImage: "play.fill")
+                    .overlayButtonText(iconOnly: iconOnly)
             }
             .buttonStyle(.glass) // white on glass, like Home's Play
             if game.isRunning(directory) {
-                Button { readied = nil; quit(game) } label: { Label(game.runningLabels(directory, catalog).quit, systemImage: "xmark").overlayButtonText() }
-                    .buttonStyle(.glassProminent)
-                    .tint(.red)
+                Button { readied = nil; quit(game) } label: {
+                    Label(game.runningLabels(directory, catalog).quit, systemImage: "xmark").overlayButtonText(iconOnly: iconOnly)
+                }
+                .buttonStyle(.glassProminent)
+                .tint(.red)
             }
         }
-        .disabled(game.isWaitingForStatus(directory, launcher))
     }
 
     /// Asks before ending it on its PC (as Home does).
@@ -749,7 +760,12 @@ private struct PillLabel: View {
 
 private extension View {
     /// The text of a button over a readied cover: small enough for a cover's width, on one line.
-    func overlayButtonText() -> some View {
-        font(.footnote.weight(.semibold)).lineLimit(1).fixedSize().frame(minWidth: 72).frame(height: 28)
+    /// Icon-only keeps the title for VoiceOver.
+    @ViewBuilder func overlayButtonText(iconOnly: Bool = false) -> some View {
+        if iconOnly {
+            labelStyle(.iconOnly).font(.footnote.weight(.semibold)).frame(height: 28)
+        } else {
+            font(.footnote.weight(.semibold)).lineLimit(1).fixedSize().frame(minWidth: 72).frame(height: 28)
+        }
     }
 }
