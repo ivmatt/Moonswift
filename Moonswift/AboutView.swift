@@ -40,7 +40,7 @@ struct AboutView: View {
                 row(0) { Button("Source Code") { openURL(Self.sourceURL) } }
                 row(1) { Button("Privacy Policy") { openURL(Self.privacyURL) } }
             } footer: {
-                Text("Built on moonlight-common-c, with code ported from moonlight-ios, adaptive triggers from VoidLink, and the DualSense waveform haptics protocol by Nonary.\n\nMoonswift is an independent project. It is not affiliated with or endorsed by Moonlight, Sunshine, Apollo or Vibepollo.")
+                Text("Built on moonlight-common-c, with code ported from moonlight-ios, the DualSense trigger effect format documented by Nielk1, and the DualSense waveform haptics protocol by Nonary.\n\nMoonswift is an independent project. It is not affiliated with or endorsed by Moonlight, Sunshine, Apollo or Vibepollo.")
             }
             Section("Open-Source Components") {
                 ForEach(Array(Self.components.enumerated()), id: \.element) { index, component in
