@@ -244,8 +244,7 @@ private struct ButtonLegendOverlay: View {
         ZStack {
             Color.clear
             // A sheet's legend; a tab's is drawn in its layer among the pages (`TabLegend`), here only without one.
-            // Over a launch splash only the splash's own (its Cancel), the newest entry over the tabs.
-            if launcher.splash != nil ? center.isSheetOnTop : (center.isSheetOnTop || !center.hasTabLayer) && launcher.stream == nil {
+            if center.isSheetOnTop || !center.hasTabLayer, launcher.stream == nil, launcher.splash == nil {
                 FixedButtonLegend(hints: center.current, center: center, sheet: center.isSheetOnTop ? center.sheetFrame : nil)
             }
         }

@@ -273,7 +273,7 @@ struct StreamView: View {
                     }
                     DimmedBlur() // the same as the launch splash's
                     // Like the launch splash: the game large in the middle, what's happening below.
-                    CenteredStatus(title: target.title, detail: status.replacing(" to \(target.title)", with: "")
+                    CenteredStatus(title: target.title, logo: LaunchSplash.logo(for: target.title, catalog: catalog), detail: status.replacing(" to \(target.title)", with: "")
                         .replacing(" \(target.title)", with: ""))
                 }
                 .ignoresSafeArea()

@@ -8,6 +8,8 @@ struct LaunchSplash: Equatable {
     let title: String
     /// Its hero picture, else a cover; nil: plain black.
     let art: UIImage?
+    /// Its logo, shown instead of the title, at its Logo Size.
+    let logo: (image: UIImage, scale: CGFloat)?
     /// Home's hero, in screen coordinates, when it grows from there (only for a hero picture).
     let from: CGRect?
     /// How long it stays once the first picture is in, over what the host shows first.
@@ -21,6 +23,7 @@ struct LaunchSplash: Equatable {
         let hero = catalog.shownHero(for: title.lowercased())
         self.title = title
         art = Self.art(for: title, catalog: catalog)
+        logo = Self.logo(for: title, catalog: catalog)
         self.from = hero == nil ? nil : from
         self.wait = .seconds(wait)
         endsOnSound = UserDefaults.standard.object(forKey: SettingsKey.splashEndsOnSound) as? Bool ?? SettingsDefault.splashEndsOnSound
@@ -30,6 +33,14 @@ struct LaunchSplash: Equatable {
     static func art(for title: String, catalog: GameCatalog) -> UIImage? {
         let id = title.lowercased()
         return catalog.shownHero(for: id) ?? CoverShape.allCases.lazy.compactMap { catalog.shownCover(for: id, $0) }.first
+    }
+
+    /// The game's logo and its Logo Size (1 the usual), as Home's hero shows it; nil for none.
+    static func logo(for title: String, catalog: GameCatalog) -> (image: UIImage, scale: CGFloat)? {
+        let id = title.lowercased()
+        guard let image = catalog.shownLogo(for: id) else { return nil }
+        let size = catalog.logoSizes[id] ?? UserDefaults.standard.object(forKey: SettingsKey.logoSize) as? Int ?? SettingsDefault.logoSize
+        return (image, CGFloat(size) / 100)
     }
 
     static func == (a: Self, b: Self) -> Bool { a.title == b.title && a.isGrown == b.isGrown }
@@ -44,6 +55,7 @@ struct LaunchSplashView: View {
     /// Until the picture is in: Cancel (and B) stops the launch.
     let cancel: (() -> Void)?
     let skip: () -> Void
+    @Environment(GamepadInput.self) private var gamepad
 
     var body: some View {
         GeometryReader { proxy in
@@ -71,49 +83,84 @@ struct LaunchSplashView: View {
                         .frame(width: rect.width, height: rect.height)
                         .position(x: rect.midX, y: rect.midY)
                 }
-                VStack(spacing: 20) {
-                    CenteredStatus(title: splash.title, detail: status, hint: canSkip ? "Tap or press any button to skip" : nil)
-                    // Kept in the layout once gone, so the words don't move when the picture comes in.
-                    // Quiet, like the skip hint: the splash is about the game, not this.
-                    Button { cancel?() } label: {
-                        Text("Cancel").font(.subheadline.weight(.semibold)).padding(.horizontal, 20).padding(.vertical, 12)
-                            .contentShape(.rect)
+                CenteredStatus(title: splash.title, logo: splash.logo, detail: status,
+                               hint: canSkip ? "Tap or press any button to skip" : nil)
+                    .belowCentered {
+                        if let cancel {
+                            // Red like Home's Quit; with a controller, the button that does it too (there's no legend here).
+                            Button(action: cancel) {
+                                HStack(spacing: 6) {
+                                    if gamepad.isControllerConnected { ControllerHints.Icon(button: .b, size: 22, relativeTo: .headline) }
+                                    Text("Cancel")
+                                }
+                                .font(.headline)
+                                .frame(minWidth: 90)
+                            }
+                            .buttonStyle(.glassProminent)
+                            .tint(.red)
+                            .controlSize(.large)
+                            .transition(.opacity)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.white.opacity(0.6))
-                    .opacity(cancel == nil ? 0 : 1)
-                        .disabled(cancel == nil)
-                }
-                .opacity(splash.isGrown ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.25), value: cancel == nil)
+                    .opacity(splash.isGrown ? 1 : 0)
             }
         }
         .ignoresSafeArea()
         .contentShape(.rect)
         .onTapGesture(perform: skip) // and it blocks touches to what's underneath
         .onGamepad(isActive: cancel != nil) { if $0 == .back { cancel?() } } // the stream screen's, once it's up
-        .buttonLegend(cancel == nil ? [] : [([.b], "Cancel")], reportsLayout: false, backs: false)
     }
 }
 
-/// The splash's and the stream's shared words: large in the middle, with a spinner and what's happening below.
+/// The splash's and the stream's shared words: the game (its logo, else its title) large in the middle, with a spinner
+/// and what's happening below. Only those two are centred: a hint or button goes under them (`belowCentered`).
 struct CenteredStatus: View {
     let title: String
+    var logo: (image: UIImage, scale: CGFloat)?
     let detail: String?
     var hint: String?
 
+    private static let titleSize: CGFloat = 40
+
     var body: some View {
         VStack(spacing: 14) {
-            Text(title).font(.system(size: 40, weight: .bold)).multilineTextAlignment(.center).lineLimit(3)
-                .minimumScaleFactor(0.6)
+            if let logo {
+                // As Home's hero sizes them: every logo the area of a 2.6:1 one, so wide and stacked ones weigh the same.
+                let maxHeight = Self.titleSize * 3 * logo.scale
+                let aspect = max(logo.image.size.width / max(logo.image.size.height, 1), 0.1)
+                let height = (2.6 * pow(maxHeight * 0.85, 2) / aspect).squareRoot()
+                Image(uiImage: logo.image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: min(height * aspect, 560), maxHeight: height)
+                    .shadow(color: .black.opacity(0.5), radius: 8)
+                    .accessibilityLabel(title)
+                    .padding(.bottom, 6)
+            } else {
+                // Wraps well short of the screen's width, rather than one line edge to edge.
+                Text(title).font(.system(size: Self.titleSize, weight: .bold)).multilineTextAlignment(.center).lineLimit(3)
+                    .minimumScaleFactor(0.6)
+                    .frame(maxWidth: 600)
+            }
             HStack(spacing: 10) {
                 ProgressView().tint(.white)
                 if let detail { Text(detail).font(.headline).foregroundStyle(.white.opacity(0.8)) }
             }
-            Text(hint ?? " ").font(.footnote).foregroundStyle(.white.opacity(0.5)).opacity(hint == nil ? 0 : 1)
+        }
+        .belowCentered {
+            if let hint { Text(hint).font(.footnote).foregroundStyle(.white.opacity(0.5)) }
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 40)
         .accessibilityElement(children: .combine)
+    }
+}
+
+extension View {
+    /// Puts `content` 24 points under this view without moving it: it stays centred where it was.
+    func belowCentered<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        overlay(alignment: .bottom) { content().alignmentGuide(.bottom) { $0[.top] - 24 } }
     }
 }
 
