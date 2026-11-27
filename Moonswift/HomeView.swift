@@ -32,6 +32,9 @@ struct HomeView: View {
     /// The real bar is hidden, its stand-in alone on screen (the stand-in fades in over it first, and out over it last).
     @State private var isRealTabBarHidden = false
     @State private var standInOpacity: Double = 0
+    /// From the start of tucking away until just after: a tap where the bar was opens the tab that was there, since
+    /// the finger was already on its way to it.
+    @State private var isTabBarCatching = false
     /// Where the system draws its bar and its shrunk button, read as it tucks away.
     @State private var tabBarFrames = TabBarFrames.current
     @State private var editing: CatalogGame?
@@ -301,6 +304,7 @@ struct HomeView: View {
             .onDisappear {
                 withTransaction(Transaction(animation: nil)) {
                     isTabBarAway = false; isTabBarShrunk = false; isRealTabBarHidden = false; standInOpacity = 0
+                    isTabBarCatching = false
                 }
                 tabBar?.isAway = false
                 tabBarStay = .seconds(2.5) // the short wait next time Home comes up
@@ -473,6 +477,19 @@ struct HomeView: View {
                 TabBarMorph(progress: isTabBarShrunk ? 1 : 0, frames: tabBarFrames, origin: origin, tap: showTabBar)
                     .opacity(standInOpacity)
             }
+            if floatsTabBar, isTabBarCatching {
+                let bar = tabBarFrames.bar, origin = proxy.frame(in: .global).origin
+                Color.clear
+                    .frame(width: bar.width, height: bar.height)
+                    .contentShape(.rect)
+                    .gesture(SpatialTapGesture().onEnded { tap in
+                        // The bar's three equal slots, Home first: Home's own slot just brings the bar back.
+                        let slot = min(max(Int(tap.location.x / (bar.width / 3)), 0), 2)
+                        if slot == 0 { showTabBar() } else { switchTab(slot) }
+                    })
+                    .position(x: bar.midX - origin.x, y: bar.midY - origin.y)
+                    .accessibilityHidden(true)
+            }
         }
         .ignoresSafeArea()
     }
@@ -484,11 +501,16 @@ struct HomeView: View {
     private func tuckTabBarAway() {
         guard floatsTabBar, !isTabBarAway else { return } // only from the bar showing
         tabBarFrames = .current
-        withTransaction(Transaction(animation: nil)) { isTabBarAway = true; isTabBarShrunk = false; standInOpacity = 0 }
+        withTransaction(Transaction(animation: nil)) {
+            isTabBarAway = true; isTabBarShrunk = false; standInOpacity = 0; isTabBarCatching = true
+        }
         // The copy fades in over the real bar, which then goes underneath it, and only then does it shrink.
         withAnimation(.easeOut(duration: 0.12)) { standInOpacity = 1 } completion: {
             withTransaction(Transaction(animation: nil)) { isRealTabBarHidden = true }
-            withAnimation(Self.tabBarMorphCurve) { isTabBarShrunk = true }
+            withAnimation(Self.tabBarMorphCurve) { isTabBarShrunk = true } completion: {
+                // Long enough for a tap already on its way; no longer, so the covers under the bar take taps again.
+                Task { try? await Task.sleep(for: .seconds(0.5)); isTabBarCatching = false }
+            }
         }
     }
 
