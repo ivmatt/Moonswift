@@ -55,3 +55,63 @@ extension View {
             .toolbar { ToolbarItem(placement: .principal) { Text(title).font(.headline).lineLimit(1) } }
     }
 }
+
+extension View {
+    /// A pushed Settings page's title and Back. The folded Duo's system bar keeps its leading corner for the camera and
+    /// drops Back into the side column below the title, whatever the page puts there, so there the page draws its own
+    /// row, as Add a Host does.
+    func subpageBar(_ title: String) -> some View { modifier(SubpageBar(title: title)) }
+}
+
+private struct SubpageBar: ViewModifier {
+    let title: String
+    @Environment(\.dismiss) private var dismiss
+
+    /// The window's, not the page's: the page's change with the bar it shows, so they'd flip the choice back and forth.
+    private var insets: EdgeInsets {
+        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+        let i = window?.safeAreaInsets ?? .zero
+        return EdgeInsets(top: i.top, leading: i.left, bottom: i.bottom, trailing: i.right)
+    }
+
+    func body(content: Content) -> some View {
+        if TabToolbar<EmptyView>.hasTopBar(insets: insets) {
+            content.barTitle(title)
+        } else {
+            content
+                .navigationTitle(title)
+                .toolbar(.hidden, for: .navigationBar)
+                .safeAreaBar(edge: .top) { header } // blurs the rows scrolling under it, as the system bar does
+                .overlay(alignment: .leading) { swipeEdge }
+        }
+    }
+
+    private var header: some View {
+        ZStack(alignment: .leading) {
+            Text(title).font(.headline).lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 60) // clear of Back; centred as the Stream/Interface switch is
+            // At the safe area's edge, in line with the rows below and clear of the camera.
+            Button("Back", systemImage: "chevron.backward") { dismiss() }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+        }
+        .controlSize(.large)
+        .frame(minHeight: 48)
+        .padding(.top, 16) // level with Done on the Settings page below it
+        .padding(.bottom, 4)
+        .tint(.primary)
+    }
+
+    /// The system's back swipe goes with its bar.
+    private var swipeEdge: some View {
+        Color.clear
+            .frame(width: 24)
+            .contentShape(.rect)
+            .gesture(DragGesture(minimumDistance: 10).onEnded { drag in
+                if drag.translation.width > 60 && abs(drag.translation.height) < drag.translation.width { dismiss() }
+            })
+            .ignoresSafeArea()
+    }
+}

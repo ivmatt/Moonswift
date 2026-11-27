@@ -156,7 +156,7 @@ struct GesturesView: View {
             }
             .onChange(of: focus) { if rows.indices.contains(focus) { withAnimation { scroller.scrollTo(rows[focus], anchor: .center) } } }
         }
-        .navigationTitle("Gestures")
+        .subpageBar("Gestures")
         .navigationBarTitleDisplayMode(.inline)
         .choiceMenu($choice)
         .actionMenu($menu)

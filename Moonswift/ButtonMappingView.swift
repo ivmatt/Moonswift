@@ -57,7 +57,7 @@ struct ButtonMappingView: View {
         // The focused row in the middle, so its section's title and notes show too.
         .onChange(of: focus) { withAnimation { scroller.scrollTo(focus, anchor: .center) } }
         }
-        .navigationTitle("Button Mapping")
+        .subpageBar("Button Mapping")
         .onChange(of: remap) { ButtonRemap.current = remap }
         .buttonLegend([([.a], "Select"), ([.b], "Back")], reportsLayout: false)
         .choiceMenu($choice)
