@@ -101,7 +101,7 @@ Moonswift builds on the work of these projects:
 
 - [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c), the streaming core, used through [our fork](https://github.com/ivmatt/moonlight-common-c)
 - [moonlight-ios](https://github.com/moonlight-stream/moonlight-ios), the original iOS client, which parts of the streaming and input code are ported from
-- [VoidLink](https://github.com/The-Fried-Fish/VoidLink-previously-moonlight-zwm), the source of the adaptive trigger code
+- [Nielk1](https://gist.github.com/Nielk1/6d54cc2c00d2201ccb8c2720ad7538db), for documenting the DualSense trigger effect format (MIT)
 - [Nonary](https://github.com/Nonary), for the DualSense waveform haptics protocol
 - [Sunshine](https://github.com/LizardByte/Sunshine) and [Vibepollo](https://github.com/Nonary/Vibepollo), the hosts
 - [ENet](https://github.com/lsalzman/enet), [nanors](https://github.com/sleepybishop/nanors) and [Mbed TLS](https://github.com/Mbed-TLS/mbedtls), bundled libraries

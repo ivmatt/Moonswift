@@ -840,20 +840,69 @@ struct ButtonMappingTests {
 }
 
 struct AdaptiveTriggerTests {
-    @Test func decodesTheCommonEffects() {
-        let off = AdaptiveTriggerEffect(type: 0x05, bytes: Array(repeating: 0, count: 10))
-        #expect(off.mode == .off)
-        // Weapon (0x25): zones 2...6 active, strength bits 7 → full strength.
-        let weapon = AdaptiveTriggerEffect(type: 0x25, bytes: [0x44, 0x00, 0x07, 0, 0, 0, 0, 0, 0, 0])
-        #expect(weapon.mode == .weapon)
-        #expect(abs(weapon.startPosition - 2 / 9) < 0.001 && abs(weapon.endPosition - 6 / 9) < 0.001)
-        #expect(weapon.startStrength == 1)
-        // Feedback per zone (0x21): zone 0 at strength 3 (bits 010 → (2+1)/8).
-        let zoned = AdaptiveTriggerEffect(type: 0x21, bytes: [0x01, 0x00, 0x02, 0, 0, 0, 0, 0, 0, 0])
-        #expect(zoned.mode == .positionalFeedback && zoned.positionalStrength[0] == 3 / 8)
-        // A vibration with no frequency does nothing.
-        #expect(AdaptiveTriggerEffect(type: 0x06, bytes: [0, 200, 0, 0, 0, 0, 0, 0, 0, 0]).mode == .off)
+    /// 10 parameter bytes: a zone mask, then the effect's own fields from byte 2.
+    private func bytes(zones: [Int], _ rest: [Int: UInt8] = [:]) -> [UInt8] {
+        let mask = zones.reduce(0) { $0 | 1 << $1 }
+        var b: [UInt8] = [UInt8(mask & 0xFF), UInt8(mask >> 8)] + Array(repeating: 0, count: 8)
+        for (i, v) in rest { b[i] = v }
+        return b
+    }
+    /// One 3-bit level (1-8) per zone, packed into bytes 2-5 the way the controller expects.
+    private func levels(_ levels: [Int: Int]) -> [Int: UInt8] {
+        let packed = levels.reduce(UInt32(0)) { $0 | UInt32($1.value - 1) << (3 * $1.key) }
+        return [2: UInt8(packed & 0xFF), 3: UInt8(packed >> 8 & 0xFF), 4: UInt8(packed >> 16 & 0xFF), 5: UInt8(packed >> 24)]
+    }
+
+    @Test func offAndMalformedEffectsLeaveTheTriggerOff() {
+        #expect(AdaptiveTriggerEffect(type: 0x05, bytes: Array(repeating: 0, count: 10)).mode == .off)
         #expect(AdaptiveTriggerEffect(type: 0x21, bytes: [1, 2]).mode == .off) // too short
+        #expect(AdaptiveTriggerEffect(type: 0x21, bytes: []).mode == .off)
+        #expect(AdaptiveTriggerEffect(type: 0xFC, bytes: bytes(zones: [0, 9])).mode == .off) // calibration: never forward
+        #expect(AdaptiveTriggerEffect(type: 0x21, bytes: bytes(zones: [])).mode == .off) // no zones
+    }
+
+    @Test func uniformFeedbackUsesTheSimpleMode() {
+        let zones = Array(3...9)
+        let effect = AdaptiveTriggerEffect(type: 0x21, bytes: bytes(zones: zones, levels(Dictionary(uniqueKeysWithValues: zones.map { ($0, 6) }))))
+        #expect(effect.mode == .feedback)
+        #expect(abs(effect.startPosition - 3 / 9) < 0.001)
+        #expect(effect.startStrength == 0.75)
+    }
+
+    @Test func slopedFeedbackIsPositional() {
+        let effect = AdaptiveTriggerEffect(type: 0x21, bytes: bytes(zones: [0, 1, 2], levels([0: 1, 1: 4, 2: 8])))
+        #expect(effect.mode == .positionalFeedback)
+        #expect(effect.positionalStrength == [1 / 8, 4 / 8, 1, 0, 0, 0, 0, 0, 0, 0])
+    }
+
+    @Test func weaponSpansTheTwoZoneBits() {
+        let effect = AdaptiveTriggerEffect(type: 0x25, bytes: bytes(zones: [2, 6], [2: 7]))
+        #expect(effect.mode == .weapon)
+        #expect(abs(effect.startPosition - 2 / 9) < 0.001 && abs(effect.endPosition - 6 / 9) < 0.001)
+        #expect(effect.startStrength == 1)
+        #expect(AdaptiveTriggerEffect(type: 0x25, bytes: bytes(zones: [4], [2: 7])).mode == .off) // needs a start and an end
+        #expect(AdaptiveTriggerEffect(type: 0x22, bytes: bytes(zones: [1, 5], [2: 3])).startStrength == 0.5) // Bow
+    }
+
+    @Test func vibrationNeedsAFrequency() {
+        let zones = Array(5...9)
+        let flat = levels(Dictionary(uniqueKeysWithValues: zones.map { ($0, 8) }))
+        let effect = AdaptiveTriggerEffect(type: 0x26, bytes: bytes(zones: zones, flat.merging([8: 51]) { $1 }))
+        #expect(effect.mode == .vibration)
+        #expect(abs(effect.startPosition - 5 / 9) < 0.001 && effect.startStrength == 1 && effect.frequency == 51 / 255)
+        #expect(AdaptiveTriggerEffect(type: 0x26, bytes: bytes(zones: zones, flat)).mode == .off)
+        let varied = AdaptiveTriggerEffect(type: 0x26, bytes: bytes(zones: [8, 9], levels([8: 2, 9: 4]).merging([8: 20]) { $1 }))
+        #expect(varied.mode == .positionalVibration && varied.positionalStrength[9] == 4 / 8 && varied.frequency == 20 / 255)
+    }
+
+    @Test func unofficialAndLegacyEffectsMapToTheNearestMode() {
+        let machine = AdaptiveTriggerEffect(type: 0x27, bytes: bytes(zones: [1, 7], [2: 0b101_011, 3: 30]))
+        #expect(machine.mode == .vibration && machine.startStrength == 5 / 7 && machine.frequency == 30 / 255)
+        #expect(AdaptiveTriggerEffect(type: 0x23, bytes: bytes(zones: [0, 9], [3: 10])).mode == .vibration) // Galloping
+        #expect(AdaptiveTriggerEffect(type: 0x01, bytes: [0, 255, 0, 0, 0, 0, 0, 0, 0, 0]).mode == .feedback)
+        #expect(AdaptiveTriggerEffect(type: 0x12, bytes: [20, 120, 10, 0, 0, 0, 0, 0, 0, 0]).startStrength == 1)
+        #expect(AdaptiveTriggerEffect(type: 0x06, bytes: [0, 200, 0, 0, 0, 0, 0, 0, 0, 0]).mode == .off) // no frequency
+        #expect(AdaptiveTriggerEffect(type: 0x06, bytes: [40, 200, 0, 0, 0, 0, 0, 0, 0, 0]).mode == .vibration)
     }
 }
 
