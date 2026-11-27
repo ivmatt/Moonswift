@@ -52,7 +52,8 @@ struct AboutView: View {
                 }
             }
         }
-        .barTitle("About")
+        .subpageBar("About")
+        .buttonLegend([([.a], "Select"), ([.b], "Back")], reportsLayout: false)
         .navigationDestination(item: $opened) { LicenseText(component: $0) }
         .onGamepad { command in
             switch command {
@@ -88,7 +89,8 @@ private struct LicenseText: View {
         ScrollView {
             Text(text).font(.caption.monospaced()).textSelection(.enabled).padding()
         }
-        .barTitle(component.name)
+        .subpageBar(component.name)
+        .buttonLegend([([.b], "Back")], reportsLayout: false)
         .onGamepad { if $0 == .back { dismiss() } }
     }
 }
