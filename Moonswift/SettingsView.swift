@@ -300,6 +300,7 @@ struct SettingsView: View {
                 }
                 }
             }
+            .id(page) // a fresh list per page, so each opens at its top instead of keeping the other's scroll offset
             // The focused row stays in view as the controller moves down the list.
             // The focused row in the middle, so its whole section shows, title and notes too (a list won't scroll to a
             // section's notes by themselves); at the top and bottom the list just stops.
