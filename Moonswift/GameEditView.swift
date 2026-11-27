@@ -15,9 +15,6 @@ struct GameEditView: View {
     @AppStorage(SettingsKey.logoSize) private var defaultLogoSize = SettingsDefault.logoSize
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
-    @State private var heroItem: PhotosPickerItem?
-    /// The picker for each cover shape.
-    @State private var coverItems: [CoverShape: PhotosPickerItem] = [:]
 
     private enum Row: Hashable { case name, hero, cover(CoverShape), onlineArt, chooseArt, favorite, hidden, showAs, splashWait, logoSize, reset }
     /// Must match the on-screen order, or up/down feel inverted.
@@ -36,7 +33,8 @@ struct GameEditView: View {
     private var match: GameCatalog.FoundMatch? { catalog.foundMatches[game.id] }
     @State private var focus = 0
     @FocusState private var isNameFocused: Bool
-    /// The controller's photo picker: which picture it's for, and what was picked.
+    /// The photo picker (touch or controller): which picture it's open for, and what was picked. Set while it's open, so
+    /// the legend, whose window is above the picker, hides till it closes, however it closes.
     @State private var pickerKind: GameCatalog.Artwork?
     @State private var pickedItem: PhotosPickerItem?
     @State private var choice: ChoiceMenuSpec?
@@ -97,11 +95,10 @@ struct GameEditView: View {
                 }
                 if !current.isApp {
                     Section {
-                        row(.hero) { artworkRow("Hero", catalog.heroArt[game.id], aspect: 16 / 9, item: $heroItem, kind: .hero) }
+                        row(.hero) { artworkRow("Hero", catalog.heroArt[game.id], aspect: 16 / 9, kind: .hero) }
                         // The cover for the shape chosen in Settings: the other shapes' don't show anywhere.
                         row(.cover(coverShape)) {
                             artworkRow("Cover", catalog.cover(for: game.id, coverShape), aspect: coverShape.ratio,
-                                       item: Binding(get: { coverItems[coverShape] }, set: { coverItems[coverShape] = $0 }),
                                        kind: .cover(coverShape))
                         }
                     } header: {
@@ -163,10 +160,6 @@ struct GameEditView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done", action: done) }
             }
             .onAppear { name = game.title }
-            .onChange(of: heroItem) { load(heroItem, .hero) }
-            .onChange(of: coverItems) { old, new in
-                for shape in CoverShape.allCases where new[shape] != old[shape] { load(new[shape], .cover(shape)) }
-            }
             .photosPicker(isPresented: Binding(get: { pickerKind != nil }, set: { if !$0 { pickerKind = nil } }),
                           selection: $pickedItem, matching: .images)
             .onChange(of: pickedItem) {
@@ -176,7 +169,7 @@ struct GameEditView: View {
             .choiceMenu($choice)
             .actionMenu($menu)
             .sheet(isPresented: $isChoosingArt) { ArtworkPicker(game: game) }
-            .buttonLegend([([.a], "Select"), ([.b], "Done")], reportsLayout: false)
+            .buttonLegend(pickerKind == nil ? [([.a], "Select"), ([.b], "Done")] : [], reportsLayout: false)
             .onGamepad(handle)
         }
     }
@@ -276,7 +269,7 @@ struct GameEditView: View {
                         cancelTitle: "Cancel")
     }
 
-    private func artworkRow(_ label: String, _ image: UIImage?, aspect: CGFloat, item: Binding<PhotosPickerItem?>,
+    private func artworkRow(_ label: String, _ image: UIImage?, aspect: CGFloat,
                             kind: GameCatalog.Artwork, isInUse: Bool = false) -> some View {
         HStack(spacing: 12) {
             if let image {
@@ -290,7 +283,7 @@ struct GameEditView: View {
                 if isInUse { Text("In use").font(.caption).foregroundStyle(.secondary) }
             }
             Spacer()
-            PhotosPicker(image == nil ? "Choose…" : "Change…", selection: item, matching: .images)
+            Button(image == nil ? "Choose…" : "Change…") { pickerKind = kind }
                 .buttonStyle(.borderless)
             if image != nil {
                 Button("Remove", role: .destructive) { catalog.setArtwork(nil, kind, for: game) }
