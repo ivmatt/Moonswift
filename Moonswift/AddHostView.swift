@@ -305,18 +305,20 @@ struct AddHostView: View {
     private var enterAddress: some View {
         HStack(spacing: 32) {
             addressForm.stepList()
-            // Short and wide, the help goes beside the form, so Connect still fits below it.
-            if window.isShortAndWide && !isAddressFocused {
+            // Short and wide, the help goes beside the form, so Connect still fits below it. It stays while typing, so
+            // the field keeps its column as the keyboard comes and goes.
+            if window.isShortAndWide {
                 addressHelp.font(.footnote).foregroundStyle(.secondary).frame(maxWidth: 320)
             }
         }
-        .padding(.trailing, window.isShortAndWide && !isAddressFocused ? 28 : 0)
+        .padding(.trailing, window.isShortAndWide ? 28 : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(.rect)
-        // A tap anywhere but the field puts the keyboard away (and brings back Connect on a short screen).
+        // A tap anywhere but the field puts the keyboard away.
         .onTapGesture(coordinateSpace: .global) { if !addressFieldFrame.contains($0) { isAddressFocused = false } }
     }
 
+    /// No keyboard on arrival: the whole page shows, and a tap on the field (or A) starts typing.
     private var addressForm: some View {
         Form {
             Section {
@@ -344,11 +346,13 @@ struct AddHostView: View {
                         }
                         .padding(.bottom, 6)
                     }
-                    if !window.isShortAndWide && !isTypingOnShortScreen { addressHelp }
+                    if !window.isShort { addressHelp }
                 }
                 .padding(.top, 4)
             }
-            if !isTypingOnShortScreen { Section {
+            // Always there, typing or not. On the Duo's squarer short screen it comes before the help, so it stays
+            // just under the field, above the keyboard.
+            Section {
                 Button(action: connect) {
                     // The same height connecting or not: the spinner takes the text's place.
                     ZStack {
@@ -361,11 +365,12 @@ struct AddHostView: View {
                 .controlSize(.large)
                 .disabled(isConnecting || address.trimmingCharacters(in: .whitespaces).isEmpty)
                 .frame(maxWidth: .infinity) // centred
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets()) // the button's row only, so the help below keeps the field's edge
+            } footer: {
+                if window.isShort && !window.isShortAndWide { addressHelp.padding(.top, 12) }
             }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets()) }
         }
-        .onAppear { isAddressFocused = true }
     }
 
     private var addressHelp: some View {
@@ -377,10 +382,6 @@ struct AddHostView: View {
             Text("Using a custom port? Add it after a colon, like 192.168.1.50:47989.").padding(.top, 2)
         }
     }
-
-    /// A short screen's keyboard leaves room only for the field: its Go key connects, and the help and Connect are back
-    /// once it goes (a tap outside the field).
-    private var isTypingOnShortScreen: Bool { isAddressFocused && window.isShort }
 
     private func hint(_ number: String, _ text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
