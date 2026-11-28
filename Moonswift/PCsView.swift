@@ -88,6 +88,10 @@ struct PCsView: View {
                 .contentMargins(.leading, 36 + insets.leading, for: .scrollContent)
                 .contentMargins(.trailing, max(36 + insets.trailing, width - 36 - insets.leading - HomeView.readableWidth), for: .scrollContent)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width + $0.safeAreaInsets.leading + $0.safeAreaInsets.trailing } action: { width = $0 }
+                // iPhone: from the window's top, like Library's wall. Under the bar's room, the title had further to
+                // move up than it is tall, so it stopped about 20 points low with a gap above the cards. iPad's tab bar
+                // keeps its room.
+                .ignoresSafeArea(edges: UIDevice.current.userInterfaceIdiom == .pad ? [] : .top)
                 .refreshable { await directory.checkAll(hosts, context: context, isManual: true) } // pull down: fresh status now
                 .onChange(of: focusIndex) { if items.indices.contains(focusIndex) { withAnimation { scroller.scrollTo(items[focusIndex].id) } } }
             }
@@ -100,6 +104,9 @@ struct PCsView: View {
                 }
             }
             .scrollEdgeEffectStyle(.soft, for: .top)
+            // iPhone: the list runs up under the bar (above), where the system's edge blur covered the title at rest;
+            // the title blurs itself as it goes, as Library's does.
+            .scrollEdgeEffectHidden(UIDevice.current.userInterfaceIdiom != .pad, for: .top)
             .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
             .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets = $0 }
             .addHostCover(isPresented: $isAdding)
