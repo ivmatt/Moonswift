@@ -123,3 +123,12 @@ private struct SubpageBar: ViewModifier {
             .ignoresSafeArea()
     }
 }
+
+extension View {
+    /// A taller page-sized sheet on 12.9" and 13" iPads, whose form sheet is no bigger than the mini's and scrolls.
+    /// The app is landscape only, so the screen's short side is the window's height: 1024+ pt on those, 834 on the 11".
+    @ViewBuilder func roomySheet() -> some View {
+        let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds.size ?? .zero
+        if min(screen.width, screen.height) >= 1000 { presentationSizing(.page) } else { self }
+    }
+}
