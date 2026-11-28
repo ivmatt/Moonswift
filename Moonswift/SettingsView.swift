@@ -308,6 +308,7 @@ struct SettingsView: View {
             }
             .navigationTitle(live == nil ? "Settings" : "Stream Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .pinnedBar()
             .toolbar {
                 if live == nil {
                     ToolbarItem(placement: .principal) {

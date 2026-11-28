@@ -57,6 +57,14 @@ extension View {
 }
 
 extension View {
+    /// A sheet's bar stays put while its rows scroll: on the folded Duo's short screen iOS 27 slides it away on scroll
+    /// down, taking Done with it. (The Duo needs iOS 27, so earlier systems have nothing to turn off.)
+    @ViewBuilder func pinnedBar() -> some View {
+        if #available(iOS 27, *) { toolbarMinimizationBehavior(.never, for: .navigationBar) } else { self }
+    }
+}
+
+extension View {
     /// A pushed Settings page's title and Back. The folded Duo's system bar keeps its leading corner for the camera and
     /// drops Back into the side column below the title, whatever the page puts there, so there the page draws its own
     /// row, as Add a Host does.
