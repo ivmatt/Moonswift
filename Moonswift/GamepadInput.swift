@@ -422,8 +422,14 @@ private struct ButtonLegendPlacement: ViewModifier {
                 center?.pageTrailing = insets.trailing
             }
             // A sheet's frame, for the legend to sit inside it. Not a popup menu's (`backs` false).
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
-                if !reportsLayout, backs { center?.setFrame(id, frame) }
+            // Measured past the side safe area: a page declared inside a sheet (Getting Started's) is inset by it, and
+            // on the folded Duo its evened-out insets put the legend ~83 points left of every other screen's.
+            .background {
+                Color.clear
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                        if !reportsLayout, backs { center?.setFrame(id, frame) }
+                    }
+                    .ignoresSafeArea(.container, edges: .horizontal)
             }
             .onAppear {
                 center?.set(id, isOverTabs: !reportsLayout, hints)
