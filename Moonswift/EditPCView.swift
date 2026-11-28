@@ -82,6 +82,7 @@ struct EditPCView: View {
             .buttonLegend([([.a], "Select"), ([.x], "Save"), ([.b], "Cancel")], reportsLayout: false)
             .actionMenu($menu)
         }
+        .roomySheet()
     }
 
     private func removeHost() {

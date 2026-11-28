@@ -360,6 +360,7 @@ struct SettingsView: View {
                 }
             }
         }
+        .roomySheet()
     }
 
     private func choiceRow<T: Hashable>(_ row: Row, _ title: String, _ selection: Binding<T>, _ options: [T],

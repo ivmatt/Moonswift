@@ -174,6 +174,7 @@ struct GameEditView: View {
             .buttonLegend(!isPicking ? [([.a], "Select"), ([.b], "Done")] : [], reportsLayout: false)
             .onGamepad(handle)
         }
+        .roomySheet()
     }
 
     private func row(_ row: Row, @ViewBuilder content: () -> some View) -> some View {

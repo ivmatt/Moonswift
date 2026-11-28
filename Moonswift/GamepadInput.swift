@@ -465,8 +465,8 @@ private struct LegendBacking: ViewModifier {
             .safeAreaPadding(.bottom, isOn ? max(0, hintsTop + Self.gap - (isFloating ? 0 : HomeView.windowBottomInset)) : 0)
             // From the page's frame, not its safe area, which includes the padding above.
             .onGeometryChange(for: Bool.self) { proxy in
-                let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.bounds.height ?? 0
-                return screen - proxy.frame(in: .global).maxY > HomeView.windowBottomInset + 1 // past the safe area's edge
+                let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.bounds.size
+                return FixedButtonLegend.floats(proxy.frame(in: .global), in: screen ?? .zero)
             } action: { isFloating = $0 && !isTab } // only a sheet floats: a tab's page on iPhone measured as one
             // In UIKit, on the page's own view: a SwiftUI mask or compositing group re-hosts a List, which then loses
             // its side margins (Settings' rows widened 8 points).

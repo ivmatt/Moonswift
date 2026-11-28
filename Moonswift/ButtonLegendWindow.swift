@@ -174,8 +174,7 @@ struct FixedButtonLegend: View {
             let box = sheet ?? CGRect(origin: .zero, size: screen)
             let left = max(box.minX, (window?.safeAreaInsets.left ?? 0) - railLeading)
             let right = max(screen.width - box.maxX, (window?.safeAreaInsets.right ?? 0) - railTrailing)
-            // A page's frame stops at the safe area: floating only if it ends above the home indicator's room too.
-            let isFloating = box.maxY < screen.height - windowBottom - 1
+            let isFloating = Self.floats(box, in: screen)
             // In line with the pages' content: their 36-point inset (a side column already includes its inset). Also
             // clears the screen's and a sheet's rounded corners.
             let leadingEdge = left + Self.pageInset
@@ -208,6 +207,14 @@ struct FixedButtonLegend: View {
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+    }
+
+    /// A sheet that ends above the screen's bottom, which the legend sits inside. A page's frame stops at the safe area,
+    /// so it must end above the home indicator's room too; or be an iPad sheet narrower than the screen, as the 13"'s
+    /// page sheet ends only about that far up.
+    static func floats(_ frame: CGRect, in screen: CGSize) -> Bool {
+        frame.maxY < screen.height - HomeView.windowBottomInset - 1
+            || UIDevice.current.userInterfaceIdiom == .pad && frame.width < screen.width - 1
     }
 
     /// The hints' top, from the screen's bottom edge: where room kept for them starts.
